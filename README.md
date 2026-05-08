@@ -2,6 +2,9 @@
 
 Wig is a GTK web browser that uses WPE WebKit as its rendering engine.
 
+> [!IMPORTANT]
+> Wig is under active development. Some features may be incomplete or unstable.
+
 ## Description
 
 Wig is a minimal but fully functional web browser.
