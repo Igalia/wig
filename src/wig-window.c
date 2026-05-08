@@ -35,6 +35,7 @@ struct _WigWindow {
   GtkWidget *header_bar;
   GtkWidget *back_button;
   GtkWidget *forward_button;
+  GtkWidget *reload_button;
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
   AdwTabBar *tab_bar;
@@ -64,6 +65,15 @@ static void wig_window_go_forward(GSimpleAction *action, GVariant *parameter, gp
     return;
 
   webkit_web_view_go_forward(win->current_web_view);
+}
+
+static void wig_window_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->current_web_view)
+    return;
+
+  webkit_web_view_reload(win->current_web_view);
 }
 
 static AdwTabPage *wig_window_get_tab_page_for_web_view(WigWindow *win, WebKitWebView *web_view)
@@ -140,6 +150,7 @@ static void wig_window_tab_overview(GSimpleAction *action, GVariant *parameter, 
 static const GActionEntry actions[] = {
   { "go-back", wig_window_go_back },
   { "go-forward", wig_window_go_forward },
+  { "reload", wig_window_reload },
   { "new-tab", wig_window_new_tab },
   { "tab-overview", wig_window_tab_overview },
 };
@@ -367,15 +378,22 @@ static void wig_window_constructed(GObject *object)
 
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_widget_add_css_class(box, "navigation-box");
+
   win->back_button = gtk_button_new_from_icon_name("go-previous-symbolic");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->back_button), "win.go-back");
   gtk_widget_add_css_class(win->back_button, "toolbar-button");
   gtk_box_append(GTK_BOX(box), win->back_button);
+
   win->forward_button = gtk_button_new_from_icon_name("go-next-symbolic");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->forward_button), "win.go-forward");
   gtk_widget_add_css_class(win->forward_button, "toolbar-button");
   gtk_box_append(GTK_BOX(box), win->forward_button);
   gtk_box_append(GTK_BOX(start_box), box);
+
+  win->reload_button = gtk_button_new_from_icon_name("view-refresh-symbolic");
+  gtk_actionable_set_action_name(GTK_ACTIONABLE(win->reload_button), "win.reload");
+  gtk_widget_add_css_class(win->reload_button, "toolbar-button");
+  gtk_box_append(GTK_BOX(start_box), win->reload_button);
 
   win->new_tab_button = gtk_button_new_from_icon_name("tab-new-symbolic");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->new_tab_button), "win.new-tab");
