@@ -370,6 +370,7 @@ static void wig_window_constructed(GObject *object)
   gtk_widget_insert_action_group(GTK_WIDGET(win), "popup", win->context_menu_action_group);
 
   win->toolbar_view = adw_toolbar_view_new();
+  adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(win->toolbar_view), ADW_TOOLBAR_RAISED_BORDER);
 
   win->header_bar = adw_header_bar_new();
   adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(win->toolbar_view), win->header_bar);
