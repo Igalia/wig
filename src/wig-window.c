@@ -35,7 +35,7 @@ struct _WigWindow {
   GtkWidget *header_bar;
   GtkWidget *back_button;
   GtkWidget *forward_button;
-  GtkWidget *reload_button;
+  GtkWidget *stop_reload_button;
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
   AdwTabBar *tab_bar;
@@ -67,13 +67,29 @@ static void wig_window_go_forward(GSimpleAction *action, GVariant *parameter, gp
   webkit_web_view_go_forward(win->current_web_view);
 }
 
-static void wig_window_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+static void wig_window_stop_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
   if (!win->current_web_view)
     return;
 
-  webkit_web_view_reload(win->current_web_view);
+  GVariant *state = g_action_get_state(G_ACTION(action));
+  if (g_variant_get_boolean(state))
+    webkit_web_view_stop_loading(win->current_web_view);
+  else
+    webkit_web_view_reload(win->current_web_view);
+
+  g_variant_unref(state);
+}
+
+static void wig_window_change_stop_reload_state(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  GVariant *state = g_variant_new_boolean(g_variant_get_boolean(parameter));
+
+  gtk_button_set_icon_name(GTK_BUTTON(win->stop_reload_button), g_variant_get_boolean(state) ? "process-stop-symbolic" : "view-refresh-symbolic");
+
+  g_simple_action_set_state(G_SIMPLE_ACTION(action), state);
 }
 
 static AdwTabPage *wig_window_get_tab_page_for_web_view(WigWindow *win, WebKitWebView *web_view)
@@ -150,7 +166,7 @@ static void wig_window_tab_overview(GSimpleAction *action, GVariant *parameter, 
 static const GActionEntry actions[] = {
   { "go-back", wig_window_go_back },
   { "go-forward", wig_window_go_forward },
-  { "reload", wig_window_reload },
+  { "stop-reload", wig_window_stop_reload, NULL, "false", wig_window_change_stop_reload_state },
   { "new-tab", wig_window_new_tab },
   { "tab-overview", wig_window_tab_overview },
 };
@@ -319,6 +335,16 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
   return TRUE;
 }
 
+static void wig_window_update_stop_reload_actions(WigWindow *win)
+{
+  if (!win->current_web_view)
+    return;
+
+  GAction *action = g_action_map_lookup_action(G_ACTION_MAP(win), "stop-reload");
+  bool is_loading = webkit_web_view_is_loading(win->current_web_view);
+  g_action_change_state(action, g_variant_new_boolean(is_loading));
+}
+
 static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpec *pspec, WigWindow *win)
 {
   if (win->current_web_view) {
@@ -335,6 +361,7 @@ static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpe
 
   wig_window_update_url(win);
   wig_window_update_navigation_actions(win);
+  wig_window_update_stop_reload_actions(win);
   if (!win->current_web_view || webkit_web_view_is_loading(win->current_web_view))
     wig_window_update_load_progress(win);
 
@@ -346,6 +373,7 @@ static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpe
     g_signal_connect_object(win->current_web_view, "decide-policy", G_CALLBACK(wig_window_decide_policy), win, G_CONNECT_SWAPPED);
     g_signal_connect_object(win->current_web_view, "create", G_CALLBACK(wig_window_web_view_create), win, G_CONNECT_SWAPPED);
     g_signal_connect_object(win->current_web_view, "context-menu", G_CALLBACK(wig_window_web_view_context_menu), win, G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "load-changed", G_CALLBACK(wig_window_update_stop_reload_actions), win, G_CONNECT_SWAPPED);
 
     WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(win->current_web_view);
     g_signal_connect_object(backForwardlist, "changed", G_CALLBACK(wig_window_update_navigation_actions), win, G_CONNECT_SWAPPED);
@@ -391,10 +419,10 @@ static void wig_window_constructed(GObject *object)
   gtk_box_append(GTK_BOX(box), win->forward_button);
   gtk_box_append(GTK_BOX(start_box), box);
 
-  win->reload_button = gtk_button_new_from_icon_name("view-refresh-symbolic");
-  gtk_actionable_set_action_name(GTK_ACTIONABLE(win->reload_button), "win.reload");
-  gtk_widget_add_css_class(win->reload_button, "toolbar-button");
-  gtk_box_append(GTK_BOX(start_box), win->reload_button);
+  win->stop_reload_button = gtk_button_new_from_icon_name("view-refresh-symbolic");
+  gtk_actionable_set_action_name(GTK_ACTIONABLE(win->stop_reload_button), "win.stop-reload");
+  gtk_widget_add_css_class(win->stop_reload_button, "toolbar-button");
+  gtk_box_append(GTK_BOX(start_box), win->stop_reload_button);
 
   win->new_tab_button = gtk_button_new_from_icon_name("tab-new-symbolic");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->new_tab_button), "win.new-tab");
