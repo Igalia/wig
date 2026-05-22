@@ -345,6 +345,14 @@ static void wig_window_update_stop_reload_actions(WigWindow *win)
   g_action_change_state(action, g_variant_new_boolean(is_loading));
 }
 
+static void wig_window_fullscreen_changed(WigWindow *win)
+{
+  bool is_fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
+
+  gtk_widget_set_visible(GTK_WIDGET(win->header_bar), !is_fullscreen);
+  gtk_widget_set_visible(GTK_WIDGET(win->tab_bar), !is_fullscreen);
+}
+
 static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpec *pspec, WigWindow *win)
 {
   if (win->current_web_view) {
@@ -396,6 +404,8 @@ static void wig_window_constructed(GObject *object)
   win->context_menu_action_group = G_ACTION_GROUP(g_simple_action_group_new());
   g_action_map_add_action_entries(G_ACTION_MAP(win->context_menu_action_group), context_menu_actions, G_N_ELEMENTS(context_menu_actions), win);
   gtk_widget_insert_action_group(GTK_WIDGET(win), "popup", win->context_menu_action_group);
+
+  g_signal_connect(win, "notify::fullscreened", G_CALLBACK(wig_window_fullscreen_changed), NULL);
 
   win->toolbar_view = adw_toolbar_view_new();
   adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(win->toolbar_view), ADW_TOOLBAR_RAISED_BORDER);
