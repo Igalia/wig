@@ -64,6 +64,13 @@ static void wig_application_startup(GApplication* application)
   app->web_context = webkit_web_context_new();
 
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, NULL);
+
+  GtkCssProvider *provider = gtk_css_provider_new();
+  gtk_css_provider_load_from_resource(provider, "/org/wpePlatformGtk/wig/wig-popup-menu.css");
+  gtk_style_context_add_provider_for_display(gdk_display_get_default(),
+                                              GTK_STYLE_PROVIDER(provider),
+                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  g_object_unref(provider);
 }
 
 static void wig_application_shutdown(GApplication* application)

@@ -22,15 +22,25 @@
 
 #include "wig-tab-view.h"
 
+#include "wig-popup-menu.h"
 #include "wpe-view-gtk.h"
 
 struct _WigTabView {
   AdwBin parent;
 
   WebKitWebView *web_view;
+  GtkWidget *popup_menu;
 };
 
 G_DEFINE_FINAL_TYPE(WigTabView, wig_tab_view, ADW_TYPE_BIN)
+
+static void wig_tab_view_dispose(GObject *object)
+{
+  WigTabView *tab_view = WIG_TAB_VIEW(object);
+  g_clear_pointer(&tab_view->popup_menu, gtk_widget_unparent);
+
+  G_OBJECT_CLASS(wig_tab_view_parent_class)->dispose(object);
+}
 
 static void wig_tab_view_finalize(GObject *object)
 {
@@ -47,7 +57,18 @@ static void wig_tab_view_init(WigTabView *tab_view)
 static void wig_tab_view_class_init(WigTabViewClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
+  gobject_class->dispose = wig_tab_view_dispose;
   gobject_class->finalize = wig_tab_view_finalize;
+}
+
+static gboolean wig_tab_view_show_option_menu(WebKitWebView *web_view, WebKitOptionMenu *menu, WebKitRectangle *rectangle, WigTabView *tab_view)
+{
+  g_clear_pointer(&tab_view->popup_menu, gtk_widget_unparent);
+
+  GtkWidget *drawing_area = wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)));
+  tab_view->popup_menu = wig_popup_menu_new(menu, drawing_area, rectangle);
+
+  return TRUE;
 }
 
 GtkWidget *wig_tab_view_new(WebKitWebView *web_view)
@@ -57,6 +78,8 @@ GtkWidget *wig_tab_view_new(WebKitWebView *web_view)
   WigTabView *tab_view = WIG_TAB_VIEW(g_object_new(WIG_TYPE_TAB_VIEW, NULL));
   tab_view->web_view = g_object_ref(web_view);
   adw_bin_set_child(ADW_BIN(tab_view), wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view))));
+
+  g_signal_connect_object(web_view, "show-option-menu", G_CALLBACK(wig_tab_view_show_option_menu), tab_view, 0);
 
   return GTK_WIDGET(tab_view);
 }

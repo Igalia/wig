@@ -1,0 +1,4 @@
+popover.menu list row:selected {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
