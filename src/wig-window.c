@@ -122,11 +122,19 @@ static void wig_window_close_tab(WigWindow *win, WebKitWebView *web_view)
   adw_tab_view_close_page(win->tab_view, tab_page);
 }
 
+static gboolean wig_window_transform_tab_title(GBinding *binding, const GValue *from, GValue *to, gpointer user_data)
+{
+  const char *title = g_value_get_string(from);
+  g_value_set_string(to, (title && *title) ? title : "New Tab");
+  return TRUE;
+}
+
 static AdwTabPage *wig_window_add_tab_page_for_view(WigWindow *win, WebKitWebView *web_view)
 {
   GtkWidget *tab_view = wig_tab_view_new(web_view);
   AdwTabPage *tab_page = adw_tab_view_append(win->tab_view, tab_view);
-  g_object_bind_property(G_OBJECT(web_view), "title", tab_page, "title", G_BINDING_SYNC_CREATE);
+  g_object_bind_property_full(G_OBJECT(web_view), "title", tab_page, "title", G_BINDING_SYNC_CREATE,
+    wig_window_transform_tab_title, NULL, NULL, NULL);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", tab_page, "loading", G_BINDING_SYNC_CREATE);
 
   g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
