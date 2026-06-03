@@ -29,4 +29,3 @@ G_BEGIN_DECLS
 char *wig_util_complete_uri(const char *url);
 
 G_END_DECLS
-

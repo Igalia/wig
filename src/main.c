@@ -39,13 +39,8 @@ static void activate(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
 
-  WPEDisplay *display = wig_application_get_display(app);
-  WebKitWebContext *web_context = wig_application_get_web_context(app);
-
   WebKitNetworkSession *network_session = wig_application_get_network_session(app);
   webkit_network_session_set_itp_enabled(network_session, TRUE);
-
-  WebKitSettings *settings = wig_application_get_web_settings(app);
 
   GtkWindow *win = GTK_WINDOW(wig_window_new());
   gtk_window_set_application(win, GTK_APPLICATION(application));
@@ -54,8 +49,7 @@ static void activate(GApplication *application)
     int i;
 
     for (i = 0; uri_args[i] != NULL; i++) {
-      WebKitWebView *web_view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", network_session, "web-context",
-                                             web_context, "display", display, "settings", settings, NULL);
+      WebKitWebView *web_view = wig_application_create_web_view(app);
       wig_window_add_web_view(WIG_WINDOW(win), web_view);
 
       GFile *file = g_file_new_for_commandline_arg(uri_args[i]);
@@ -66,14 +60,14 @@ static void activate(GApplication *application)
       g_object_unref(web_view);
     }
   } else {
-    WebKitWebView *web_view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", network_session, "web-context",
-                                           web_context, "display", display, "settings", settings, NULL);
+    WebKitWebView *web_view = wig_application_create_web_view(app);
     wig_window_add_web_view(WIG_WINDOW(win), web_view);
     webkit_web_view_load_uri(web_view, "https://wpewebkit.org");
     g_object_unref(web_view);
   }
 
   gtk_window_present(win);
+  g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
 }
 
 int main(int argc, char **argv)
