@@ -10,6 +10,7 @@ project(
 libwpeplatformgtk_dep = dependency('wpe-platform-gtk-1.0')
 wpe_webkit_dep = dependency('wpe-webkit-2.0', version: '>= 2.51.3')
 adw_dep = dependency('libadwaita-1', version: '>= 1.6')
+libpsl_dep = dependency('libpsl')
 
 cc = meson.get_compiler('c')
 global_cflags = []

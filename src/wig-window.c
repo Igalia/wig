@@ -25,6 +25,7 @@
 #include "wig-application.h"
 #include "wig-tab-view.h"
 #include "wpe-toplevel-gtk.h"
+#include "wig-utils.h"
 #include "wpe-view-gtk.h"
 
 struct _WigWindow {
@@ -213,7 +214,8 @@ static void wig_window_load_url(WigWindow *win)
   if (!win->current_web_view)
     return;
 
-  webkit_web_view_load_uri(win->current_web_view, gtk_editable_get_text(GTK_EDITABLE(win->url_entry)));
+  g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)));
+  webkit_web_view_load_uri(win->current_web_view, complete_uri);
   wig_tab_view_grab_focus(WIG_TAB_VIEW(adw_tab_page_get_child(adw_tab_view_get_selected_page(win->tab_view))));
 }
 
