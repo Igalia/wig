@@ -21,6 +21,7 @@
  */
 
 #include "wig-application.h"
+#include "wig-window.h"
 #include "wpe-display-gtk.h"
 
 struct _WigApplication {
@@ -34,6 +35,30 @@ struct _WigApplication {
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
 
+static void wig_application_quit_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  g_application_quit(G_APPLICATION(user_data));
+}
+
+static void wig_application_new_window_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigApplication *app = WIG_APPLICATION(user_data);
+  GtkWindow *win = GTK_WINDOW(wig_window_new());
+  gtk_window_set_application(win, GTK_APPLICATION(app));
+
+  WebKitWebView *web_view = wig_application_create_web_view(app);
+  wig_window_add_web_view(WIG_WINDOW(win), web_view);
+  g_object_unref(web_view);
+
+  gtk_window_present(win);
+  g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
+}
+
+static const GActionEntry app_actions[] = {
+  { "quit", wig_application_quit_action },
+  { "new-window", wig_application_new_window_action },
+};
+
 static void wig_application_init(WigApplication *app)
 {
 }
@@ -43,6 +68,8 @@ static void wig_application_startup(GApplication *application)
   WigApplication *app = WIG_APPLICATION(application);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->startup(application);
+
+  g_action_map_add_action_entries(G_ACTION_MAP(application), app_actions, G_N_ELEMENTS(app_actions), application);
 
   app->display = wpe_display_gtk_new();
   wpe_settings_set_boolean(wpe_display_get_settings(app->display), WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, FALSE,
@@ -65,6 +92,26 @@ static void wig_application_startup(GApplication *application)
   app->web_context = webkit_web_context_new();
 
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, NULL);
+
+  static const struct {
+    const char *action;
+    const char *accels[3];
+  } accel_map[] = {
+    { "win.focus-entry", { "<Primary>l", NULL } },
+    { "win.new-tab", { "<Primary>t", NULL } },
+    { "app.new-window", { "<Primary>n", NULL } },
+    { "app.quit", { "<Primary>q", NULL } },
+    { "win.close-tab", { "<Primary>w", NULL } },
+    { "win.reload", { "<Primary>r", "F5", NULL } },
+    { "win.reload-bypass-cache", { "<Primary><Shift>r", "<Primary>F5", NULL } },
+    { "win.toggle-fullscreen", { "F11", NULL } },
+    { "win.zoom-in", { "<Primary>plus", "<Primary>equal", NULL } },
+    { "win.zoom-out", { "<Primary>minus", NULL } },
+    { "win.zoom-reset", { "<Primary>0", NULL } },
+  };
+
+  for (gsize i = 0; i < G_N_ELEMENTS(accel_map); i++)
+    gtk_application_set_accels_for_action(GTK_APPLICATION(application), accel_map[i].action, accel_map[i].accels);
 }
 
 static void wig_application_shutdown(GApplication *application)
@@ -125,4 +172,12 @@ WebKitSettings *wig_application_get_web_settings(WigApplication *app)
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->web_settings;
+}
+
+WebKitWebView *wig_application_create_web_view(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context,
+                                      "network-session", app->network_session, "settings", app->web_settings, NULL));
 }

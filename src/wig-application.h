@@ -37,5 +37,6 @@ WPEDisplay *wig_application_get_display(WigApplication *app);
 WebKitNetworkSession *wig_application_get_network_session(WigApplication *app);
 WebKitWebContext *wig_application_get_web_context(WigApplication *app);
 WebKitSettings *wig_application_get_web_settings(WigApplication *app);
+WebKitWebView *wig_application_create_web_view(WigApplication *app);
 
 G_END_DECLS

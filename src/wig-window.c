@@ -24,8 +24,8 @@
 
 #include "wig-application.h"
 #include "wig-tab-view.h"
-#include "wpe-toplevel-gtk.h"
 #include "wig-utils.h"
+#include "wpe-toplevel-gtk.h"
 #include "wpe-view-gtk.h"
 
 struct _WigWindow {
@@ -134,7 +134,7 @@ static AdwTabPage *wig_window_add_tab_page_for_view(WigWindow *win, WebKitWebVie
   GtkWidget *tab_view = wig_tab_view_new(web_view);
   AdwTabPage *tab_page = adw_tab_view_append(win->tab_view, tab_view);
   g_object_bind_property_full(G_OBJECT(web_view), "title", tab_page, "title", G_BINDING_SYNC_CREATE,
-    wig_window_transform_tab_title, NULL, NULL, NULL);
+                              wig_window_transform_tab_title, NULL, NULL, NULL);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", tab_page, "loading", G_BINDING_SYNC_CREATE);
 
   g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
@@ -146,11 +146,7 @@ static AdwTabPage *wig_window_add_tab_page_for_view(WigWindow *win, WebKitWebVie
 
 static WebKitWebView *wig_window_create_web_view_for_new_tab(WigWindow *win)
 {
-  WigApplication *app = wig_application_get();
-  return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", wig_application_get_display(app), "web-context",
-                                      wig_application_get_web_context(app), "network-session",
-                                      wig_application_get_network_session(app), "settings",
-                                      wig_application_get_web_settings(app), NULL));
+  return wig_application_create_web_view(wig_application_get());
 }
 
 static void wig_window_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -170,12 +166,88 @@ static void wig_window_tab_overview(GSimpleAction *action, GVariant *parameter, 
                             !adw_tab_overview_get_open(ADW_TAB_OVERVIEW(win->tab_overview)));
 }
 
+static void wig_window_focus_entry(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  gtk_widget_grab_focus(win->url_entry);
+  gtk_editable_select_region(GTK_EDITABLE(win->url_entry), 0, -1);
+}
+
+static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (win->current_web_view)
+    wig_window_close_tab(win, win->current_web_view);
+}
+
+static void wig_window_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->current_web_view)
+    return;
+
+  webkit_web_view_reload(win->current_web_view);
+}
+
+static void wig_window_reload_bypass_cache(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->current_web_view)
+    return;
+
+  webkit_web_view_reload_bypass_cache(win->current_web_view);
+}
+
+static void wig_window_toggle_fullscreen(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (gtk_window_is_fullscreen(GTK_WINDOW(win)))
+    gtk_window_unfullscreen(GTK_WINDOW(win));
+  else
+    gtk_window_fullscreen(GTK_WINDOW(win));
+}
+
+static void wig_window_zoom_in(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->current_web_view)
+    return;
+
+  webkit_web_view_set_zoom_level(win->current_web_view, webkit_web_view_get_zoom_level(win->current_web_view) + 0.1);
+}
+
+static void wig_window_zoom_out(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->current_web_view)
+    return;
+
+  webkit_web_view_set_zoom_level(win->current_web_view, webkit_web_view_get_zoom_level(win->current_web_view) - 0.1);
+}
+
+static void wig_window_zoom_reset(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->current_web_view)
+    return;
+
+  webkit_web_view_set_zoom_level(win->current_web_view, 1.0);
+}
+
 static const GActionEntry actions[] = {
   { "go-back", wig_window_go_back },
   { "go-forward", wig_window_go_forward },
   { "stop-reload", wig_window_stop_reload, NULL, "false", wig_window_change_stop_reload_state },
   { "new-tab", wig_window_new_tab },
   { "tab-overview", wig_window_tab_overview },
+  { "focus-entry", wig_window_focus_entry },
+  { "close-tab", wig_window_close_tab_action },
+  { "reload", wig_window_reload },
+  { "reload-bypass-cache", wig_window_reload_bypass_cache },
+  { "toggle-fullscreen", wig_window_toggle_fullscreen },
+  { "zoom-in", wig_window_zoom_in },
+  { "zoom-out", wig_window_zoom_out },
+  { "zoom-reset", wig_window_zoom_reset },
 };
 
 static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
