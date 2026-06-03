@@ -55,8 +55,8 @@ static void wig_application_startup(GApplication* application)
     return;
   }
 
-  char *data_dir = g_build_filename(g_get_user_data_dir(), "wpeplatformgtk", "demo", NULL);
-  char *cache_dir = g_build_filename(g_get_user_cache_dir(), "wpeplatformgtk", "demo", NULL);
+  char *data_dir = g_build_filename(g_get_user_data_dir(), "com.igalia.wig", NULL);
+  char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
   g_free(data_dir);
   g_free(cache_dir);
@@ -87,7 +87,7 @@ static void wig_application_class_init(WigApplicationClass *klass)
 WigApplication *wig_application_new(void)
 {
   return WIG_APPLICATION(g_object_new(WIG_TYPE_APPLICATION,
-                                     "application-id", "org.wpePlatformGtk.Demo",
+                                     "application-id", "com.igalia.wig",
                                      "flags", G_APPLICATION_NON_UNIQUE,
                                      NULL));
 }
