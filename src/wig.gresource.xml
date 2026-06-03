@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
-  <gresource prefix="/org/wpePlatformGtk/wig">
+  <gresource prefix="/com/igalia/wig">
     <file>wig-popup-menu.css</file>
   </gresource>
 </gresources>
