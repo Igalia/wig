@@ -20,8 +20,7 @@
  * SOFTWARE.
  */
 
-#ifndef _WIG_APPLICATION_H_
-#define _WIG_APPLICATION_H_
+#pragma once
 
 #include <adwaita.h>
 #include <gtk/gtk.h>
@@ -40,5 +39,3 @@ WebKitWebContext     *wig_application_get_web_context     (WigApplication* app);
 WebKitSettings       *wig_application_get_web_settings    (WigApplication* app);
 
 G_END_DECLS
-
-#endif /* _WIG_APPLICATION_H_ */
