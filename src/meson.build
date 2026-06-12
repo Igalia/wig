@@ -11,5 +11,6 @@ executable(
     sources: wig_sources,
     dependencies: [libwpeplatformgtk_dep, wpe_webkit_dep, adw_dep, libpsl_dep],
     include_directories: ['.'],
+    c_args: ['-DG_LOG_DOMAIN="wig"'],
     install: true,
 )
