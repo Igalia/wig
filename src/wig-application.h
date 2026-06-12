@@ -31,6 +31,16 @@ G_BEGIN_DECLS
 #define WIG_TYPE_APPLICATION (wig_application_get_type())
 G_DECLARE_FINAL_TYPE(WigApplication, wig_application, WIG, APPLICATION, AdwApplication)
 
+typedef struct {
+  WebKitWebViewSessionState *state;
+  gboolean was_focused;
+} WigClosedTab;
+
+typedef struct {
+  guint window_id;
+  GSList *tabs; /* owned GSList of WigClosedTab* */
+} WigClosedGroup;
+
 WigApplication *wig_application_new(void);
 WigApplication *wig_application_get(void);
 WPEDisplay *wig_application_get_display(WigApplication *app);
@@ -38,5 +48,9 @@ WebKitNetworkSession *wig_application_get_network_session(WigApplication *app);
 WebKitWebContext *wig_application_get_web_context(WigApplication *app);
 WebKitSettings *wig_application_get_web_settings(WigApplication *app);
 WebKitWebView *wig_application_create_web_view(WigApplication *app);
+
+void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group);
+WigClosedGroup *wig_application_pop_closed_group(WigApplication *app);
+void wig_closed_group_free(WigClosedGroup *group);
 
 G_END_DECLS

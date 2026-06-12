@@ -31,6 +31,8 @@ struct _WigApplication {
   WebKitNetworkSession *network_session;
   WebKitWebContext *web_context;
   WebKitSettings *web_settings;
+
+  GQueue *closed_tab_history;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -61,6 +63,7 @@ static const GActionEntry app_actions[] = {
 
 static void wig_application_init(WigApplication *app)
 {
+  app->closed_tab_history = g_queue_new();
 }
 
 static void wig_application_startup(GApplication *application)
@@ -108,6 +111,8 @@ static void wig_application_startup(GApplication *application)
     { "win.zoom-in", { "<Primary>plus", "<Primary>equal", NULL } },
     { "win.zoom-out", { "<Primary>minus", NULL } },
     { "win.zoom-reset", { "<Primary>0", NULL } },
+    { "win.undo-close-tab", { "<Primary><Shift>t", NULL } },
+
   };
 
   for (gsize i = 0; i < G_N_ELEMENTS(accel_map); i++)
@@ -117,6 +122,10 @@ static void wig_application_startup(GApplication *application)
 static void wig_application_shutdown(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
+
+  g_queue_free_full(app->closed_tab_history, (GDestroyNotify)wig_closed_group_free);
+  app->closed_tab_history = NULL;
+
   g_clear_object(&app->display);
   g_clear_object(&app->network_session);
   g_clear_object(&app->web_context);
@@ -180,4 +189,40 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app)
 
   return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context,
                                       "network-session", app->network_session, "settings", app->web_settings, NULL));
+}
+
+static void wig_closed_tab_free(WigClosedTab *tab)
+{
+  webkit_web_view_session_state_unref(tab->state);
+  g_free(tab);
+}
+
+void wig_closed_group_free(WigClosedGroup *group)
+{
+  if (!group)
+    return;
+  g_slist_free_full(group->tabs, (GDestroyNotify)wig_closed_tab_free);
+  g_free(group);
+}
+
+void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group)
+{
+  g_return_if_fail(WIG_IS_APPLICATION(app));
+  g_return_if_fail(group != NULL);
+
+  g_debug("Pushing closed group of size %d for window %d", g_slist_length(group->tabs), group->window_id);
+  g_queue_push_tail(app->closed_tab_history, group);
+
+  if (g_queue_get_length(app->closed_tab_history) > 20)
+    wig_closed_group_free(g_queue_pop_head(app->closed_tab_history));
+}
+
+WigClosedGroup *wig_application_pop_closed_group(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  WigClosedGroup *group = g_queue_pop_tail(app->closed_tab_history);
+  if (group)
+    g_debug("Popping closed group of size %d for window %d", g_slist_length(group->tabs), group->window_id);
+  return group;
 }
