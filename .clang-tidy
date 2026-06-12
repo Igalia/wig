@@ -1,0 +1,11 @@
+Checks: >
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  -clang-diagnostic-unused-parameter,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+
+WarningsAsErrors: >
+  *,
+  -clang-diagnostic-deprecated-declarations
+
+HeaderFilterRegex: '^((?!/usr/)(?!/jhbuild/).)*$'
