@@ -87,7 +87,8 @@ static void wig_window_change_stop_reload_state(GSimpleAction *action, GVariant 
   WigWindow *win = WIG_WINDOW(user_data);
   GVariant *state = g_variant_new_boolean(g_variant_get_boolean(parameter));
 
-  gtk_button_set_icon_name(GTK_BUTTON(win->stop_reload_button), g_variant_get_boolean(state) ? "process-stop-symbolic" : "view-refresh-symbolic");
+  gtk_button_set_icon_name(GTK_BUTTON(win->stop_reload_button),
+                           g_variant_get_boolean(state) ? "process-stop-symbolic" : "view-refresh-symbolic");
 
   g_simple_action_set_state(G_SIMPLE_ACTION(action), state);
 }
@@ -137,12 +138,10 @@ static AdwTabPage *wig_window_add_tab_page_for_view(WigWindow *win, WebKitWebVie
 static WebKitWebView *wig_window_create_web_view_for_new_tab(WigWindow *win)
 {
   WigApplication *app = wig_application_get();
-  return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
-    "display", wig_application_get_display(app),
-    "web-context", wig_application_get_web_context(app),
-    "network-session", wig_application_get_network_session(app),
-    "settings", wig_application_get_web_settings(app),
-    NULL));
+  return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", wig_application_get_display(app), "web-context",
+                                      wig_application_get_web_context(app), "network-session",
+                                      wig_application_get_network_session(app), "settings",
+                                      wig_application_get_web_settings(app), NULL));
 }
 
 static void wig_window_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -221,19 +220,23 @@ static void wig_window_load_url(WigWindow *win)
 static void wig_window_update_navigation_actions(WigWindow *win)
 {
   GAction *action = g_action_map_lookup_action(G_ACTION_MAP(win), "go-back");
-  g_simple_action_set_enabled(G_SIMPLE_ACTION(action), win->current_web_view ? webkit_web_view_can_go_back(win->current_web_view) : FALSE);
+  g_simple_action_set_enabled(G_SIMPLE_ACTION(action),
+                              win->current_web_view ? webkit_web_view_can_go_back(win->current_web_view) : FALSE);
   action = g_action_map_lookup_action(G_ACTION_MAP(win), "go-forward");
-  g_simple_action_set_enabled(G_SIMPLE_ACTION(action), win->current_web_view ? webkit_web_view_can_go_forward(win->current_web_view) : FALSE);
+  g_simple_action_set_enabled(G_SIMPLE_ACTION(action),
+                              win->current_web_view ? webkit_web_view_can_go_forward(win->current_web_view) : FALSE);
 }
 
-static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision, WebKitPolicyDecisionType decision_type)
+static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
+                                         WebKitPolicyDecisionType decision_type)
 {
   if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
     return FALSE;
 
-  WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(WEBKIT_NAVIGATION_POLICY_DECISION(decision));
-  if (webkit_navigation_action_get_navigation_type(action) != WEBKIT_NAVIGATION_TYPE_LINK_CLICKED ||
-      webkit_navigation_action_get_mouse_button(action) != WPE_BUTTON_MIDDLE)
+  WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(
+      WEBKIT_NAVIGATION_POLICY_DECISION(decision));
+  if (webkit_navigation_action_get_navigation_type(action) != WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
+      || webkit_navigation_action_get_mouse_button(action) != WPE_BUTTON_MIDDLE)
     return FALSE;
 
   WebKitWebView *web_view = wig_window_create_web_view_for_new_tab(win);
@@ -253,15 +256,15 @@ static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web
 
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation)
 {
-  WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
-    "related-view", win->current_web_view,
-    "settings", webkit_web_view_get_settings(win->current_web_view),
-    NULL));
+  WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "related-view", win->current_web_view,
+                                                         "settings",
+                                                         webkit_web_view_get_settings(win->current_web_view), NULL));
 
   GtkWindow *new_win = GTK_WINDOW(wig_window_new());
   gtk_window_set_application(GTK_WINDOW(new_win), gtk_window_get_application(GTK_WINDOW(win)));
   wig_window_add_web_view(WIG_WINDOW(new_win), web_view);
-  g_signal_connect_object(web_view, "ready-to-show", G_CALLBACK(wig_window_web_view_ready_to_show), new_win, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "ready-to-show", G_CALLBACK(wig_window_web_view_ready_to_show), new_win,
+                          G_CONNECT_SWAPPED);
   g_object_unref(web_view);
   return web_view;
 }
@@ -278,8 +281,8 @@ static GMenu *build_context_menu(GList *items, GSimpleActionGroup *action_group,
       g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
       section_menu = section;
       g_object_unref(section);
-    } else if (webkit_context_menu_item_get_stock_action(item) == WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK &&
-               webkit_hit_test_result_context_is_link (hit_test_result)) {
+    } else if (webkit_context_menu_item_get_stock_action(item) == WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK
+               && webkit_hit_test_result_context_is_link(hit_test_result)) {
       GMenuItem *menu_item = g_menu_item_new("Open Link in New Tab", NULL);
       const char *uri = webkit_hit_test_result_get_link_uri(hit_test_result);
       g_menu_item_set_action_and_target(menu_item, "popup.open-in-new-tab", "s", uri);
@@ -293,13 +296,15 @@ static GMenu *build_context_menu(GList *items, GSimpleActionGroup *action_group,
         GMenuItem *menu_item;
         WebKitContextMenu *subcontext_menu = webkit_context_menu_item_get_submenu(item);
         if (subcontext_menu) {
-          GMenu *submenu = build_context_menu(webkit_context_menu_get_items(subcontext_menu), action_group, hit_test_result);
+          GMenu *submenu = build_context_menu(webkit_context_menu_get_items(subcontext_menu), action_group,
+                                              hit_test_result);
           menu_item = g_menu_item_new_submenu(webkit_context_menu_item_get_title(item), G_MENU_MODEL(submenu));
           g_object_unref(submenu);
         } else {
           menu_item = g_menu_item_new(webkit_context_menu_item_get_title(item), NULL);
           char *action_name = g_strdup_printf("wpeContextMenu.%s", g_action_get_name(action));
-          g_menu_item_set_action_and_target_value(menu_item, action_name, webkit_context_menu_item_get_gaction_target(item));
+          g_menu_item_set_action_and_target_value(menu_item, action_name,
+                                                  webkit_context_menu_item_get_gaction_target(item));
           g_free(action_name);
         }
         g_menu_append_item(section_menu, menu_item);
@@ -310,7 +315,8 @@ static GMenu *build_context_menu(GList *items, GSimpleActionGroup *action_group,
   return menu;
 }
 
-static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu, WebKitHitTestResult *hit_test_result)
+static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
+                                                 WebKitHitTestResult *hit_test_result)
 {
   if (!win->current_web_view)
     return FALSE;
@@ -326,8 +332,8 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
   GdkRectangle target = { 0, 0, 1, 1 };
   gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
 
-  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(win->current_web_view)),
-                                 G_MENU_MODEL(menu), G_ACTION_GROUP(action_group), has_position ? &target : NULL);
+  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(win->current_web_view)), G_MENU_MODEL(menu),
+                                 G_ACTION_GROUP(action_group), has_position ? &target : NULL);
   g_object_unref(action_group);
   g_object_unref(menu);
 
@@ -375,15 +381,22 @@ static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpe
   if (win->current_web_view) {
     g_object_ref(win->current_web_view);
 
-    g_signal_connect_object(win->current_web_view, "notify::uri", G_CALLBACK(wig_window_update_url), win, G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "notify::estimated-load-progress", G_CALLBACK(wig_window_update_load_progress), win, G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "decide-policy", G_CALLBACK(wig_window_decide_policy), win, G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "create", G_CALLBACK(wig_window_web_view_create), win, G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "context-menu", G_CALLBACK(wig_window_web_view_context_menu), win, G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "load-changed", G_CALLBACK(wig_window_update_stop_reload_actions), win, G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "notify::uri", G_CALLBACK(wig_window_update_url), win,
+                            G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "notify::estimated-load-progress",
+                            G_CALLBACK(wig_window_update_load_progress), win, G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "decide-policy", G_CALLBACK(wig_window_decide_policy), win,
+                            G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "create", G_CALLBACK(wig_window_web_view_create), win,
+                            G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "context-menu", G_CALLBACK(wig_window_web_view_context_menu), win,
+                            G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "load-changed", G_CALLBACK(wig_window_update_stop_reload_actions),
+                            win, G_CONNECT_SWAPPED);
 
     WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(win->current_web_view);
-    g_signal_connect_object(backForwardlist, "changed", G_CALLBACK(wig_window_update_navigation_actions), win, G_CONNECT_SWAPPED);
+    g_signal_connect_object(backForwardlist, "changed", G_CALLBACK(wig_window_update_navigation_actions), win,
+                            G_CONNECT_SWAPPED);
   }
 }
 
@@ -401,7 +414,8 @@ static void wig_window_constructed(GObject *object)
   g_action_map_add_action_entries(G_ACTION_MAP(win), actions, G_N_ELEMENTS(actions), win);
 
   win->context_menu_action_group = G_ACTION_GROUP(g_simple_action_group_new());
-  g_action_map_add_action_entries(G_ACTION_MAP(win->context_menu_action_group), context_menu_actions, G_N_ELEMENTS(context_menu_actions), win);
+  g_action_map_add_action_entries(G_ACTION_MAP(win->context_menu_action_group), context_menu_actions,
+                                  G_N_ELEMENTS(context_menu_actions), win);
   gtk_widget_insert_action_group(GTK_WIDGET(win), "popup", win->context_menu_action_group);
 
   g_signal_connect(win, "notify::fullscreened", G_CALLBACK(wig_window_fullscreen_changed), NULL);

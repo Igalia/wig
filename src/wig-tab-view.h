@@ -31,8 +31,8 @@ G_BEGIN_DECLS
 #define WIG_TYPE_TAB_VIEW (wig_tab_view_get_type())
 G_DECLARE_FINAL_TYPE(WigTabView, wig_tab_view, WIG, TAB_VIEW, AdwBin)
 
-GtkWidget     *wig_tab_view_new          (WebKitWebView *web_view);
-WebKitWebView *wig_tab_view_get_web_view (WigTabView    *tab_view);
-void           wig_tab_view_grab_focus   (WigTabView    *tab_view);
+GtkWidget *wig_tab_view_new(WebKitWebView *web_view);
+WebKitWebView *wig_tab_view_get_web_view(WigTabView *tab_view);
+void wig_tab_view_grab_focus(WigTabView *tab_view);
 
 G_END_DECLS
