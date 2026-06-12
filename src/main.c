@@ -32,7 +32,7 @@ static const gchar **uri_args;
 
 static const GOptionEntry cmd_options[] = {
   { G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &uri_args, 0, "[URL…]" },
-  { NULL, 0, 0, 0, NULL, 0, NULL }
+  { NULL, 0, 0, 0, NULL, 0, NULL },
 };
 
 static void activate(GApplication *application)
@@ -54,7 +54,8 @@ static void activate(GApplication *application)
     int i;
 
     for (i = 0; uri_args[i] != NULL; i++) {
-      WebKitWebView *web_view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", network_session, "web-context", web_context, "display", display, "settings", settings, NULL);
+      WebKitWebView *web_view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", network_session, "web-context",
+                                             web_context, "display", display, "settings", settings, NULL);
       wig_window_add_web_view(WIG_WINDOW(win), web_view);
 
       GFile *file = g_file_new_for_commandline_arg(uri_args[i]);
@@ -65,7 +66,8 @@ static void activate(GApplication *application)
       g_object_unref(web_view);
     }
   } else {
-    WebKitWebView *web_view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", network_session, "web-context", web_context, "display", display, "settings", settings, NULL);
+    WebKitWebView *web_view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", network_session, "web-context",
+                                           web_context, "display", display, "settings", settings, NULL);
     wig_window_add_web_view(WIG_WINDOW(win), web_view);
     webkit_web_view_load_uri(web_view, "https://wpewebkit.org");
     g_object_unref(web_view);

@@ -38,14 +38,15 @@ static void wig_application_init(WigApplication *app)
 {
 }
 
-static void wig_application_startup(GApplication* application)
+static void wig_application_startup(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->startup(application);
 
   app->display = wpe_display_gtk_new();
-  wpe_settings_set_boolean(wpe_display_get_settings(app->display), WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, FALSE, WPE_SETTINGS_SOURCE_APPLICATION, NULL);
+  wpe_settings_set_boolean(wpe_display_get_settings(app->display), WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, FALSE,
+                           WPE_SETTINGS_SOURCE_APPLICATION, NULL);
 
   GError *error = NULL;
   if (!wpe_display_connect(app->display, &error)) {
@@ -66,7 +67,7 @@ static void wig_application_startup(GApplication* application)
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, NULL);
 }
 
-static void wig_application_shutdown(GApplication* application)
+static void wig_application_shutdown(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
   g_clear_object(&app->display);
@@ -86,10 +87,8 @@ static void wig_application_class_init(WigApplicationClass *klass)
 
 WigApplication *wig_application_new(void)
 {
-  return WIG_APPLICATION(g_object_new(WIG_TYPE_APPLICATION,
-                                     "application-id", "com.igalia.wig",
-                                     "flags", G_APPLICATION_NON_UNIQUE,
-                                     NULL));
+  return WIG_APPLICATION(
+      g_object_new(WIG_TYPE_APPLICATION, "application-id", "com.igalia.wig", "flags", G_APPLICATION_NON_UNIQUE, NULL));
 }
 
 WigApplication *wig_application_get(void)
@@ -100,28 +99,28 @@ WigApplication *wig_application_get(void)
   return WIG_APPLICATION(app);
 }
 
-WPEDisplay *wig_application_get_display(WigApplication* app)
+WPEDisplay *wig_application_get_display(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->display;
 }
 
-WebKitNetworkSession *wig_application_get_network_session(WigApplication* app)
+WebKitNetworkSession *wig_application_get_network_session(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->network_session;
 }
 
-WebKitWebContext *wig_application_get_web_context(WigApplication* app)
+WebKitWebContext *wig_application_get_web_context(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->web_context;
 }
 
-WebKitSettings *wig_application_get_web_settings(WigApplication* app)
+WebKitSettings *wig_application_get_web_settings(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 

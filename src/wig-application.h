@@ -31,11 +31,11 @@ G_BEGIN_DECLS
 #define WIG_TYPE_APPLICATION (wig_application_get_type())
 G_DECLARE_FINAL_TYPE(WigApplication, wig_application, WIG, APPLICATION, AdwApplication)
 
-WigApplication       *wig_application_new                 (void);
-WigApplication       *wig_application_get                 (void);
-WPEDisplay           *wig_application_get_display         (WigApplication* app);
-WebKitNetworkSession *wig_application_get_network_session (WigApplication* app);
-WebKitWebContext     *wig_application_get_web_context     (WigApplication* app);
-WebKitSettings       *wig_application_get_web_settings    (WigApplication* app);
+WigApplication *wig_application_new(void);
+WigApplication *wig_application_get(void);
+WPEDisplay *wig_application_get_display(WigApplication *app);
+WebKitNetworkSession *wig_application_get_network_session(WigApplication *app);
+WebKitWebContext *wig_application_get_web_context(WigApplication *app);
+WebKitSettings *wig_application_get_web_settings(WigApplication *app);
 
 G_END_DECLS

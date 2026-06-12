@@ -31,8 +31,7 @@ G_BEGIN_DECLS
 #define WIG_TYPE_WINDOW (wig_window_get_type())
 G_DECLARE_FINAL_TYPE(WigWindow, wig_window, WIG, WINDOW, AdwApplicationWindow)
 
-GtkWidget *wig_window_new          (void);
-void       wig_window_add_web_view (WigWindow     *win,
-                                    WebKitWebView *web_view);
+GtkWidget *wig_window_new(void);
+void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
 
 G_END_DECLS
