@@ -20,8 +20,7 @@
  * SOFTWARE.
  */
 
-#ifndef _WIG_TAB_VIEW_H_
-#define _WIG_TAB_VIEW_H_
+#pragma once
 
 #include <adwaita.h>
 #include <gtk/gtk.h>
@@ -37,5 +36,3 @@ WebKitWebView *wig_tab_view_get_web_view (WigTabView    *tab_view);
 void           wig_tab_view_grab_focus   (WigTabView    *tab_view);
 
 G_END_DECLS
-
-#endif /* _WIG_TAB_VIEW_H_ */

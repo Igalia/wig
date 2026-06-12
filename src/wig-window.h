@@ -20,8 +20,7 @@
  * SOFTWARE.
  */
 
-#ifndef _WIG_WINDOW_H_
-#define _WIG_WINDOW_H_
+#pragma once
 
 #include <adwaita.h>
 #include <gtk/gtk.h>
@@ -37,5 +36,3 @@ void       wig_window_add_web_view (WigWindow     *win,
                                     WebKitWebView *web_view);
 
 G_END_DECLS
-
-#endif /* _WIG_WINDOW_H_ */
