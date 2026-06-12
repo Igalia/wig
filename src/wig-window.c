@@ -94,9 +94,8 @@ static void wig_window_change_stop_reload_state(GSimpleAction *action, GVariant 
 
 static AdwTabPage *wig_window_get_tab_page_for_web_view(WigWindow *win, WebKitWebView *web_view)
 {
-  guint n_pages = adw_tab_view_get_n_pages(win->tab_view);
-  guint i;
-  for (i = 0; i < n_pages; i++) {
+  int n_pages = adw_tab_view_get_n_pages(win->tab_view);
+  for (int i = 0; i < n_pages; i++) {
     AdwTabPage *tab_page = adw_tab_view_get_nth_page(win->tab_view, i);
     WigTabView *tab_view = WIG_TAB_VIEW(adw_tab_page_get_child(tab_page));
 
