@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Dependencies
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf copr enable -y philn/wpewebkit
+          dnf install -y \
+            clang \
+            clang-tools-extra \
+            git \
+            meson \
+            wpewebkit-devel \
+            gtk4-devel \
+            libepoxy-devel \
+            libadwaita-devel
+
+      - name: Configure Project
+        run: meson setup _build
+
+      - name: Compile Project
+        run: meson compile -C _build
+
+      - name: Analyze Project
+        run: ninja -C _build clang-tidy
