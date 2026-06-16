@@ -37,3 +37,6 @@ jobs:
 
       - name: Analyze Project
         run: ninja -C _build clang-tidy
+
+      - name: Check Meson Formatting
+        run: meson format --check-only --recursive
