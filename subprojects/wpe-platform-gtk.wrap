@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://github.com/Igalia/wpe-platform-gtk.git
+push-url = git@github.com:Igalia/wpe-platform-gtk.git
+revision = HEAD
+depth = 1
+
+[provide]
+wpe-platform-gtk-1.0 = libwpeplatformgtk_dep
