@@ -68,19 +68,8 @@ static void activate(GApplication *application)
 
 int main(int argc, char **argv)
 {
-  GOptionContext *context = g_option_context_new(NULL);
-  g_option_context_add_main_entries(context, cmd_options, NULL);
-
-  GError *error = NULL;
-  if (!g_option_context_parse(context, &argc, &argv, &error)) {
-    g_printerr("Cannot parse arguments: %s\n", error->message);
-    g_error_free(error);
-    g_option_context_free(context);
-    return 1;
-  }
-  g_option_context_free(context);
-
   g_autoptr(WigApplication) app = wig_application_new();
+  g_application_add_main_option_entries(G_APPLICATION(app), cmd_options);
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
-  return g_application_run(G_APPLICATION(app), 0, NULL);
+  return g_application_run(G_APPLICATION(app), argc, argv);
 }
