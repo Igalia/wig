@@ -209,11 +209,10 @@ static WebKitWebView *wig_window_create_web_view_for_new_tab(WigWindow *win)
 static void wig_window_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
-  WebKitWebView *web_view = wig_window_create_web_view_for_new_tab(win);
+  g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
   AdwTabPage *tab_page = wig_window_add_tab_page_for_view(win, web_view);
   adw_tab_view_set_selected_page(win->tab_view, tab_page);
   gtk_widget_grab_focus(win->url_entry);
-  g_object_unref(web_view);
 }
 
 static void wig_window_tab_overview(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -361,7 +360,7 @@ static const GActionEntry actions[] = {
 static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
-  WebKitWebView *web_view = wig_window_create_web_view_for_new_tab(win);
+  g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
   AdwTabPage *tab_page = wig_window_add_tab_page_for_view(win, web_view);
   adw_tab_view_set_selected_page(win->tab_view, tab_page);
   if (parameter) {
@@ -369,7 +368,6 @@ static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *paramete
     if (uri)
       webkit_web_view_load_uri(web_view, uri);
   }
-  g_object_unref(web_view);
 }
 
 static const GActionEntry context_menu_actions[] = {
@@ -429,10 +427,9 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
       || webkit_navigation_action_get_mouse_button(action) != WPE_BUTTON_MIDDLE)
     return FALSE;
 
-  WebKitWebView *web_view = wig_window_create_web_view_for_new_tab(win);
+  g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
   wig_window_add_tab_page_for_view(win, web_view);
   webkit_web_view_load_request(web_view, webkit_navigation_action_get_request(action));
-  g_object_unref(web_view);
 
   webkit_policy_decision_ignore(decision);
   return TRUE;
@@ -446,63 +443,57 @@ static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web
 
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation)
 {
-  WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "related-view", win->current_web_view,
-                                                         "settings",
-                                                         webkit_web_view_get_settings(win->current_web_view), NULL));
+  g_autoptr(WebKitWebView) web_view = WEBKIT_WEB_VIEW(g_object_new(
+      WEBKIT_TYPE_WEB_VIEW, "related-view", win->current_web_view, "settings",
+      webkit_web_view_get_settings(win->current_web_view), NULL));
 
   GtkWindow *new_win = GTK_WINDOW(wig_window_new());
   gtk_window_set_application(GTK_WINDOW(new_win), gtk_window_get_application(GTK_WINDOW(win)));
   wig_window_add_web_view(WIG_WINDOW(new_win), web_view);
   g_signal_connect_object(web_view, "ready-to-show", G_CALLBACK(wig_window_web_view_ready_to_show), new_win,
                           G_CONNECT_SWAPPED);
-  g_object_unref(web_view);
   return web_view;
 }
 
 static GMenu *build_context_menu(GList *items, GSimpleActionGroup *action_group, WebKitHitTestResult *hit_test_result)
 {
-  GMenu *menu = g_menu_new();
+  g_autoptr(GMenu) menu = g_menu_new();
   GMenu *section_menu = menu;
   for (GList *l = items; l != NULL; l = g_list_next(l)) {
     WebKitContextMenuItem *item = WEBKIT_CONTEXT_MENU_ITEM(l->data);
 
     if (webkit_context_menu_item_is_separator(item)) {
-      GMenu *section = g_menu_new();
+      g_autoptr(GMenu) section = g_menu_new();
       g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
       section_menu = section;
-      g_object_unref(section);
     } else if (webkit_context_menu_item_get_stock_action(item) == WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK
                && webkit_hit_test_result_context_is_link(hit_test_result)) {
-      GMenuItem *menu_item = g_menu_item_new("Open Link in New Tab", NULL);
+      g_autoptr(GMenuItem) menu_item = g_menu_item_new("Open Link in New Tab", NULL);
       const char *uri = webkit_hit_test_result_get_link_uri(hit_test_result);
       g_menu_item_set_action_and_target(menu_item, "popup.open-in-new-tab", "s", uri);
       g_menu_append_item(section_menu, menu_item);
-      g_object_unref(menu_item);
     } else {
       GAction *action = webkit_context_menu_item_get_gaction(item);
       if (action) {
         g_action_map_add_action(G_ACTION_MAP(action_group), action);
 
-        GMenuItem *menu_item;
+        g_autoptr(GMenuItem) menu_item = NULL;
         WebKitContextMenu *subcontext_menu = webkit_context_menu_item_get_submenu(item);
         if (subcontext_menu) {
-          GMenu *submenu = build_context_menu(webkit_context_menu_get_items(subcontext_menu), action_group,
-                                              hit_test_result);
+          g_autoptr(GMenu) submenu = build_context_menu(webkit_context_menu_get_items(subcontext_menu), action_group,
+                                                        hit_test_result);
           menu_item = g_menu_item_new_submenu(webkit_context_menu_item_get_title(item), G_MENU_MODEL(submenu));
-          g_object_unref(submenu);
         } else {
           menu_item = g_menu_item_new(webkit_context_menu_item_get_title(item), NULL);
-          char *action_name = g_strdup_printf("wpeContextMenu.%s", g_action_get_name(action));
+          g_autofree char *action_name = g_strdup_printf("wpeContextMenu.%s", g_action_get_name(action));
           g_menu_item_set_action_and_target_value(menu_item, action_name,
                                                   webkit_context_menu_item_get_gaction_target(item));
-          g_free(action_name);
         }
         g_menu_append_item(section_menu, menu_item);
-        g_object_unref(menu_item);
       }
     }
   }
-  return menu;
+  return g_steal_pointer(&menu);
 }
 
 static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
@@ -511,21 +502,16 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
   if (!win->current_web_view)
     return FALSE;
 
-  GSimpleActionGroup *action_group = g_simple_action_group_new();
-  GMenu *menu = build_context_menu(webkit_context_menu_get_items(context_menu), action_group, hit_test_result);
-  if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0) {
-    g_object_unref(menu);
-    g_object_unref(action_group);
+  g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
+  g_autoptr(GMenu) menu = build_context_menu(webkit_context_menu_get_items(context_menu), action_group, hit_test_result);
+  if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
     return FALSE;
-  }
 
   GdkRectangle target = { 0, 0, 1, 1 };
   gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
 
   wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(win->current_web_view)), G_MENU_MODEL(menu),
                                  G_ACTION_GROUP(action_group), has_position ? &target : NULL);
-  g_object_unref(action_group);
-  g_object_unref(menu);
 
   return TRUE;
 }
@@ -550,13 +536,13 @@ static void wig_window_fullscreen_changed(WigWindow *win)
 
 static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpec *pspec, WigWindow *win)
 {
-  if (win->current_web_view) {
-    g_signal_handlers_disconnect_by_data(win->current_web_view, win);
+  g_autoptr(WebKitWebView) previous_web_view = g_steal_pointer(&win->current_web_view);
 
-    WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(win->current_web_view);
+  if (previous_web_view) {
+    g_signal_handlers_disconnect_by_data(previous_web_view, win);
+
+    WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(previous_web_view);
     g_signal_handlers_disconnect_by_data(backForwardlist, win);
-
-    g_object_unref(win->current_web_view);
   }
 
   AdwTabPage *tab_page = adw_tab_view_get_selected_page(tab_view_adw);

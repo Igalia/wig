@@ -49,21 +49,17 @@ static void activate(GApplication *application)
     int i;
 
     for (i = 0; uri_args[i] != NULL; i++) {
-      WebKitWebView *web_view = wig_application_create_web_view(app);
+      g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
       wig_window_add_web_view(WIG_WINDOW(win), web_view);
 
-      GFile *file = g_file_new_for_commandline_arg(uri_args[i]);
-      gchar *url = g_file_get_uri(file);
+      g_autoptr(GFile) file = g_file_new_for_commandline_arg(uri_args[i]);
+      g_autofree char *url = g_file_get_uri(file);
       webkit_web_view_load_uri(web_view, url);
-      g_free(url);
-      g_object_unref(file);
-      g_object_unref(web_view);
     }
   } else {
-    WebKitWebView *web_view = wig_application_create_web_view(app);
+    g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
     wig_window_add_web_view(WIG_WINDOW(win), web_view);
     webkit_web_view_load_uri(web_view, "https://wpewebkit.org");
-    g_object_unref(web_view);
   }
 
   gtk_window_present(win);
@@ -84,10 +80,7 @@ int main(int argc, char **argv)
   }
   g_option_context_free(context);
 
-  WigApplication *app = wig_application_new();
+  g_autoptr(WigApplication) app = wig_application_new();
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
-  g_application_run(G_APPLICATION(app), 0, NULL);
-  g_object_unref(app);
-
-  return 0;
+  return g_application_run(G_APPLICATION(app), 0, NULL);
 }
