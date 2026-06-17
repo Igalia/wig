@@ -22,16 +22,14 @@
 
 #pragma once
 
-#include <adwaita.h>
-#include <gtk/gtk.h>
-#include <wpe/webkit.h>
+#include "wig-application.h"
 
 G_BEGIN_DECLS
 
 #define WIG_TYPE_WINDOW (wig_window_get_type())
 G_DECLARE_FINAL_TYPE(WigWindow, wig_window, WIG, WINDOW, AdwApplicationWindow)
 
-GtkWidget *wig_window_new(void);
+WigWindow *wig_window_new(WigApplication *application);
 void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
 
 G_END_DECLS

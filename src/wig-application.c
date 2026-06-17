@@ -42,16 +42,22 @@ static void wig_application_quit_action(GSimpleAction *action, GVariant *paramet
   g_application_quit(G_APPLICATION(user_data));
 }
 
+static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow *win, const char *uri)
+{
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
+  wig_window_add_web_view(win, web_view);
+  webkit_web_view_load_uri(web_view, uri);
+}
+
 static void wig_application_new_window_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigApplication *app = WIG_APPLICATION(user_data);
-  GtkWindow *win = GTK_WINDOW(wig_window_new());
-  gtk_window_set_application(win, GTK_APPLICATION(app));
+  WigWindow *win = wig_window_new(app);
 
   g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
-  wig_window_add_web_view(WIG_WINDOW(win), web_view);
+  wig_window_add_web_view(win, web_view);
 
-  gtk_window_present(win);
+  gtk_window_present(GTK_WINDOW(win));
   g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
 }
 
@@ -88,6 +94,7 @@ static void wig_application_startup(GApplication *application)
   g_autofree char *data_dir = g_build_filename(g_get_user_data_dir(), "com.igalia.wig", NULL);
   g_autofree char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
+  webkit_network_session_set_itp_enabled(app->network_session, TRUE);
   app->web_context = webkit_web_context_new();
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, NULL);
 
@@ -129,17 +136,50 @@ static void wig_application_shutdown(GApplication *application)
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
 
+static void wig_application_activate(GApplication *application)
+{
+  WigApplication *app = WIG_APPLICATION(application);
+  WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
+
+  if (!win) {
+    win = wig_window_new(app);
+    wig_application_add_new_tab_with_uri(app, win, "https://wpewebkit.org");
+  }
+
+  gtk_window_present(GTK_WINDOW(win));
+  g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
+}
+
+static void wig_application_open(GApplication *application, GFile **files, gint n_files, const gchar *hint)
+{
+  WigApplication *app = WIG_APPLICATION(application);
+  WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
+
+  if (!win)
+    win = wig_window_new(app);
+
+  for (int i = 0; i < n_files; i++) {
+    g_autofree char *uri = g_file_get_uri(files[i]);
+    wig_application_add_new_tab_with_uri(app, win, uri);
+  }
+
+  gtk_window_present(GTK_WINDOW(win));
+  g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
+}
+
 static void wig_application_class_init(WigApplicationClass *klass)
 {
   GApplicationClass *gapplication_class = G_APPLICATION_CLASS(klass);
   gapplication_class->startup = wig_application_startup;
+  gapplication_class->activate = wig_application_activate;
+  gapplication_class->open = wig_application_open;
   gapplication_class->shutdown = wig_application_shutdown;
 }
 
 WigApplication *wig_application_new(void)
 {
-  return WIG_APPLICATION(
-      g_object_new(WIG_TYPE_APPLICATION, "application-id", "com.igalia.wig", "flags", G_APPLICATION_NON_UNIQUE, NULL));
+  return WIG_APPLICATION(g_object_new(WIG_TYPE_APPLICATION, "application-id", "com.igalia.wig", "flags",
+                                      G_APPLICATION_HANDLES_OPEN, NULL));
 }
 
 WigApplication *wig_application_get(void)

@@ -443,13 +443,12 @@ static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web
 
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation)
 {
-  g_autoptr(WebKitWebView) web_view = WEBKIT_WEB_VIEW(g_object_new(
-      WEBKIT_TYPE_WEB_VIEW, "related-view", win->current_web_view, "settings",
-      webkit_web_view_get_settings(win->current_web_view), NULL));
+  g_autoptr(WebKitWebView) web_view = WEBKIT_WEB_VIEW(
+      g_object_new(WEBKIT_TYPE_WEB_VIEW, "related-view", win->current_web_view, "settings",
+                   webkit_web_view_get_settings(win->current_web_view), NULL));
 
-  GtkWindow *new_win = GTK_WINDOW(wig_window_new());
-  gtk_window_set_application(GTK_WINDOW(new_win), gtk_window_get_application(GTK_WINDOW(win)));
-  wig_window_add_web_view(WIG_WINDOW(new_win), web_view);
+  WigWindow *new_win = wig_window_new(WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))));
+  wig_window_add_web_view(new_win, web_view);
   g_signal_connect_object(web_view, "ready-to-show", G_CALLBACK(wig_window_web_view_ready_to_show), new_win,
                           G_CONNECT_SWAPPED);
   return web_view;
@@ -503,7 +502,8 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
     return FALSE;
 
   g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
-  g_autoptr(GMenu) menu = build_context_menu(webkit_context_menu_get_items(context_menu), action_group, hit_test_result);
+  g_autoptr(GMenu) menu = build_context_menu(webkit_context_menu_get_items(context_menu), action_group,
+                                             hit_test_result);
   if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
     return FALSE;
 
@@ -740,9 +740,9 @@ static void wig_window_class_init(WigWindowClass *klass)
   g_object_class_install_properties(gobject_class, N_PROPS, props);
 }
 
-GtkWidget *wig_window_new(void)
+WigWindow *wig_window_new(WigApplication *application)
 {
-  return GTK_WIDGET(g_object_new(WIG_TYPE_WINDOW, NULL));
+  return g_object_new(WIG_TYPE_WINDOW, "application", application, NULL);
 }
 
 void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view)

@@ -21,55 +21,9 @@
  */
 
 #include "wig-application.h"
-#include "wig-window.h"
-#include "wpe-display-gtk.h"
-#include "wpe-view-gtk.h"
-#include <adwaita.h>
-#include <gtk/gtk.h>
-#include <wpe/webkit.h>
-
-static const gchar **uri_args;
-
-static const GOptionEntry cmd_options[] = {
-  { G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &uri_args, 0, "[URL…]" },
-  { NULL, 0, 0, 0, NULL, 0, NULL },
-};
-
-static void activate(GApplication *application)
-{
-  WigApplication *app = WIG_APPLICATION(application);
-
-  WebKitNetworkSession *network_session = wig_application_get_network_session(app);
-  webkit_network_session_set_itp_enabled(network_session, TRUE);
-
-  GtkWindow *win = GTK_WINDOW(wig_window_new());
-  gtk_window_set_application(win, GTK_APPLICATION(application));
-
-  if (uri_args) {
-    int i;
-
-    for (i = 0; uri_args[i] != NULL; i++) {
-      g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
-      wig_window_add_web_view(WIG_WINDOW(win), web_view);
-
-      g_autoptr(GFile) file = g_file_new_for_commandline_arg(uri_args[i]);
-      g_autofree char *url = g_file_get_uri(file);
-      webkit_web_view_load_uri(web_view, url);
-    }
-  } else {
-    g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
-    wig_window_add_web_view(WIG_WINDOW(win), web_view);
-    webkit_web_view_load_uri(web_view, "https://wpewebkit.org");
-  }
-
-  gtk_window_present(win);
-  g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
-}
 
 int main(int argc, char **argv)
 {
   g_autoptr(WigApplication) app = wig_application_new();
-  g_application_add_main_option_entries(G_APPLICATION(app), cmd_options);
-  g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
   return g_application_run(G_APPLICATION(app), argc, argv);
 }
