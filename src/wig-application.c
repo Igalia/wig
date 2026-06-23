@@ -23,6 +23,7 @@
 #include "wig-application.h"
 #include "internal-pages/wig-features.h"
 #include "internal-pages/wig-internal-page.h"
+#include "internal-pages/wig-memory-pressure.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 #include <tmpl-glib.h>
@@ -34,6 +35,7 @@ struct _WigApplication {
   WebKitNetworkSession *network_session;
   WebKitWebContext *web_context;
   WebKitSettings *web_settings;
+  WebKitMemoryPressureSettings *memory_pressure_settings;
 
   GQueue *closed_tab_history;
 };
@@ -103,6 +105,9 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   } else if (g_str_has_prefix(uri, "wig:developer-features")) {
     scope = handle_features_uri(request, app->web_settings, TRUE);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/features.html", scope);
+  } else if (g_str_has_prefix(uri, "wig:memory-pressure")) {
+    scope = handle_memory_pressure_uri(request, app->memory_pressure_settings);
+    html = wig_internal_page_render("/com/igalia/wig/internal-pages/memory-pressure.html", scope);
   } else {
     webkit_uri_scheme_request_finish_error(request, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found"));
     return;
@@ -141,6 +146,8 @@ static void wig_application_startup(GApplication *application)
   g_autofree char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
   webkit_network_session_set_itp_enabled(app->network_session, TRUE);
+  app->memory_pressure_settings = webkit_memory_pressure_settings_new();
+  webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
   app->web_context = webkit_web_context_new();
   webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
   webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
@@ -181,6 +188,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->network_session);
   g_clear_object(&app->web_context);
   g_clear_object(&app->web_settings);
+  g_clear_pointer(&app->memory_pressure_settings, webkit_memory_pressure_settings_free);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
