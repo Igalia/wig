@@ -30,7 +30,7 @@ static const char *const special_use_tlds[] = {
 };
 
 static const char *const valid_schemes[] = {
-  "https", "http", "file", "about", "webkit",
+  "https", "http", "file", "about", "webkit", "wig",
 };
 
 static gboolean array_contains(const char *const *array, gsize length, const char *value)
@@ -65,6 +65,11 @@ static psl_ctx_t *get_psl_context(void)
 char *wig_util_complete_uri(const char *url)
 {
   const char *scheme = g_uri_peek_scheme(url);
+
+  // We can't override about so just rewrite them.
+  if (g_strcmp0(scheme, "about") == 0 && g_strcmp0(url, "about:blank") != 0)
+    return g_strconcat("wig:", url + strlen("about:"), NULL);
+
   if (scheme && array_contains(valid_schemes, G_N_ELEMENTS(valid_schemes), scheme))
     return g_strdup(url);
 

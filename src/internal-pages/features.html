@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset='utf-8'>
+  <title>{{title}}</title>
+  <link rel='stylesheet' href='wig:resources/style.css'>
+</head>
+
+<body>
+  <h1>{{title}}</h1>
+  <p class='desc'>These features are experimental and may change or be removed.</p>
+
+  {{for category in categories}}
+  <section class='category'>
+    <h2>{{category.name}}</h2>
+    <ul>
+    {{for feature in category.features}}
+      <li>
+        <label for="{{feature.identifier}}">
+          <span class='name'>{{feature.name}}</span>
+          <span class='status' data-status='{{feature.status}}'>{{feature.status}}</span>
+        </label>
+        <input type='checkbox' id='{{feature.identifier}}' {{if (feature.enabled)}}checked{{end}}
+               onchange="location.href=location.href.split('?')[0]+'?toggle={{feature.identifier}}&enabled='+this.checked">
+        <p class='details'>{{feature.details}}</p>
+      </li>
+    {{end}}
+    </ul>
+  </section>
+  {{end}}
+
+  <script>
+    if (location.search)
+      history.replaceState({}, '', location.href.split('?')[0])
+  </script>
+</body>
+
+</html>
