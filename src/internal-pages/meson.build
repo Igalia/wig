@@ -6,4 +6,8 @@ internal_pages_resources = gnome.compile_resources(
     source_dir: meson.current_source_dir(),
 )
 
-internal_pages_sources = files('wig-features.c', 'wig-internal-page.c') + internal_pages_resources
+internal_pages_sources = files(
+    'wig-features.c',
+    'wig-internal-page.c',
+    'wig-memory-pressure.c',
+) + internal_pages_resources
