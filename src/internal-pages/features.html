@@ -3,8 +3,9 @@
 
 <head>
   <meta charset='utf-8'>
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
   <title>{{title}}</title>
-  <link rel='stylesheet' href='wig:resources/style.css'>
+  <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
 </head>
 
 <body>
@@ -21,8 +22,7 @@
           <span class='name'>{{feature.name}}</span>
           <span class='status' data-status='{{feature.status}}'>{{feature.status}}</span>
         </label>
-        <input type='checkbox' id='{{feature.identifier}}' {{if (feature.enabled)}}checked{{end}}
-               onchange="location.href=location.href.split('?')[0]+'?toggle={{feature.identifier}}&enabled='+this.checked">
+        <input type='checkbox' id='{{feature.identifier}}' {{if (feature.enabled)}}checked{{end}}>
         <p class='details'>{{feature.details}}</p>
       </li>
     {{end}}
@@ -30,9 +30,13 @@
   </section>
   {{end}}
 
-  <script>
+  <script nonce='{{nonce}}'>
+    document.addEventListener('change', function(e) {
+      if (e.target.type === 'checkbox')
+        location.href = location.href.split('?')[0] + '?toggle=' + e.target.id + '&enabled=' + e.target.checked;
+    });
     if (location.search)
-      history.replaceState({}, '', location.href.split('?')[0])
+      history.replaceState({}, '', location.href.split('?')[0]);
   </script>
 </body>
 

@@ -33,6 +33,15 @@ char *wig_internal_page_render(const char *resource_path, TmplScope *scope)
     return g_strdup(error_page);
   }
 
+  g_autoptr(TmplScope) tmp_scope = NULL;
+  if (!scope) {
+    tmp_scope = tmpl_scope_new();
+    scope = tmp_scope;
+  }
+
+  g_autofree char *nonce = g_uuid_string_random();
+  tmpl_scope_set_string(scope, "nonce", nonce);
+
   char *html = tmpl_template_expand_string(tmpl, scope, &error);
   if (!html) {
     g_warning("Failed to expand template '%s': %s", resource_path, error->message);

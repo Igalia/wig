@@ -3,9 +3,10 @@
 
 <head>
   <meta charset='utf-8'>
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
   <title>Downloads</title>
-  <link rel='stylesheet' href='wig:resources/style.css'>
-  <style>
+  <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
+  <style nonce='{{nonce}}'>
     .toolbar {
       display: flex;
       gap: 0.5rem;
@@ -152,7 +153,7 @@
   <p class='empty'>No downloads yet.</p>
   {{end}}
 
-  <script>
+  <script nonce='{{nonce}}'>
     if (location.search)
       history.replaceState({}, '', location.href.split('?')[0]);
     if (document.querySelectorAll('.status-badge[data-status=downloading]').length > 0)

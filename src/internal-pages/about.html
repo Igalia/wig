@@ -3,8 +3,9 @@
 
 <head>
   <meta charset='utf-8'>
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
   <title>About</title>
-  <link rel='stylesheet' href='wig:resources/style.css'>
+  <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
 </head>
 
 <body>

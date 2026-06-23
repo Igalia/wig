@@ -3,9 +3,10 @@
 
 <head>
   <meta charset='utf-8'>
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
   <title>Memory Pressure Settings</title>
-  <link rel='stylesheet' href='wig:resources/style.css'>
-  <style>
+  <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
+  <style nonce='{{nonce}}'>
     form {
       display: grid;
       grid-template-columns: max-content 1fr max-content;
@@ -100,7 +101,7 @@
     </div>
   </form>
 
-  <script>
+  <script nonce='{{nonce}}'>
     document.getElementById('mp-form').addEventListener('submit', function(e) {
       e.preventDefault();
       const data = new FormData(e.target);
