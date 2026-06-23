@@ -24,6 +24,7 @@
 #include "internal-pages/wig-features.h"
 #include "internal-pages/wig-internal-page.h"
 #include "internal-pages/wig-memory-pressure.h"
+#include "internal-pages/wig-website-data.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 #include <tmpl-glib.h>
@@ -108,6 +109,10 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   } else if (g_str_has_prefix(uri, "wig:memory-pressure")) {
     scope = handle_memory_pressure_uri(request, app->memory_pressure_settings);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/memory-pressure.html", scope);
+  } else if (g_str_has_prefix(uri, "wig:website-data")) {
+    WebKitWebsiteDataManager *manager = webkit_network_session_get_website_data_manager(app->network_session);
+    handle_website_data_uri(request, manager);
+    return; // async
   } else {
     webkit_uri_scheme_request_finish_error(request, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found"));
     return;

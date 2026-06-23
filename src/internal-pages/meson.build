@@ -10,4 +10,5 @@ internal_pages_sources = files(
     'wig-features.c',
     'wig-internal-page.c',
     'wig-memory-pressure.c',
+    'wig-website-data.c',
 ) + internal_pages_resources
