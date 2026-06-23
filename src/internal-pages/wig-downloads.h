@@ -22,15 +22,7 @@
 
 #pragma once
 
-#include "wig-application.h"
+#include <tmpl-glib.h>
+#include <wpe/webkit.h>
 
-G_BEGIN_DECLS
-
-#define WIG_TYPE_WINDOW (wig_window_get_type())
-G_DECLARE_FINAL_TYPE(WigWindow, wig_window, WIG, WINDOW, AdwApplicationWindow)
-
-WigWindow *wig_window_new(WigApplication *application);
-void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
-gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri);
-
-G_END_DECLS
+TmplScope *handle_downloads_uri(WebKitURISchemeRequest *request, GPtrArray *downloads);
