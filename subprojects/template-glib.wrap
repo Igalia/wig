@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://gitlab.gnome.org/GNOME/template-glib.git
+push-url = git@ssh.gitlab.gnome.org:GNOME/template-glib.git
+revision = d853e3fcf16838993d2de4ce5fc213edfe63818d
+depth = 1
+
+[provide]
+template-glib-1.0 = libtemplate_glib_dep

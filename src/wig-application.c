@@ -21,8 +21,11 @@
  */
 
 #include "wig-application.h"
+#include "internal-pages/wig-features.h"
+#include "internal-pages/wig-internal-page.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
+#include <tmpl-glib.h>
 
 struct _WigApplication {
   AdwApplication parent;
@@ -66,6 +69,49 @@ static const GActionEntry app_actions[] = {
   { "new-window", wig_application_new_window_action },
 };
 
+static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpointer user_data)
+{
+  WigApplication *app = WIG_APPLICATION(user_data);
+  const char *uri = webkit_uri_scheme_request_get_uri(request);
+
+  g_debug("wig: scheme handler called for '%s'", uri);
+
+  if (g_str_has_prefix(uri, "wig:resources/")) {
+    const char *name = uri + strlen("wig:resources/");
+    g_autofree char *res_path = g_strconcat("/com/igalia/wig/internal-pages/", name, NULL);
+    g_autoptr(GError) error = NULL;
+    g_autoptr(GBytes) bytes = g_resources_lookup_data(res_path, G_RESOURCE_LOOKUP_FLAGS_NONE, &error);
+    if (!bytes) {
+      webkit_uri_scheme_request_finish_error(request, g_steal_pointer(&error));
+      return;
+    }
+    gsize size;
+    gconstpointer data = g_bytes_get_data(bytes, &size);
+    g_autofree char *mime_type = g_content_type_guess(name, data, size, NULL);
+    g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_bytes(bytes);
+    webkit_uri_scheme_request_finish(request, stream, (goffset)size, mime_type);
+    return;
+  }
+
+  g_autofree char *html = NULL;
+  g_autoptr(TmplScope) scope = NULL;
+  if (g_str_equal(uri, "wig:about"))
+    html = wig_internal_page_render("/com/igalia/wig/internal-pages/about.html", NULL);
+  else if (g_str_has_prefix(uri, "wig:features")) {
+    scope = handle_features_uri(request, app->web_settings, FALSE);
+    html = wig_internal_page_render("/com/igalia/wig/internal-pages/features.html", scope);
+  } else if (g_str_has_prefix(uri, "wig:developer-features")) {
+    scope = handle_features_uri(request, app->web_settings, TRUE);
+    html = wig_internal_page_render("/com/igalia/wig/internal-pages/features.html", scope);
+  } else {
+    webkit_uri_scheme_request_finish_error(request, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found"));
+    return;
+  }
+
+  g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_data(g_steal_pointer(&html), -1, g_free);
+  webkit_uri_scheme_request_finish(request, stream, -1, "text/html; charset=utf-8");
+}
+
 static void wig_application_init(WigApplication *app)
 {
   app->closed_tab_history = g_queue_new();
@@ -96,6 +142,9 @@ static void wig_application_startup(GApplication *application)
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
   webkit_network_session_set_itp_enabled(app->network_session, TRUE);
   app->web_context = webkit_web_context_new();
+  webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
+  webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
+                                                           "wig");
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, NULL);
 
   static const struct {
