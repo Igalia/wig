@@ -1,34 +1,137 @@
+/* Losely based on the Adwaita theme */
+
+:root {
+  --radius: 8px;
+
+  --bg:            #fafafb;
+  --surface:       #ffffff;
+  --view-bg:       #ffffff;
+  --text:          rgb(0 0 6 / 80%);
+  --text-dim:      #77767b;           /* dark_1 */
+  --border:        rgb(0 0 6 / 10%);
+  --border-strong: rgb(0 0 6 / 18%);
+  --accent:        #3584e4;           /* blue_3 */
+  --accent-text:   #ffffff;
+  --danger:        #e01b24;           /* red_3 — destructive_bg_color light */
+  --danger-text:   #ffffff;
+  --success-text:  #26a269;           /* green_5 */
+  --btn-bg:        #deddda;           /* light_3 */
+  --btn-hover:     #d3d2cf;
+  --btn-active:    #c8c7c4;
+
+  /* Feature status badges — tinted palette colors, readable on light */
+  --status-stable-bg:     color-mix(in srgb, #2ec27e 16%, transparent);
+  --status-stable-text:   #26a269;    /* green_5 */
+  --status-mature-bg:     color-mix(in srgb, #3584e4 16%, transparent);
+  --status-mature-text:   #1c71d8;    /* blue_4 */
+  --status-preview-bg:    color-mix(in srgb, #e5a50a 18%, transparent);
+  --status-preview-text:  #9c6e03;
+  --status-testable-bg:   color-mix(in srgb, #e66100 16%, transparent);
+  --status-testable-text: #c64600;    /* orange_5 */
+  --status-developer-bg:  color-mix(in srgb, #9141ac 16%, transparent);
+  --status-developer-text:#813d9c;    /* purple_4 */
+  --status-internal-bg:   color-mix(in srgb, rgb(0 0 0) 8%, transparent);
+  --status-internal-text: #77767b;    /* dark_1 */
+  --status-unstable-bg:   color-mix(in srgb, #e01b24 16%, transparent);
+  --status-unstable-text: #a51d2d;    /* red_5 */
+  --status-embedder-bg:   color-mix(in srgb, rgb(0 0 0) 8%, transparent);
+  --status-embedder-text: #77767b;
+
+  /* Download status badges */
+  --dl-downloading-bg:    color-mix(in srgb, #3584e4 16%, transparent);
+  --dl-downloading-text:  #1c71d8;    /* blue_4 */
+  --dl-complete-bg:       color-mix(in srgb, #2ec27e 16%, transparent);
+  --dl-complete-text:     #26a269;    /* green_5 */
+  --dl-failed-bg:         color-mix(in srgb, #e01b24 16%, transparent);
+  --dl-failed-text:       #a51d2d;    /* red_5 */
+  --dl-cancelled-bg:      color-mix(in srgb, rgb(0 0 0) 8%, transparent);
+  --dl-cancelled-text:    #77767b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:            #222226;           /* window_bg_color dark */
+    --surface:       #2e2e32;           /* headerbar_bg_color; approx card */
+    --view-bg:       #1d1d20;           /* view_bg_color dark */
+    --text:          #ffffff;           /* window_fg_color dark */
+    --text-dim:      #9a9996;           /* light_5 */
+    --border:        rgb(255 255 255 / 10%);
+    --border-strong: rgb(255 255 255 / 18%);
+    --accent:        #3584e4;           /* blue_3 */
+    --accent-text:   #ffffff;
+    --danger:        #c01c28;           /* red_4 — destructive_bg_color dark */
+    --danger-text:   #ffffff;
+    --success-text:  #8ff0a4;           /* green_1 */
+    --btn-bg:        #45454a;
+    --btn-hover:     #515156;
+    --btn-active:    #3b3b40;
+
+    /* Feature status badges — lighter palette tints readable on dark */
+    --status-stable-bg:     color-mix(in srgb, #8ff0a4 15%, transparent);
+    --status-stable-text:   #8ff0a4;    /* green_1 */
+    --status-mature-bg:     color-mix(in srgb, #62a0ea 15%, transparent);
+    --status-mature-text:   #62a0ea;    /* blue_2 */
+    --status-preview-bg:    color-mix(in srgb, #f8e45c 15%, transparent);
+    --status-preview-text:  #f8e45c;    /* yellow_2 */
+    --status-testable-bg:   color-mix(in srgb, #ffbe6f 15%, transparent);
+    --status-testable-text: #ffbe6f;    /* orange_1 */
+    --status-developer-bg:  color-mix(in srgb, #dc8add 15%, transparent);
+    --status-developer-text:#dc8add;    /* purple_1 */
+    --status-internal-bg:   color-mix(in srgb, rgb(255 255 255) 10%, transparent);
+    --status-internal-text: #9a9996;
+    --status-unstable-bg:   color-mix(in srgb, #f66151 15%, transparent);
+    --status-unstable-text: #f66151;    /* red_1 */
+    --status-embedder-bg:   color-mix(in srgb, rgb(255 255 255) 10%, transparent);
+    --status-embedder-text: #9a9996;
+
+    /* Download status badges (dark) */
+    --dl-downloading-bg:    color-mix(in srgb, #62a0ea 15%, transparent);
+    --dl-downloading-text:  #62a0ea;    /* blue_2 */
+    --dl-complete-bg:       color-mix(in srgb, #8ff0a4 15%, transparent);
+    --dl-complete-text:     #8ff0a4;    /* green_1 */
+    --dl-failed-bg:         color-mix(in srgb, #f66151 15%, transparent);
+    --dl-failed-text:       #f66151;    /* red_1 */
+    --dl-cancelled-bg:      color-mix(in srgb, rgb(255 255 255) 10%, transparent);
+    --dl-cancelled-text:    #9a9996;
+  }
+}
+
+/* === Base === */
+
 body {
-  font-family: sans-serif;
+  font-family: Cantarell, Ubuntu, system-ui, sans-serif;
+  font-size: 15px;
   max-width: 800px;
   margin: 40px auto;
   padding: 0 20px;
-  color: #1a1a1a;
+  background: var(--bg);
+  color: var(--text);
 }
 
 h1 {
   font-size: 2em;
-  margin-bottom: .2em;
+  font-weight: 800;
+  margin-bottom: 0.2em;
 }
 
 .desc {
-  color: #666;
+  color: var(--text-dim);
   margin-bottom: 2.5em;
 }
 
-/* Features page */
+/* === Features page === */
 
 .category {
   margin-bottom: 2.5em;
 }
 
 .category h2 {
-  font-size: .8em;
+  font-size: 0.75em;
   font-weight: 700;
-  color: #888;
+  color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: .08em;
-  border-bottom: 1px solid #e8e8e8;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
   margin-bottom: 0;
 }
@@ -46,7 +149,7 @@ li {
   column-gap: 16px;
   row-gap: 2px;
   padding: 10px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border);
 }
 
 li label {
@@ -66,6 +169,7 @@ li input[type=checkbox] {
   height: 16px;
   margin: 0;
   cursor: pointer;
+  accent-color: var(--accent);
 }
 
 .name {
@@ -73,29 +177,29 @@ li input[type=checkbox] {
 }
 
 .status {
-  font-size: .7em;
+  font-size: 0.7em;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: .05em;
+  letter-spacing: 0.05em;
   padding: 2px 7px;
-  border-radius: 3px;
+  border-radius: 4px;
   white-space: nowrap;
 }
 
-[data-status=stable]    { background: #d4edda; color: #155724; }
-[data-status=mature]    { background: #cce5ff; color: #004085; }
-[data-status=preview]   { background: #fff3cd; color: #856404; }
-[data-status=testable]  { background: #ffe0cc; color: #7c3a00; }
-[data-status=developer] { background: #ede0ff; color: #4a007c; }
-[data-status=internal]  { background: #e9ecef; color: #495057; }
-[data-status=unstable]  { background: #f8d7da; color: #721c24; }
-[data-status=embedder]  { background: #e9ecef; color: #495057; }
+.status[data-status=stable]    { background: var(--status-stable-bg);    color: var(--status-stable-text); }
+.status[data-status=mature]    { background: var(--status-mature-bg);    color: var(--status-mature-text); }
+.status[data-status=preview]   { background: var(--status-preview-bg);   color: var(--status-preview-text); }
+.status[data-status=testable]  { background: var(--status-testable-bg);  color: var(--status-testable-text); }
+.status[data-status=developer] { background: var(--status-developer-bg); color: var(--status-developer-text); }
+.status[data-status=internal]  { background: var(--status-internal-bg);  color: var(--status-internal-text); }
+.status[data-status=unstable]  { background: var(--status-unstable-bg);  color: var(--status-unstable-text); }
+.status[data-status=embedder]  { background: var(--status-embedder-bg);  color: var(--status-embedder-text); }
 
 .details {
   grid-column: 1;
   grid-row: 2;
-  font-size: .85em;
-  color: #666;
+  font-size: 0.85em;
+  color: var(--text-dim);
   margin: 0;
   line-height: 1.4;
 }
@@ -104,15 +208,279 @@ li input[type=checkbox] {
   display: none;
 }
 
-/* About page */
+/* === About page === */
 
 li a {
   display: block;
   padding: 8px 0;
-  color: #007bff;
+  color: var(--accent);
   text-decoration: none;
 }
 
 li a:hover {
   text-decoration: underline;
+}
+
+/* === Buttons === */
+
+.btn {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  font: inherit;
+  font-size: 0.875em;
+  text-decoration: none;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn:hover {
+  background: var(--btn-hover);
+  color: var(--text);
+}
+
+.btn:active {
+  background: var(--btn-active);
+}
+
+.btn + .btn {
+  margin-inline-start: 0.35rem;
+}
+
+.btn-danger {
+  background: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 70%, black);
+  color: var(--danger-text);
+}
+
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--danger) 88%, black);
+  color: var(--danger-text);
+}
+
+.btn-danger:active {
+  background: color-mix(in srgb, var(--danger) 75%, black);
+}
+
+/* === Downloads page === */
+
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-block: 1rem;
+}
+
+.download-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+
+.download {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.download-name {
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.download-url {
+  font-size: 0.8em;
+  color: var(--text-dim);
+  word-break: break-all;
+  grid-column: 1;
+}
+
+.download-meta {
+  font-size: 0.8em;
+  color: var(--text-dim);
+  grid-column: 1;
+}
+
+.download-dest {
+  font-size: 0.75em;
+  color: color-mix(in srgb, var(--text-dim) 75%, transparent);
+  word-break: break-all;
+  grid-column: 1;
+}
+
+.download-actions {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-badge[data-status=downloading] { background: var(--dl-downloading-bg); color: var(--dl-downloading-text); }
+.status-badge[data-status=complete]    { background: var(--dl-complete-bg);    color: var(--dl-complete-text); }
+.status-badge[data-status=failed]      { background: var(--dl-failed-bg);      color: var(--dl-failed-text); }
+.status-badge[data-status=cancelled]   { background: var(--dl-cancelled-bg);   color: var(--dl-cancelled-text); }
+
+.progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+  grid-column: 1 / -1;
+  margin-block-start: 0.25rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+.empty {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* === Memory pressure page === */
+
+form {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  max-width: 560px;
+  margin-block: 1.5rem;
+}
+
+form label {
+  font-weight: 500;
+}
+
+form input[type=number] {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--view-bg);
+  color: var(--text);
+  font: inherit;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+form input[type=number]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.unit {
+  color: var(--text-dim);
+  font-size: 0.875em;
+  padding-inline-start: 1.5rem;
+}
+
+.actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-block-start: 0.5rem;
+}
+
+button[type=submit] {
+  padding: 0.4rem 1.2rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+button[type=submit]:hover {
+  filter: brightness(1.1);
+}
+
+button[type=submit]:active {
+  filter: brightness(0.92);
+}
+
+.saved-notice {
+  color: var(--success-text);
+  font-size: 0.875em;
+}
+
+.hint {
+  grid-column: 1 / -1;
+  font-size: 0.8em;
+  color: var(--text-dim);
+  margin-block-start: -0.5rem;
+}
+
+/* === Website data page === */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: 1rem;
+}
+
+th {
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 2px solid var(--border-strong);
+  font-weight: 600;
+  font-size: 0.875em;
+  color: var(--text-dim);
+}
+
+td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+tr.active td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.actions-cell {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.results-section {
+  margin-block: 1.5rem;
+}
+
+.results-section h2 {
+  font-weight: 700;
+  margin-block-end: 0;
+}
+
+.size-cell {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.875em;
+  width: 8rem;
 }
