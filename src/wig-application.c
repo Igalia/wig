@@ -25,6 +25,7 @@
 #include "internal-pages/wig-features.h"
 #include "internal-pages/wig-internal-page.h"
 #include "internal-pages/wig-memory-pressure.h"
+#include "internal-pages/wig-user-scripts.h"
 #include "internal-pages/wig-website-data.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
@@ -39,6 +40,8 @@ struct _WigApplication {
   WebKitSettings *web_settings;
   WebKitMemoryPressureSettings *memory_pressure_settings;
   GPtrArray *downloads;
+  WebKitUserContentManager *user_content_manager;
+  GPtrArray *user_scripts;
 
   GQueue *closed_tab_history;
 };
@@ -170,6 +173,9 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   } else if (g_str_has_prefix(uri, "wig:downloads")) {
     scope = handle_downloads_uri(request, app->downloads);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/downloads.html", scope);
+  } else if (g_str_has_prefix(uri, "wig:user-scripts")) {
+    handle_user_scripts_uri(request, app->user_content_manager, app->user_scripts);
+    return; // async
   } else {
     webkit_uri_scheme_request_finish_error(request, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found"));
     return;
@@ -183,6 +189,7 @@ static void wig_application_init(WigApplication *app)
 {
   app->closed_tab_history = g_queue_new();
   app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
+  app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
 }
 
 static void wig_application_startup(GApplication *application)
@@ -212,6 +219,7 @@ static void wig_application_startup(GApplication *application)
   app->memory_pressure_settings = webkit_memory_pressure_settings_new();
   webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
   g_signal_connect(app->network_session, "download-started", G_CALLBACK(on_download_started), app);
+  app->user_content_manager = webkit_user_content_manager_new();
   app->web_context = webkit_web_context_new();
   webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
   webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
@@ -254,6 +262,8 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->web_settings);
   g_clear_pointer(&app->memory_pressure_settings, webkit_memory_pressure_settings_free);
   g_clear_pointer(&app->downloads, g_ptr_array_unref);
+  g_clear_object(&app->user_content_manager);
+  g_clear_pointer(&app->user_scripts, g_ptr_array_unref);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -345,7 +355,8 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app)
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context,
-                                      "network-session", app->network_session, "settings", app->web_settings, NULL));
+                                      "network-session", app->network_session, "settings", app->web_settings,
+                                      "user-content-manager", app->user_content_manager, NULL));
 }
 
 static void wig_closed_tab_free(WigClosedTab *tab)

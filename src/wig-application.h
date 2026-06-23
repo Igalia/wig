@@ -53,6 +53,13 @@ typedef struct {
   GSList *tabs; /* owned GSList of WigClosedTab* */
 } WigClosedGroup;
 
+typedef struct {
+  char *source;
+  WebKitUserScriptInjectionTime injection_time;
+  WebKitUserContentInjectedFrames injected_frames;
+  WebKitUserScript *script;
+} WigUserScriptRecord;
+
 WigApplication *wig_application_new(void);
 WigApplication *wig_application_get(void);
 WPEDisplay *wig_application_get_display(WigApplication *app);

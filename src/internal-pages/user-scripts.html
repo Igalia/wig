@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset='utf-8'>
+  <title>User Scripts</title>
+  <link rel='stylesheet' href='wig:resources/style.css'>
+</head>
+
+<body>
+  <h1>User Scripts</h1>
+  <p class='desc'>JavaScript injected into every page you visit.</p>
+
+  {{if (has_scripts)}}
+  <div class='script-list'>
+    {{for item in items}}
+    <div class='script-card'>
+      <div class='script-card-header'>
+        <span class='script-meta'>{{item.time_label}} &middot; {{item.frames_label}} &middot; {{item.line_count}}</span>
+        <a class='btn btn-danger' href='wig:user-scripts?remove={{item.index_str}}'>Remove</a>
+      </div>
+      <pre><code>{{item.source}}</code></pre>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <p class='empty'>No user scripts installed.</p>
+  {{end}}
+
+  <h2 class='section-heading'>Add Script</h2>
+  <form class='add-form' method='post' action='wig:user-scripts'>
+    <label for='source'>Source</label>
+    <textarea id='source' name='source' rows='8' placeholder='// JavaScript to inject into every page'></textarea>
+    <label for='time'>Inject at</label>
+    <select id='time' name='time'>
+      <option value='start'>Document Start</option>
+      <option value='end'>Document End</option>
+    </select>
+    <label for='frames'>Frames</label>
+    <select id='frames' name='frames'>
+      <option value='all'>All Frames</option>
+      <option value='top'>Top Frame Only</option>
+    </select>
+    <div class='add-form-footer'>
+      <button type='submit'>Add Script</button>
+    </div>
+  </form>
+
+  <script>
+    if (location.search)
+      history.replaceState({}, '', location.href.split('?')[0]);
+  </script>
+</body>
+
+</html>
