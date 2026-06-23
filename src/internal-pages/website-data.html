@@ -3,9 +3,10 @@
 
 <head>
   <meta charset='utf-8'>
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
   <title>Website Data</title>
-  <link rel='stylesheet' href='wig:resources/style.css'>
-  <style>
+  <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
+  <style nonce='{{nonce}}'>
     table {
       width: 100%;
       border-collapse: collapse;
@@ -126,7 +127,7 @@
     </tbody>
   </table>
 
-  <script>
+  <script nonce='{{nonce}}'>
     if (location.search)
       history.replaceState({}, '', location.href.split('?')[0]);
   </script>
