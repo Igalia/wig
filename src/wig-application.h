@@ -36,6 +36,18 @@ typedef struct {
   gboolean was_focused;
 } WigClosedTab;
 
+typedef enum {
+  WIG_DOWNLOAD_ACTIVE,
+  WIG_DOWNLOAD_COMPLETE,
+  WIG_DOWNLOAD_FAILED,
+  WIG_DOWNLOAD_CANCELLED,
+} WigDownloadState;
+
+typedef struct {
+  WebKitDownload *download;
+  WigDownloadState state;
+} WigDownloadRecord;
+
 typedef struct {
   guint window_id;
   GSList *tabs; /* owned GSList of WigClosedTab* */

@@ -186,6 +186,46 @@ static gboolean wig_window_transform_tab_title(GBinding *binding, const GValue *
   return TRUE;
 }
 
+gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
+{
+  g_autoptr(GUri) lookup = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
+  if (!lookup)
+    return FALSE;
+
+  const char *lookup_scheme = g_uri_get_scheme(lookup);
+  const char *lookup_host = g_uri_get_host(lookup);
+
+  int n_pages = adw_tab_view_get_n_pages(win->tab_view);
+  for (int i = 0; i < n_pages; i++) {
+    AdwTabPage *page = adw_tab_view_get_nth_page(win->tab_view, i);
+    WigTabView *tab_view = WIG_TAB_VIEW(adw_tab_page_get_child(page));
+    WebKitWebView *web_view = wig_tab_view_get_web_view(tab_view);
+    const char *tab_uri = webkit_web_view_get_uri(web_view);
+    if (!tab_uri)
+      continue;
+
+    g_autoptr(GUri) parsed = g_uri_parse(tab_uri, G_URI_FLAGS_NONE, NULL);
+    if (!parsed)
+      continue;
+
+    const char *tab_scheme = g_uri_get_scheme(parsed);
+    const char *tab_host = g_uri_get_host(parsed);
+
+    gboolean match;
+    if (lookup_host && *lookup_host)
+      match = g_str_equal(lookup_scheme, tab_scheme) && tab_host && g_ascii_strcasecmp(lookup_host, tab_host) == 0;
+    else
+      match = g_str_equal(lookup_scheme, tab_scheme);
+
+    if (match) {
+      adw_tab_view_set_selected_page(win->tab_view, page);
+      webkit_web_view_reload(web_view);
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
 static AdwTabPage *wig_window_add_tab_page_for_view(WigWindow *win, WebKitWebView *web_view)
 {
   GtkWidget *tab_view = wig_tab_view_new(web_view);
@@ -418,6 +458,14 @@ static void wig_window_update_navigation_actions(WigWindow *win)
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
                                          WebKitPolicyDecisionType decision_type)
 {
+  if (decision_type == WEBKIT_POLICY_DECISION_TYPE_RESPONSE) {
+    if (!webkit_response_policy_decision_is_mime_type_supported(WEBKIT_RESPONSE_POLICY_DECISION(decision))) {
+      webkit_policy_decision_download(decision);
+      return TRUE;
+    }
+    return FALSE;
+  }
+
   if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
     return FALSE;
 
@@ -750,5 +798,6 @@ void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view)
   g_return_if_fail(WIG_IS_WINDOW(win));
   g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
 
-  wig_window_add_tab_page_for_view(win, web_view);
+  AdwTabPage *tab_page = wig_window_add_tab_page_for_view(win, web_view);
+  adw_tab_view_set_selected_page(win->tab_view, tab_page);
 }

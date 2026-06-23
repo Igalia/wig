@@ -21,6 +21,7 @@
  */
 
 #include "wig-application.h"
+#include "internal-pages/wig-downloads.h"
 #include "internal-pages/wig-features.h"
 #include "internal-pages/wig-internal-page.h"
 #include "internal-pages/wig-memory-pressure.h"
@@ -37,6 +38,7 @@ struct _WigApplication {
   WebKitWebContext *web_context;
   WebKitSettings *web_settings;
   WebKitMemoryPressureSettings *memory_pressure_settings;
+  GPtrArray *downloads;
 
   GQueue *closed_tab_history;
 };
@@ -71,6 +73,58 @@ static const GActionEntry app_actions[] = {
   { "quit", wig_application_quit_action },
   { "new-window", wig_application_new_window_action },
 };
+
+static void wig_download_record_free(WigDownloadRecord *record)
+{
+  g_object_unref(record->download);
+  g_free(record);
+}
+
+static void on_download_finished(WebKitDownload *download, WigDownloadRecord *record)
+{
+  g_debug("download: finished '%s'", webkit_download_get_destination(download));
+  if (record->state == WIG_DOWNLOAD_ACTIVE)
+    record->state = WIG_DOWNLOAD_COMPLETE;
+}
+
+static void on_download_failed(WebKitDownload *download, GError *error, WigDownloadRecord *record)
+{
+  g_debug("download: failed '%s': %s", webkit_download_get_destination(download), error->message);
+  if (g_error_matches(error, WEBKIT_DOWNLOAD_ERROR, WEBKIT_DOWNLOAD_ERROR_CANCELLED_BY_USER))
+    record->state = WIG_DOWNLOAD_CANCELLED;
+  else
+    record->state = WIG_DOWNLOAD_FAILED;
+}
+
+static gboolean on_decide_destination(WebKitDownload *download, const char *suggested_filename, gpointer user_data)
+{
+  const char *dir = g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD);
+  g_autofree char *fallback = dir ? NULL : g_build_filename(g_get_home_dir(), "Downloads", NULL);
+  g_autofree char *path = g_build_filename(dir ? dir : fallback, suggested_filename, NULL);
+  webkit_download_set_destination(download, path);
+  return TRUE;
+}
+
+static void on_download_started(WebKitNetworkSession *session, WebKitDownload *download, WigApplication *app)
+{
+  g_debug("download: started '%s'", webkit_uri_request_get_uri(webkit_download_get_request(download)));
+
+  WigDownloadRecord *record = g_new0(WigDownloadRecord, 1);
+  record->download = g_object_ref(download);
+  g_ptr_array_add(app->downloads, record);
+
+  g_signal_connect(download, "decide-destination", G_CALLBACK(on_decide_destination), NULL);
+  g_signal_connect(download, "finished", G_CALLBACK(on_download_finished), record);
+  g_signal_connect(download, "failed", G_CALLBACK(on_download_failed), record);
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (wig_window_focus_tab_by_site(WIG_WINDOW(l->data), "wig:downloads"))
+      return;
+  }
+
+  GtkWindow *active = gtk_application_get_active_window(GTK_APPLICATION(app));
+  wig_application_add_new_tab_with_uri(app, WIG_WINDOW(active), "wig:downloads");
+}
 
 static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpointer user_data)
 {
@@ -113,6 +167,9 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
     WebKitWebsiteDataManager *manager = webkit_network_session_get_website_data_manager(app->network_session);
     handle_website_data_uri(request, manager);
     return; // async
+  } else if (g_str_has_prefix(uri, "wig:downloads")) {
+    scope = handle_downloads_uri(request, app->downloads);
+    html = wig_internal_page_render("/com/igalia/wig/internal-pages/downloads.html", scope);
   } else {
     webkit_uri_scheme_request_finish_error(request, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found"));
     return;
@@ -125,6 +182,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
 static void wig_application_init(WigApplication *app)
 {
   app->closed_tab_history = g_queue_new();
+  app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
 }
 
 static void wig_application_startup(GApplication *application)
@@ -153,6 +211,7 @@ static void wig_application_startup(GApplication *application)
   webkit_network_session_set_itp_enabled(app->network_session, TRUE);
   app->memory_pressure_settings = webkit_memory_pressure_settings_new();
   webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
+  g_signal_connect(app->network_session, "download-started", G_CALLBACK(on_download_started), app);
   app->web_context = webkit_web_context_new();
   webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
   webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
@@ -194,6 +253,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->web_context);
   g_clear_object(&app->web_settings);
   g_clear_pointer(&app->memory_pressure_settings, webkit_memory_pressure_settings_free);
+  g_clear_pointer(&app->downloads, g_ptr_array_unref);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }

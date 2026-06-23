@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset='utf-8'>
+  <title>Downloads</title>
+  <link rel='stylesheet' href='wig:resources/style.css'>
+  <style>
+    .toolbar {
+      display: flex;
+      gap: 0.5rem;
+      margin-block: 1rem;
+    }
+    .btn {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+      border-radius: 4px;
+      font: inherit;
+      font-size: 0.875em;
+      text-decoration: none;
+      color: inherit;
+      cursor: pointer;
+    }
+    .btn:hover {
+      background: color-mix(in srgb, currentColor 10%, transparent);
+    }
+    .btn-danger {
+      border-color: color-mix(in srgb, red 40%, transparent);
+      color: color-mix(in srgb, red 70%, currentColor);
+    }
+    .btn-danger:hover {
+      background: color-mix(in srgb, red 10%, transparent);
+    }
+    .download-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-block: 1rem;
+    }
+    .download {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.25rem 1rem;
+      padding: 0.75rem 1rem;
+      border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+      border-radius: 6px;
+    }
+    .download-name {
+      font-weight: 500;
+      word-break: break-all;
+    }
+    .download-url {
+      font-size: 0.8em;
+      color: color-mix(in srgb, currentColor 55%, transparent);
+      word-break: break-all;
+      grid-column: 1;
+    }
+    .download-meta {
+      font-size: 0.8em;
+      color: color-mix(in srgb, currentColor 65%, transparent);
+      grid-column: 1;
+    }
+    .download-dest {
+      font-size: 0.75em;
+      color: color-mix(in srgb, currentColor 45%, transparent);
+      word-break: break-all;
+      grid-column: 1;
+    }
+    .download-actions {
+      grid-column: 2;
+      grid-row: 1 / -1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      font-size: 0.75em;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .status-badge[data-status=downloading] {
+      background: color-mix(in srgb, royalblue 15%, transparent);
+      color: royalblue;
+    }
+    .status-badge[data-status=complete] {
+      background: color-mix(in srgb, green 15%, transparent);
+      color: color-mix(in srgb, green 70%, currentColor);
+    }
+    .status-badge[data-status=failed] {
+      background: color-mix(in srgb, red 15%, transparent);
+      color: color-mix(in srgb, red 70%, currentColor);
+    }
+    .status-badge[data-status=cancelled] {
+      background: color-mix(in srgb, currentColor 10%, transparent);
+      color: color-mix(in srgb, currentColor 50%, transparent);
+    }
+    .progress-bar {
+      height: 3px;
+      border-radius: 2px;
+      background: color-mix(in srgb, currentColor 12%, transparent);
+      overflow: hidden;
+      grid-column: 1 / -1;
+      margin-block-start: 0.25rem;
+    }
+    .progress-fill {
+      height: 100%;
+      background: royalblue;
+      transition: width 0.3s;
+    }
+    .empty {
+      color: color-mix(in srgb, currentColor 50%, transparent);
+      font-style: italic;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Downloads</h1>
+
+  <div class='toolbar'>
+    <a href='wig:downloads' class='btn'>Refresh</a>
+    {{if (has_completed)}}<a href='wig:downloads?clear=1' class='btn btn-danger'>Clear completed</a>{{end}}
+  </div>
+
+  {{if (has_downloads)}}
+  <div class='download-list'>
+    {{for item in items}}
+    <div class='download'>
+      <span class='download-name'>{{item.filename}}</span>
+      <div class='download-actions'>
+        <span class='status-badge' data-status='{{item.status}}'>{{item.status}}</span>
+        {{if (item.in_progress)}}<a class='btn btn-danger' href='wig:downloads?cancel={{item.index_str}}'>Cancel</a>{{end}}
+        {{if (item.can_trash)}}<a class='btn btn-danger' href='wig:downloads?trash={{item.index_str}}'>Trash</a>{{end}}
+      </div>
+      <span class='download-url'>{{item.url}}</span>
+      <span class='download-meta'>{{item.received}} / {{item.total}} &middot; {{item.progress}}</span>
+      <span class='download-dest'>{{item.destination}}</span>
+      {{if (item.in_progress)}}
+      <div class='progress-bar'><div class='progress-fill' style='width:{{item.progress}}'></div></div>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <p class='empty'>No downloads yet.</p>
+  {{end}}
+
+  <script>
+    if (location.search)
+      history.replaceState({}, '', location.href.split('?')[0]);
+    if (document.querySelectorAll('.status-badge[data-status=downloading]').length > 0)
+      setTimeout(() => location.reload(), 2000);
+  </script>
+</body>
+
+</html>
