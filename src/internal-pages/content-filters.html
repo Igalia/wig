@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset='utf-8'>
+  <title>Content Filters</title>
+  <link rel='stylesheet' href='wig:resources/style.css'>
+</head>
+
+<body>
+  <h1>Content Filters</h1>
+  <p class='desc'>Content blocking rules in <a href='https://webkit.org/blog/3476/content-blockers-first-look/'>WebKit content blocker</a> JSON format.</p>
+
+  {{if (has_filters)}}
+  <div class='script-list'>
+    {{for item in items}}
+    <div class='script-card'>
+      <div class='script-card-header'>
+        <span class='script-meta'>{{item.identifier}}</span>
+        <a class='btn btn-danger' href='wig:content-filters?remove={{item.identifier}}'>Remove</a>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <p class='empty'>No content filters installed.</p>
+  {{end}}
+
+  {{if (error_message)}}
+  <p class='filter-error'>Compilation error: {{error_message}}</p>
+  {{end}}
+
+  <h2 class='section-heading'>Add Filter</h2>
+  <form class='add-form' method='post' action='wig:content-filters'>
+    <label for='identifier'>Name</label>
+    <input type='text' id='identifier' name='identifier' placeholder='my-filter'>
+    <label for='source'>Rules (JSON)</label>
+    <textarea id='source' name='source' rows='10' placeholder='[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]'></textarea>
+    <div class='add-form-footer'>
+      <button type='submit'>Add Filter</button>
+    </div>
+  </form>
+
+  <script>
+    if (location.search)
+      history.replaceState({}, '', location.href.split('?')[0]);
+  </script>
+</body>
+
+</html>

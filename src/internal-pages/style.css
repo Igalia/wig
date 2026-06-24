@@ -589,3 +589,33 @@ tr.active td {
   display: flex;
   justify-content: flex-end;
 }
+
+.add-form input[type=text] {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--view-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 0.4rem 0.75rem;
+  transition: border-color 0.15s;
+}
+
+.add-form input[type=text]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* === Content filters page === */
+
+.filter-error {
+  padding: 0.6rem 1rem;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 0.875em;
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

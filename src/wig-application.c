@@ -21,6 +21,7 @@
  */
 
 #include "wig-application.h"
+#include "internal-pages/wig-content-filters.h"
 #include "internal-pages/wig-downloads.h"
 #include "internal-pages/wig-features.h"
 #include "internal-pages/wig-internal-page.h"
@@ -44,6 +45,7 @@ struct _WigApplication {
   WebKitUserContentManager *user_content_manager;
   GPtrArray *user_scripts;
   GPtrArray *user_style_sheets;
+  WebKitUserContentFilterStore *content_filter_store;
 
   GQueue *closed_tab_history;
 };
@@ -181,6 +183,9 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   } else if (g_str_has_prefix(uri, "wig:user-styles")) {
     handle_user_styles_uri(request, app->user_content_manager, app->user_style_sheets);
     return; // async
+  } else if (g_str_has_prefix(uri, "wig:content-filters")) {
+    handle_content_filters_uri(request, app->user_content_manager, app->content_filter_store);
+    return; // async
   } else {
     webkit_uri_scheme_request_finish_error(request, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found"));
     return;
@@ -226,6 +231,8 @@ static void wig_application_startup(GApplication *application)
   webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
   g_signal_connect(app->network_session, "download-started", G_CALLBACK(on_download_started), app);
   app->user_content_manager = webkit_user_content_manager_new();
+  g_autofree char *filters_dir = g_build_filename(data_dir, "content-filters", NULL);
+  app->content_filter_store = webkit_user_content_filter_store_new(filters_dir);
   app->web_context = webkit_web_context_new();
   webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
   webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
@@ -271,6 +278,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->user_content_manager);
   g_clear_pointer(&app->user_scripts, g_ptr_array_unref);
   g_clear_pointer(&app->user_style_sheets, g_ptr_array_unref);
+  g_clear_object(&app->content_filter_store);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
