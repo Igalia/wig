@@ -50,3 +50,65 @@ char *wig_internal_page_render(const char *resource_path, TmplScope *scope)
 
   return html;
 }
+
+typedef struct {
+  WebKitURISchemeRequest *request;
+  GInputStream *body;
+  GMemoryOutputStream *buffer;
+  WigFormBodyReadyFunc callback;
+  gpointer user_data;
+  GDestroyNotify user_data_destroy;
+} FormBodyState;
+
+static void form_body_state_free(FormBodyState *state)
+{
+  g_object_unref(state->request);
+  g_object_unref(state->body);
+  g_object_unref(state->buffer);
+  if (state->user_data_destroy)
+    state->user_data_destroy(state->user_data);
+  g_free(state);
+}
+
+static void on_form_body_read(GObject *source, GAsyncResult *res, gpointer user_data)
+{
+  FormBodyState *state = user_data;
+  GError *error = NULL;
+  g_autoptr(GHashTable) params = NULL;
+  if (g_output_stream_splice_finish(G_OUTPUT_STREAM(source), res, &error)) {
+    gsize size = g_memory_output_stream_get_data_size(state->buffer);
+    g_autofree char *body = g_strndup(g_memory_output_stream_get_data(state->buffer), size);
+    params = g_uri_parse_params(body, -1, "&", G_URI_PARAMS_WWW_FORM, NULL);
+  } else {
+    g_warning("internal-page: failed to read request body: %s", error->message);
+    g_clear_error(&error);
+  }
+
+  state->callback(state->request, params, state->user_data);
+  form_body_state_free(state);
+}
+
+gboolean wig_internal_page_read_form_body(WebKitURISchemeRequest *request, WigFormBodyReadyFunc callback,
+                                          gpointer user_data, GDestroyNotify user_data_destroy)
+{
+  const char *method = webkit_uri_scheme_request_get_http_method(request);
+  g_autoptr(GInputStream) body = webkit_uri_scheme_request_get_http_body(request);
+
+  if (g_strcmp0(method, "POST") != 0 || !body) {
+    if (user_data_destroy)
+      user_data_destroy(user_data);
+    return FALSE;
+  }
+
+  FormBodyState *state = g_new0(FormBodyState, 1);
+  state->request = g_object_ref(request);
+  state->body = g_steal_pointer(&body);
+  state->buffer = G_MEMORY_OUTPUT_STREAM(g_memory_output_stream_new_resizable());
+  state->callback = callback;
+  state->user_data = user_data;
+  state->user_data_destroy = user_data_destroy;
+  g_output_stream_splice_async(G_OUTPUT_STREAM(state->buffer), state->body,
+                               G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE | G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
+                               G_PRIORITY_DEFAULT, NULL, on_form_body_read, state);
+  return TRUE;
+}

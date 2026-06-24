@@ -60,6 +60,13 @@ typedef struct {
   WebKitUserScript *script;
 } WigUserScriptRecord;
 
+typedef struct {
+  char *source;
+  WebKitUserStyleLevel level;
+  WebKitUserContentInjectedFrames injected_frames;
+  WebKitUserStyleSheet *stylesheet;
+} WigUserStyleSheetRecord;
+
 WigApplication *wig_application_new(void);
 WigApplication *wig_application_get(void);
 WPEDisplay *wig_application_get_display(WigApplication *app);

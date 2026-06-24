@@ -20,17 +20,17 @@
  * SOFTWARE.
  */
 
-#include "wig-user-scripts.h"
+#include "wig-user-styles.h"
 #include "wig-internal-page.h"
 
-void wig_user_script_record_free(WigUserScriptRecord *record)
+void wig_user_style_sheet_record_free(WigUserStyleSheetRecord *record)
 {
   g_free(record->source);
-  webkit_user_script_unref(record->script);
+  webkit_user_style_sheet_unref(record->stylesheet);
   g_free(record);
 }
 
-static void add_script_item(GVariantBuilder *items_builder, WigUserScriptRecord *record, guint index)
+static void add_style_sheet_item(GVariantBuilder *items_builder, WigUserStyleSheetRecord *record, guint index)
 {
   g_autofree char *index_str = g_strdup_printf("%u", index);
   g_autofree char *source = g_markup_escape_text(record->source, -1);
@@ -42,8 +42,7 @@ static void add_script_item(GVariantBuilder *items_builder, WigUserScriptRecord 
   }
   g_autofree char *line_count = g_strdup_printf("%u line%s", lines, lines == 1 ? "" : "s");
 
-  const char *time_label = record->injection_time == WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START ? "Document Start"
-                                                                                                 : "Document End";
+  const char *level_label = record->level == WEBKIT_USER_STYLE_LEVEL_AUTHOR ? "Author Level" : "User Level";
 
   const char *frames_label = record->injected_frames == WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES ? "All Frames"
                                                                                               : "Top Frame Only";
@@ -53,93 +52,93 @@ static void add_script_item(GVariantBuilder *items_builder, WigUserScriptRecord 
   g_variant_builder_add(&item_builder, "{sv}", "index_str", g_variant_new_string(index_str));
   g_variant_builder_add(&item_builder, "{sv}", "source", g_variant_new_string(source));
   g_variant_builder_add(&item_builder, "{sv}", "line_count", g_variant_new_string(line_count));
-  g_variant_builder_add(&item_builder, "{sv}", "time_label", g_variant_new_string(time_label));
+  g_variant_builder_add(&item_builder, "{sv}", "level_label", g_variant_new_string(level_label));
   g_variant_builder_add(&item_builder, "{sv}", "frames_label", g_variant_new_string(frames_label));
   g_variant_builder_add_value(items_builder, g_variant_builder_end(&item_builder));
 }
 
-static void add_script_from_params(WebKitUserContentManager *manager, GPtrArray *scripts, GHashTable *params)
+static void add_style_sheet_from_params(WebKitUserContentManager *manager, GPtrArray *style_sheets, GHashTable *params)
 {
   const char *source_val = g_hash_table_lookup(params, "source");
   if (!source_val || !*source_val)
     return;
 
-  const char *time_val = g_hash_table_lookup(params, "time");
+  const char *level_val = g_hash_table_lookup(params, "level");
   const char *frames_val = g_hash_table_lookup(params, "frames");
 
-  WebKitUserScriptInjectionTime injection_time = (g_strcmp0(time_val, "end") == 0)
-      ? WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END
-      : WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START;
+  WebKitUserStyleLevel level = (g_strcmp0(level_val, "author") == 0) ? WEBKIT_USER_STYLE_LEVEL_AUTHOR
+                                                                     : WEBKIT_USER_STYLE_LEVEL_USER;
 
   WebKitUserContentInjectedFrames injected_frames = (g_strcmp0(frames_val, "top") == 0)
       ? WEBKIT_USER_CONTENT_INJECT_TOP_FRAME
       : WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES;
 
-  g_autoptr(WebKitUserScript) script = webkit_user_script_new(source_val, injected_frames, injection_time, NULL, NULL);
+  g_autoptr(WebKitUserStyleSheet) stylesheet = webkit_user_style_sheet_new(source_val, injected_frames, level, NULL,
+                                                                           NULL);
 
-  WigUserScriptRecord *record = g_new0(WigUserScriptRecord, 1);
+  WigUserStyleSheetRecord *record = g_new0(WigUserStyleSheetRecord, 1);
   record->source = g_strdup(source_val);
-  record->injection_time = injection_time;
+  record->level = level;
   record->injected_frames = injected_frames;
-  record->script = g_steal_pointer(&script);
+  record->stylesheet = g_steal_pointer(&stylesheet);
 
-  webkit_user_content_manager_add_script(manager, record->script);
-  g_ptr_array_add(scripts, record);
+  webkit_user_content_manager_add_style_sheet(manager, record->stylesheet);
+  g_ptr_array_add(style_sheets, record);
 
-  g_debug("user-scripts: added script (%s, %s), total %u",
-          injection_time == WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START ? "start" : "end",
-          injected_frames == WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES ? "all" : "top", scripts->len);
+  g_debug("user-styles: added style sheet (%s, %s), total %u",
+          level == WEBKIT_USER_STYLE_LEVEL_AUTHOR ? "author" : "user",
+          injected_frames == WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES ? "all" : "top", style_sheets->len);
 }
 
-static void finish_request(WebKitURISchemeRequest *request, GPtrArray *scripts)
+static void finish_request(WebKitURISchemeRequest *request, GPtrArray *style_sheets)
 {
   GVariantBuilder items_builder;
   g_variant_builder_init(&items_builder, G_VARIANT_TYPE("aa{sv}"));
-  for (guint i = 0; i < scripts->len; i++)
-    add_script_item(&items_builder, g_ptr_array_index(scripts, i), i);
+  for (guint i = 0; i < style_sheets->len; i++)
+    add_style_sheet_item(&items_builder, g_ptr_array_index(style_sheets, i), i);
 
   g_autoptr(TmplScope) scope = tmpl_scope_new();
   tmpl_scope_set_variant(scope, "items", g_variant_builder_end(&items_builder));
-  tmpl_scope_set_boolean(scope, "has_scripts", scripts->len > 0);
+  tmpl_scope_set_boolean(scope, "has_styles", style_sheets->len > 0);
 
-  g_autofree char *html = wig_internal_page_render("/com/igalia/wig/internal-pages/user-scripts.html", scope);
+  g_autofree char *html = wig_internal_page_render("/com/igalia/wig/internal-pages/user-styles.html", scope);
   g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_data(g_steal_pointer(&html), -1, g_free);
   webkit_uri_scheme_request_finish(request, stream, -1, "text/html; charset=utf-8");
 }
 
 typedef struct {
   WebKitUserContentManager *manager;
-  GPtrArray *scripts;
-} ScriptsContext;
+  GPtrArray *style_sheets;
+} StylesContext;
 
-static ScriptsContext *scripts_context_new(WebKitUserContentManager *manager, GPtrArray *scripts)
+static StylesContext *styles_context_new(WebKitUserContentManager *manager, GPtrArray *style_sheets)
 {
-  ScriptsContext *ctx = g_new0(ScriptsContext, 1);
+  StylesContext *ctx = g_new0(StylesContext, 1);
   ctx->manager = g_object_ref(manager);
-  ctx->scripts = scripts;
+  ctx->style_sheets = style_sheets;
   return ctx;
 }
 
-static void scripts_context_free(gpointer data)
+static void styles_context_free(gpointer data)
 {
-  ScriptsContext *ctx = data;
+  StylesContext *ctx = data;
   g_object_unref(ctx->manager);
   g_free(ctx);
 }
 
 static void on_body_read(WebKitURISchemeRequest *request, GHashTable *params, gpointer user_data)
 {
-  ScriptsContext *ctx = user_data;
+  StylesContext *ctx = user_data;
   if (params)
-    add_script_from_params(ctx->manager, ctx->scripts, params);
-  finish_request(request, ctx->scripts);
+    add_style_sheet_from_params(ctx->manager, ctx->style_sheets, params);
+  finish_request(request, ctx->style_sheets);
 }
 
-void handle_user_scripts_uri(WebKitURISchemeRequest *request, WebKitUserContentManager *manager, GPtrArray *scripts)
+void handle_user_styles_uri(WebKitURISchemeRequest *request, WebKitUserContentManager *manager, GPtrArray *style_sheets)
 {
-  /* New scripts are submitted via a POST form. */
-  if (wig_internal_page_read_form_body(request, on_body_read, scripts_context_new(manager, scripts),
-                                       scripts_context_free))
+  /* New style sheets are submitted via a POST form. */
+  if (wig_internal_page_read_form_body(request, on_body_read, styles_context_new(manager, style_sheets),
+                                       styles_context_free))
     return;
 
   /* Removal is a plain GET link carrying the index in the query. */
@@ -152,14 +151,14 @@ void handle_user_scripts_uri(WebKitURISchemeRequest *request, WebKitUserContentM
     const char *remove_val = params ? g_hash_table_lookup(params, "remove") : NULL;
     if (remove_val) {
       guint64 idx = g_ascii_strtoull(remove_val, NULL, 10);
-      if (idx < scripts->len) {
-        WigUserScriptRecord *record = g_ptr_array_index(scripts, idx);
-        g_debug("user-scripts: removing index %" G_GUINT64_FORMAT, idx);
-        webkit_user_content_manager_remove_script(manager, record->script);
-        g_ptr_array_remove_index(scripts, (guint)idx);
+      if (idx < style_sheets->len) {
+        WigUserStyleSheetRecord *record = g_ptr_array_index(style_sheets, idx);
+        g_debug("user-styles: removing index %" G_GUINT64_FORMAT, idx);
+        webkit_user_content_manager_remove_style_sheet(manager, record->stylesheet);
+        g_ptr_array_remove_index(style_sheets, (guint)idx);
       }
     }
   }
 
-  finish_request(request, scripts);
+  finish_request(request, style_sheets);
 }
