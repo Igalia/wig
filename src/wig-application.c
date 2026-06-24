@@ -227,6 +227,8 @@ static void wig_application_startup(GApplication *application)
   g_autofree char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
   webkit_network_session_set_itp_enabled(app->network_session, TRUE);
+  webkit_website_data_manager_set_favicons_enabled(
+      webkit_network_session_get_website_data_manager(app->network_session), TRUE);
   app->memory_pressure_settings = webkit_memory_pressure_settings_new();
   webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
   g_signal_connect(app->network_session, "download-started", G_CALLBACK(on_download_started), app);

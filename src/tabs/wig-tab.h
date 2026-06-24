@@ -22,17 +22,33 @@
 
 #pragma once
 
-#include <adwaita.h>
+#include <gio/gio.h>
 #include <gtk/gtk.h>
 #include <wpe/webkit.h>
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_TAB_VIEW (wig_tab_view_get_type())
-G_DECLARE_FINAL_TYPE(WigTabView, wig_tab_view, WIG, TAB_VIEW, AdwBin)
+/* Favicons are rendered at a single fixed icon size.  The tab's minimum width is
+ * derived from it (so a fully collapsed tab is exactly a favicon plus padding),
+ * and it is the size the page-icon picker matches against. */
+// FIXME: This should be dynamic based upon scale (gtk_widget_get_scale_factor())
+// My comment in wig_tab_on_page_icons_changed() may be relevant.
+// We should detach this model from the presentation in the view.
+#define WIG_TAB_FAVICON_SIZE 16
 
-GtkWidget *wig_tab_view_new(WebKitWebView *web_view);
-WebKitWebView *wig_tab_view_get_web_view(WigTabView *tab_view);
-void wig_tab_view_grab_focus(WigTabView *tab_view);
+#define WIG_TYPE_TAB (wig_tab_get_type())
+G_DECLARE_FINAL_TYPE(WigTab, wig_tab, WIG, TAB, GObject)
+
+WigTab *wig_tab_new(WebKitWebView *web_view);
+WebKitWebView *wig_tab_get_web_view(WigTab *self);
+GtkWidget *wig_tab_get_widget(WigTab *self);
+GIcon *wig_tab_get_icon(WigTab *self);
+void wig_tab_set_icon(WigTab *self, GIcon *icon);
+const char *wig_tab_get_title(WigTab *self);
+gboolean wig_tab_get_pinned(WigTab *self);
+void wig_tab_set_pinned(WigTab *self, gboolean pinned);
+gboolean wig_tab_get_loading(WigTab *self);
+gboolean wig_tab_get_selected(WigTab *self);
+void wig_tab_set_selected(WigTab *self, gboolean selected);
 
 G_END_DECLS

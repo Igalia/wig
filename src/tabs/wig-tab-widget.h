@@ -22,15 +22,17 @@
 
 #pragma once
 
-#include "wig-application.h"
+#include <gtk/gtk.h>
+
+#include "wig-tab.h"
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_WINDOW (wig_window_get_type())
-G_DECLARE_FINAL_TYPE(WigWindow, wig_window, WIG, WINDOW, GtkApplicationWindow)
+#define WIG_TYPE_TAB_WIDGET (wig_tab_widget_get_type())
+G_DECLARE_FINAL_TYPE(WigTabWidget, wig_tab_widget, WIG, TAB_WIDGET, GtkWidget)
 
-WigWindow *wig_window_new(WigApplication *application);
-void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
-gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri);
+GtkWidget *wig_tab_widget_new(WigTab *tab);
+WigTab *wig_tab_widget_get_tab(WigTabWidget *self);
+void wig_tab_widget_set_width(WigTabWidget *self, int width);
 
 G_END_DECLS

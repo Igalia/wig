@@ -23,13 +23,14 @@
 #include "wig-window.h"
 
 #include "wig-application.h"
-#include "wig-tab-view.h"
+#include "wig-tab-bar.h"
+#include "wig-tab-list.h"
 #include "wig-utils.h"
 #include "wpe-toplevel-gtk.h"
 #include "wpe-view-gtk.h"
 
 struct _WigWindow {
-  AdwApplicationWindow parent;
+  GtkApplicationWindow parent;
 
   guint id;
 
@@ -41,16 +42,16 @@ struct _WigWindow {
   GtkWidget *stop_reload_button;
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
-  AdwTabBar *tab_bar;
-  AdwTabView *tab_view;
-  GtkWidget *tab_overview;
+  WigTabList *tab_list;
+  GtkWidget *tab_bar;
+  GtkWidget *tab_stack;
   GtkWidget *overview_button;
   WebKitWebView *current_web_view;
   guint progress_timeout_id;
   GActionGroup *context_menu_action_group;
 };
 
-G_DEFINE_FINAL_TYPE(WigWindow, wig_window, ADW_TYPE_APPLICATION_WINDOW)
+G_DEFINE_FINAL_TYPE(WigWindow, wig_window, GTK_TYPE_APPLICATION_WINDOW)
 
 enum { PROP_0, PROP_ID, N_PROPS };
 static GParamSpec *props[N_PROPS];
@@ -126,17 +127,19 @@ static void wig_window_change_stop_reload_state(GSimpleAction *action, GVariant 
   g_simple_action_set_state(G_SIMPLE_ACTION(action), state);
 }
 
-static AdwTabPage *wig_window_get_tab_page_for_web_view(WigWindow *win, WebKitWebView *web_view)
+static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *web_view)
 {
-  int n_pages = adw_tab_view_get_n_pages(win->tab_view);
-  for (int i = 0; i < n_pages; i++) {
-    AdwTabPage *tab_page = adw_tab_view_get_nth_page(win->tab_view, i);
-    WigTabView *tab_view = WIG_TAB_VIEW(adw_tab_page_get_child(tab_page));
+  /* A web view can emit "close" while the window is tearing down, after the tab
+   * list has already been cleared. */
+  if (!win->tab_list)
+    return NULL;
 
-    if (wig_tab_view_get_web_view(tab_view) == web_view)
-      return tab_page;
+  guint n = wig_tab_list_get_n_tabs(win->tab_list);
+  for (guint i = 0; i < n; i++) {
+    WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
+    if (wig_tab_get_web_view(tab) == web_view)
+      return g_steal_pointer(&tab);
   }
-
   return NULL;
 }
 
@@ -156,15 +159,12 @@ static void wig_window_save_tab_to_history(WigWindow *win, WebKitWebView *web_vi
   wig_application_push_closed_group(WIG_APPLICATION(wig_application_get()), group);
 }
 
-static gboolean wig_window_tab_close_page(AdwTabView *tab_view_adw, AdwTabPage *page, WigWindow *win)
+static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *win)
 {
-  WigTabView *tab_view = WIG_TAB_VIEW(adw_tab_page_get_child(page));
-  WebKitWebView *web_view = wig_tab_view_get_web_view(tab_view);
-
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
   wig_window_save_tab_to_history(win, web_view);
 
-  if (adw_tab_view_get_n_pages(tab_view_adw) == 1) {
-    adw_tab_view_close_page_finish(tab_view_adw, page, TRUE);
+  if (wig_tab_list_get_n_tabs(list) == 1) {
     gtk_window_destroy(GTK_WINDOW(win));
     return TRUE;
   }
@@ -174,16 +174,9 @@ static gboolean wig_window_tab_close_page(AdwTabView *tab_view_adw, AdwTabPage *
 
 static void wig_window_close_tab(WigWindow *win, WebKitWebView *web_view)
 {
-  AdwTabPage *tab_page = wig_window_get_tab_page_for_web_view(win, web_view);
-  if (tab_page)
-    adw_tab_view_close_page(win->tab_view, tab_page);
-}
-
-static gboolean wig_window_transform_tab_title(GBinding *binding, const GValue *from, GValue *to, gpointer user_data)
-{
-  const char *title = g_value_get_string(from);
-  g_value_set_string(to, (title && *title) ? title : "New Tab");
-  return TRUE;
+  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
+  if (tab)
+    wig_tab_list_close(win->tab_list, tab);
 }
 
 gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
@@ -195,11 +188,10 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
   const char *lookup_scheme = g_uri_get_scheme(lookup);
   const char *lookup_host = g_uri_get_host(lookup);
 
-  int n_pages = adw_tab_view_get_n_pages(win->tab_view);
-  for (int i = 0; i < n_pages; i++) {
-    AdwTabPage *page = adw_tab_view_get_nth_page(win->tab_view, i);
-    WigTabView *tab_view = WIG_TAB_VIEW(adw_tab_page_get_child(page));
-    WebKitWebView *web_view = wig_tab_view_get_web_view(tab_view);
+  guint n = wig_tab_list_get_n_tabs(win->tab_list);
+  for (guint i = 0; i < n; i++) {
+    WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
+    WebKitWebView *web_view = wig_tab_get_web_view(tab);
     const char *tab_uri = webkit_web_view_get_uri(web_view);
     if (!tab_uri)
       continue;
@@ -218,7 +210,7 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
       match = g_str_equal(lookup_scheme, tab_scheme);
 
     if (match) {
-      adw_tab_view_set_selected_page(win->tab_view, page);
+      wig_tab_list_set_active(win->tab_list, tab);
       webkit_web_view_reload(web_view);
       return TRUE;
     }
@@ -226,40 +218,31 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
   return FALSE;
 }
 
-static AdwTabPage *wig_window_add_tab_page_for_view(WigWindow *win, WebKitWebView *web_view)
+static WigTab *wig_window_add_tab_for_view(WigWindow *win, WebKitWebView *web_view)
 {
-  GtkWidget *tab_view = wig_tab_view_new(web_view);
-  AdwTabPage *tab_page = adw_tab_view_append(win->tab_view, tab_view);
-  g_object_bind_property_full(G_OBJECT(web_view), "title", tab_page, "title", G_BINDING_SYNC_CREATE,
-                              wig_window_transform_tab_title, NULL, NULL, NULL);
-  g_object_bind_property(G_OBJECT(web_view), "is-loading", tab_page, "loading", G_BINDING_SYNC_CREATE);
+  WigTab *tab = wig_tab_list_append(win->tab_list, web_view);
 
   g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
 
   wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), win->toplevel);
 
-  return tab_page;
+  return tab;
 }
 
 static WebKitWebView *wig_window_create_web_view_for_new_tab(WigWindow *win)
 {
-  return wig_application_create_web_view(wig_application_get());
+  WebKitWebView *view = wig_application_create_web_view(wig_application_get());
+  webkit_web_view_load_uri(view, "about:blank");
+  return view;
 }
 
 static void wig_window_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
   g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
-  AdwTabPage *tab_page = wig_window_add_tab_page_for_view(win, web_view);
-  adw_tab_view_set_selected_page(win->tab_view, tab_page);
+  WigTab *tab = wig_window_add_tab_for_view(win, web_view);
+  wig_tab_list_set_active(win->tab_list, tab);
   gtk_widget_grab_focus(win->url_entry);
-}
-
-static void wig_window_tab_overview(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  adw_tab_overview_set_open(ADW_TAB_OVERVIEW(win->tab_overview),
-                            !adw_tab_overview_get_open(ADW_TAB_OVERVIEW(win->tab_overview)));
 }
 
 static void wig_window_focus_entry(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -328,24 +311,24 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
   if (!target_win)
     target_win = g_object_new(WIG_TYPE_WINDOW, "id", group->window_id, "application", app, NULL);
 
-  AdwTabPage *focused_page = NULL;
+  WigTab *focused_tab = NULL;
   for (GSList *l = group->tabs; l; l = g_slist_next(l)) {
     WigClosedTab *closed_tab = l->data;
     g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
     webkit_web_view_restore_session_state(web_view, closed_tab->state);
 
-    WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(web_view);
-    WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
+    WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(web_view);
+    WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(bfl);
     if (item)
       webkit_web_view_go_to_back_forward_list_item(web_view, item);
 
-    AdwTabPage *tab_page = wig_window_add_tab_page_for_view(target_win, web_view);
+    WigTab *tab = wig_window_add_tab_for_view(target_win, web_view);
     if (closed_tab->was_focused)
-      focused_page = tab_page;
+      focused_tab = tab;
   }
 
-  if (focused_page)
-    adw_tab_view_set_selected_page(target_win->tab_view, focused_page);
+  if (focused_tab)
+    wig_tab_list_set_active(target_win->tab_list, focused_tab);
 
   if (target_win != win)
     gtk_window_present(GTK_WINDOW(target_win));
@@ -385,7 +368,6 @@ static const GActionEntry actions[] = {
   { "go-forward", wig_window_go_forward },
   { "stop-reload", wig_window_stop_reload, NULL, "false", wig_window_change_stop_reload_state },
   { "new-tab", wig_window_new_tab },
-  { "tab-overview", wig_window_tab_overview },
   { "focus-entry", wig_window_focus_entry },
   { "close-tab", wig_window_close_tab_action },
   { "reload", wig_window_reload },
@@ -401,8 +383,8 @@ static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *paramete
 {
   WigWindow *win = WIG_WINDOW(user_data);
   g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
-  AdwTabPage *tab_page = wig_window_add_tab_page_for_view(win, web_view);
-  adw_tab_view_set_selected_page(win->tab_view, tab_page);
+  WigTab *tab = wig_window_add_tab_for_view(win, web_view);
+  wig_tab_list_set_active(win->tab_list, tab);
   if (parameter) {
     const char *uri = g_variant_get_string(parameter, NULL);
     if (uri)
@@ -442,7 +424,9 @@ static void wig_window_load_url(WigWindow *win)
 
   g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)));
   webkit_web_view_load_uri(win->current_web_view, complete_uri);
-  wig_tab_view_grab_focus(WIG_TAB_VIEW(adw_tab_page_get_child(adw_tab_view_get_selected_page(win->tab_view))));
+  WigTab *selected = wig_tab_list_get_active(win->tab_list);
+  if (selected)
+    gtk_widget_grab_focus(wig_tab_get_widget(selected));
 }
 
 static void wig_window_update_navigation_actions(WigWindow *win)
@@ -476,7 +460,7 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
     return FALSE;
 
   g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
-  wig_window_add_tab_page_for_view(win, web_view);
+  wig_window_add_tab_for_view(win, web_view);
   webkit_web_view_load_request(web_view, webkit_navigation_action_get_request(action));
 
   webkit_policy_decision_ignore(decision);
@@ -578,11 +562,21 @@ static void wig_window_fullscreen_changed(WigWindow *win)
 {
   bool is_fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
 
-  gtk_widget_set_visible(GTK_WIDGET(win->header_bar), !is_fullscreen);
-  gtk_widget_set_visible(GTK_WIDGET(win->tab_bar), !is_fullscreen);
+  gtk_widget_set_visible(win->header_bar, !is_fullscreen);
+  gtk_widget_set_visible(win->tab_bar, !is_fullscreen);
 }
 
-static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpec *pspec, WigWindow *win)
+static void wig_window_tab_added(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
+{
+  gtk_stack_add_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
+}
+
+static void wig_window_tab_removed(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
+{
+  gtk_stack_remove(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
+}
+
+static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, WigTabList *list)
 {
   g_autoptr(WebKitWebView) previous_web_view = g_steal_pointer(&win->current_web_view);
 
@@ -593,8 +587,11 @@ static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpe
     g_signal_handlers_disconnect_by_data(backForwardlist, win);
   }
 
-  AdwTabPage *tab_page = adw_tab_view_get_selected_page(tab_view_adw);
-  win->current_web_view = tab_page ? wig_tab_view_get_web_view(WIG_TAB_VIEW(adw_tab_page_get_child(tab_page))) : NULL;
+  WigTab *tab = wig_tab_list_get_active(win->tab_list);
+  win->current_web_view = tab ? wig_tab_get_web_view(tab) : NULL;
+
+  if (tab)
+    gtk_stack_set_visible_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
 
   wig_window_update_url(win);
   wig_window_update_navigation_actions(win);
@@ -624,10 +621,10 @@ static void wig_window_selected_page_changed(AdwTabView *tab_view_adw, GParamSpe
   }
 }
 
-static AdwTabPage *wig_window_create_tab(WigWindow *win)
+static WigTab *wig_window_create_tab(WigWindow *win)
 {
   wig_window_new_tab(NULL, NULL, win);
-  return adw_tab_view_get_selected_page(win->tab_view);
+  return wig_tab_list_get_active(win->tab_list);
 }
 
 static void wig_window_constructed(GObject *object)
@@ -645,10 +642,9 @@ static void wig_window_constructed(GObject *object)
   g_signal_connect(win, "notify::fullscreened", G_CALLBACK(wig_window_fullscreen_changed), NULL);
 
   win->toolbar_view = adw_toolbar_view_new();
-  adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(win->toolbar_view), ADW_TOOLBAR_RAISED_BORDER);
+  adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(win->toolbar_view), ADW_TOOLBAR_FLAT);
 
-  win->header_bar = adw_header_bar_new();
-  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(win->toolbar_view), win->header_bar);
+  win->header_bar = gtk_header_bar_new();
 
   GtkWidget *start_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
@@ -671,12 +667,7 @@ static void wig_window_constructed(GObject *object)
   gtk_widget_add_css_class(win->stop_reload_button, "toolbar-button");
   gtk_box_append(GTK_BOX(start_box), win->stop_reload_button);
 
-  win->new_tab_button = gtk_button_new_from_icon_name("tab-new-symbolic");
-  gtk_actionable_set_action_name(GTK_ACTIONABLE(win->new_tab_button), "win.new-tab");
-  gtk_widget_add_css_class(win->new_tab_button, "toolbar-button");
-  gtk_box_append(GTK_BOX(start_box), win->new_tab_button);
-
-  adw_header_bar_pack_start(ADW_HEADER_BAR(win->header_bar), start_box);
+  gtk_header_bar_pack_start(GTK_HEADER_BAR(win->header_bar), start_box);
 
   win->url_entry = gtk_entry_new();
   g_signal_connect_object(win->url_entry, "activate", G_CALLBACK(wig_window_load_url), win, G_CONNECT_SWAPPED);
@@ -685,34 +676,29 @@ static void wig_window_constructed(GObject *object)
   adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 860);
   adw_clamp_set_tightening_threshold(ADW_CLAMP(clamp), 560);
   adw_clamp_set_child(ADW_CLAMP(clamp), win->url_entry);
-  adw_header_bar_set_title_widget(ADW_HEADER_BAR(win->header_bar), clamp);
+  gtk_header_bar_set_title_widget(GTK_HEADER_BAR(win->header_bar), clamp);
 
-  win->tab_bar = adw_tab_bar_new();
-  adw_tab_bar_set_autohide(win->tab_bar, TRUE);
-  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(win->toolbar_view), GTK_WIDGET(win->tab_bar));
+  win->tab_list = wig_tab_list_new();
+  g_signal_connect_object(win->tab_list, "close-tab", G_CALLBACK(wig_window_tab_close), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "notify::active-tab", G_CALLBACK(wig_window_active_tab_changed), win,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(win->tab_list, "tab-added", G_CALLBACK(wig_window_tab_added), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "tab-removed", G_CALLBACK(wig_window_tab_removed), win, G_CONNECT_DEFAULT);
 
-  win->tab_view = adw_tab_view_new();
-  g_signal_connect(win->tab_view, "notify::selected-page", G_CALLBACK(wig_window_selected_page_changed), win);
-  g_signal_connect(win->tab_view, "close-page", G_CALLBACK(wig_window_tab_close_page), win);
-  adw_tab_bar_set_view(win->tab_bar, win->tab_view);
-  adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(win->toolbar_view), GTK_WIDGET(win->tab_view));
+  GtkWidget *content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
-  win->tab_overview = adw_tab_overview_new();
-  adw_tab_overview_set_enable_new_tab(ADW_TAB_OVERVIEW(win->tab_overview), TRUE);
-  g_signal_connect_object(win->tab_overview, "create-tab", G_CALLBACK(wig_window_create_tab), win, G_CONNECT_SWAPPED);
-  adw_tab_overview_set_view(ADW_TAB_OVERVIEW(win->tab_overview), win->tab_view);
-  adw_tab_overview_set_child(ADW_TAB_OVERVIEW(win->tab_overview), win->toolbar_view);
+  win->tab_bar = wig_tab_bar_new(win->tab_list);
+  g_signal_connect_object(win->tab_bar, "close-tab", G_CALLBACK(wig_tab_list_close), win->tab_list, G_CONNECT_SWAPPED);
+  g_signal_connect_object(win->tab_list, "create-tab", G_CALLBACK(wig_window_create_tab), win, G_CONNECT_SWAPPED);
+  gtk_box_append(GTK_BOX(content_box), win->tab_bar);
 
-  GtkWidget *end_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append(GTK_BOX(content_box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
-  win->overview_button = gtk_button_new_from_icon_name("view-grid-symbolic");
-  gtk_actionable_set_action_name(GTK_ACTIONABLE(win->overview_button), "win.tab-overview");
-  gtk_widget_add_css_class(win->overview_button, "toolbar-button");
-  gtk_box_append(GTK_BOX(end_box), win->overview_button);
-
-  adw_header_bar_pack_end(ADW_HEADER_BAR(win->header_bar), end_box);
-
-  adw_application_window_set_content(ADW_APPLICATION_WINDOW(win), win->tab_overview);
+  win->tab_stack = gtk_stack_new();
+  gtk_widget_set_vexpand(win->tab_stack, TRUE);
+  gtk_box_append(GTK_BOX(content_box), win->tab_stack);
+  gtk_window_set_child(GTK_WINDOW(win), content_box);
+  gtk_window_set_titlebar(GTK_WINDOW(win), win->header_bar);
 
   WigApplication *app = wig_application_get();
   win->toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(wig_application_get_display(app)), 0, GTK_WINDOW(win));
@@ -726,25 +712,24 @@ static void wig_window_dispose(GObject *object)
   WigWindow *win = WIG_WINDOW(object);
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
 
-  if (win->tab_view) {
+  if (win->tab_list) {
     WigApplication *app = wig_application_get();
-    int n_pages = adw_tab_view_get_n_pages(win->tab_view);
-    if (n_pages > 0) {
+    guint n_tabs = wig_tab_list_get_n_tabs(win->tab_list);
+    if (n_tabs > 0) {
       WigClosedGroup *group = g_new(WigClosedGroup, 1);
       group->window_id = win->id;
       group->tabs = NULL;
 
-      for (int i = 0; i < n_pages; i++) {
-        AdwTabPage *tab_page = adw_tab_view_get_nth_page(win->tab_view, i);
-        WigTabView *tab_view = WIG_TAB_VIEW(adw_tab_page_get_child(tab_page));
-        WebKitWebView *wv = wig_tab_view_get_web_view(tab_view);
+      for (guint i = 0; i < n_tabs; i++) {
+        WigTab *item = wig_tab_list_get_nth(win->tab_list, i);
+        WebKitWebView *wv = wig_tab_get_web_view(item);
         WebKitWebViewSessionState *state = webkit_web_view_get_session_state(wv);
 
         if (state) {
-          WigClosedTab *tab = g_new(WigClosedTab, 1);
-          tab->state = state;
-          tab->was_focused = (wv == win->current_web_view);
-          group->tabs = g_slist_prepend(group->tabs, tab);
+          WigClosedTab *closed = g_new(WigClosedTab, 1);
+          closed->state = state;
+          closed->was_focused = (wv == win->current_web_view);
+          group->tabs = g_slist_prepend(group->tabs, closed);
         }
       }
       group->tabs = g_slist_reverse(group->tabs);
@@ -754,6 +739,7 @@ static void wig_window_dispose(GObject *object)
       else
         wig_closed_group_free(group);
     }
+    g_clear_object(&win->tab_list);
   }
 
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
@@ -798,6 +784,5 @@ void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view)
   g_return_if_fail(WIG_IS_WINDOW(win));
   g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
 
-  AdwTabPage *tab_page = wig_window_add_tab_page_for_view(win, web_view);
-  adw_tab_view_set_selected_page(win->tab_view, tab_page);
+  wig_window_add_tab_for_view(win, web_view);
 }

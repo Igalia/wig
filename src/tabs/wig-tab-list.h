@@ -22,15 +22,27 @@
 
 #pragma once
 
-#include "wig-application.h"
+#include <gtk/gtk.h>
+#include <wpe/webkit.h>
+
+#include "wig-tab.h"
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_WINDOW (wig_window_get_type())
-G_DECLARE_FINAL_TYPE(WigWindow, wig_window, WIG, WINDOW, GtkApplicationWindow)
+#define WIG_TYPE_TAB_LIST (wig_tab_list_get_type())
+G_DECLARE_FINAL_TYPE(WigTabList, wig_tab_list, WIG, TAB_LIST, GObject)
 
-WigWindow *wig_window_new(WigApplication *application);
-void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
-gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri);
+WigTabList *wig_tab_list_new(void);
+
+WigTab *wig_tab_list_append(WigTabList *self, WebKitWebView *web_view);
+void wig_tab_list_close(WigTabList *self, WigTab *tab);
+void wig_tab_list_move(WigTabList *self, WigTab *tab, guint new_index);
+
+guint wig_tab_list_get_n_tabs(WigTabList *self);
+WigTab *wig_tab_list_get_nth(WigTabList *self, guint i);
+guint wig_tab_list_index_of(WigTabList *self, WigTab *tab);
+
+WigTab *wig_tab_list_get_active(WigTabList *self);
+void wig_tab_list_set_active(WigTabList *self, WigTab *tab);
 
 G_END_DECLS
