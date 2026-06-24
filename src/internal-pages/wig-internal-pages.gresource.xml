@@ -8,5 +8,6 @@
     <file>website-data.html</file>
     <file>downloads.html</file>
     <file>user-scripts.html</file>
+    <file>user-styles.html</file>
   </gresource>
 </gresources>

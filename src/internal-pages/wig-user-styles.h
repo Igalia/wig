@@ -22,29 +22,11 @@
 
 #pragma once
 
+#include "../wig-application.h"
 #include <tmpl-glib.h>
 #include <wpe/webkit.h>
 
-char *wig_internal_page_render(const char *resource_path, TmplScope *scope);
+void wig_user_style_sheet_record_free(WigUserStyleSheetRecord *record);
 
-/**
- * WigFormBodyReadyFunc:
- * @request: the request whose body was read
- * @params: (nullable): the parsed form parameters, or %NULL if reading failed
- * @user_data: the data passed to wig_internal_page_read_form_body()
- *
- * Called once a request body has been read and parsed.
- */
-typedef void (*WigFormBodyReadyFunc)(WebKitURISchemeRequest *request, GHashTable *params, gpointer user_data);
-
-/*
- * If @request is a POST with a body, asynchronously reads the body as
- * application/x-www-form-urlencoded and invokes @callback with the parsed
- * parameters once done, then returns %TRUE: the caller should return and let
- * @callback finish the request.
- *
- * Otherwise returns %FALSE and the caller should handle the request itself.
- * @user_data is freed with @user_data_destroy in either case.
- */
-gboolean wig_internal_page_read_form_body(WebKitURISchemeRequest *request, WigFormBodyReadyFunc callback,
-                                          gpointer user_data, GDestroyNotify user_data_destroy);
+void handle_user_styles_uri(WebKitURISchemeRequest *request, WebKitUserContentManager *manager,
+                            GPtrArray *style_sheets);
