@@ -344,27 +344,6 @@ WPEDisplay *wig_application_get_display(WigApplication *app)
   return app->display;
 }
 
-WebKitNetworkSession *wig_application_get_network_session(WigApplication *app)
-{
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
-  return app->network_session;
-}
-
-WebKitWebContext *wig_application_get_web_context(WigApplication *app)
-{
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
-  return app->web_context;
-}
-
-WebKitSettings *wig_application_get_web_settings(WigApplication *app)
-{
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
-  return app->web_settings;
-}
-
 WebKitWebView *wig_application_create_web_view(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
