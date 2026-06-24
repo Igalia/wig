@@ -7,16 +7,27 @@ project(
     default_options: ['c_std=c11', 'warning_level=2'],
 )
 
-libwpeplatformgtk_dep = dependency('wpe-platform-gtk-1.0')
-wpe_webkit_dep = dependency('wpe-webkit-2.0', version: '>= 2.51.3')
+global_cflags = []
+
+if get_option('webkit_backend') == 'wpe'
+    webkit_deps = [
+        dependency('wpe-platform-gtk-1.0'),
+        dependency('wpe-webkit-2.0', version: '>= 2.51.3')
+    ]
+    global_cflags += '-DUSE_WPE'
+else
+    webkitgtk_dep = dependency('webkitgtk-6.0', required: get_option('webkit_backend') == 'gtk')
+    global_cflags += '-DUSE_WEBKITGTK'
+endif
 adw_dep = dependency('libadwaita-1', version: '>= 1.6')
 libpsl_dep = dependency('libpsl')
 
 cc = meson.get_compiler('c')
-global_cflags = []
+
 if get_option('optimization') not in ['0', 'g']
     global_cflags += '-D_FORTIFY_SOURCE=3'
 endif
+
 test_cflags = [
     '-Wno-unused-parameter',
     '-Wno-missing-field-initializers',
@@ -84,3 +95,7 @@ add_project_link_arguments(global_ldflags, language: 'c')
 
 subdir('src')
 subdir('data')
+
+summary({
+    'backend': get_option('webkit_backend'),
+})

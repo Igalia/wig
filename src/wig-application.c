@@ -22,12 +22,18 @@
 
 #include "wig-application.h"
 #include "wig-window.h"
+
+#ifdef USE_WPE
 #include "wpe-display-gtk.h"
+#endif
 
 struct _WigApplication {
   AdwApplication parent;
 
+#ifdef USE_WPE
   WPEDisplay *display;
+#endif
+
   WebKitNetworkSession *network_session;
   WebKitWebContext *web_context;
   WebKitSettings *web_settings;
@@ -79,6 +85,7 @@ static void wig_application_startup(GApplication *application)
 
   g_action_map_add_action_entries(G_ACTION_MAP(application), app_actions, G_N_ELEMENTS(app_actions), application);
 
+#ifdef USE_WPE
   app->display = wpe_display_gtk_new();
   wpe_settings_set_boolean(wpe_display_get_settings(app->display), WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, FALSE,
                            WPE_SETTINGS_SOURCE_APPLICATION, NULL);
@@ -90,6 +97,7 @@ static void wig_application_startup(GApplication *application)
     g_application_quit(application);
     return;
   }
+#endif
 
   g_autofree char *data_dir = g_build_filename(g_get_user_data_dir(), "com.igalia.wig", NULL);
   g_autofree char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
@@ -128,10 +136,12 @@ static void wig_application_shutdown(GApplication *application)
   g_queue_free_full(app->closed_tab_history, (GDestroyNotify)wig_closed_group_free);
   app->closed_tab_history = NULL;
 
-  g_clear_object(&app->display);
   g_clear_object(&app->network_session);
   g_clear_object(&app->web_context);
   g_clear_object(&app->web_settings);
+#ifdef USE_WPE
+  g_clear_object(&app->display);
+#endif
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -190,12 +200,14 @@ WigApplication *wig_application_get(void)
   return WIG_APPLICATION(app);
 }
 
+#ifdef USE_WPE
 WPEDisplay *wig_application_get_display(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->display;
 }
+#endif
 
 WebKitNetworkSession *wig_application_get_network_session(WigApplication *app)
 {
@@ -222,8 +234,12 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
-  return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context,
-                                      "network-session", app->network_session, "settings", app->web_settings, NULL));
+  return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+#ifdef USE_WPE
+                                      "display", app->display,
+#endif
+                                      "web-context", app->web_context, "network-session", app->network_session,
+                                      "settings", app->web_settings, NULL));
 }
 
 static void wig_closed_tab_free(WigClosedTab *tab)

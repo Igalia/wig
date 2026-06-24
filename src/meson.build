@@ -9,7 +9,7 @@ wig_sources = files(
 executable(
     'wig',
     sources: wig_sources,
-    dependencies: [libwpeplatformgtk_dep, wpe_webkit_dep, adw_dep, libpsl_dep],
+    dependencies: [adw_dep, libpsl_dep, webkit_deps],
     include_directories: ['.'],
     c_args: ['-DG_LOG_DOMAIN="wig"'],
     install: true,

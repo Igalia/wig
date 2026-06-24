@@ -24,7 +24,11 @@
 
 #include <adwaita.h>
 #include <gtk/gtk.h>
+#ifdef USE_WPE
 #include <wpe/webkit.h>
+#else
+#include <webkit/webkit.h>
+#endif
 
 G_BEGIN_DECLS
 

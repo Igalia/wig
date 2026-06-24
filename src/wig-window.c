@@ -25,15 +25,20 @@
 #include "wig-application.h"
 #include "wig-tab-view.h"
 #include "wig-utils.h"
+
+#ifdef USE_WPE
 #include "wpe-toplevel-gtk.h"
 #include "wpe-view-gtk.h"
+#endif
 
 struct _WigWindow {
   AdwApplicationWindow parent;
 
   guint id;
 
+#ifdef USE_WPE
   WPEToplevel *toplevel;
+#endif
   GtkWidget *toolbar_view;
   GtkWidget *header_bar;
   GtkWidget *back_button;
@@ -196,7 +201,12 @@ static AdwTabPage *wig_window_add_tab_page_for_view(WigWindow *win, WebKitWebVie
 
   g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
 
+#ifdef USE_WPE
   wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), win->toplevel);
+#else
+  // FIXME: Somewhere we are missing a reference to keep this alive.
+  g_object_ref(web_view);
+#endif
 
   return tab_page;
 }
@@ -424,7 +434,7 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(
       WEBKIT_NAVIGATION_POLICY_DECISION(decision));
   if (webkit_navigation_action_get_navigation_type(action) != WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
-      || webkit_navigation_action_get_mouse_button(action) != WPE_BUTTON_MIDDLE)
+      || webkit_navigation_action_get_mouse_button(action) != 2) // MIDDLE
     return FALSE;
 
   g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
@@ -437,7 +447,9 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
 
 static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web_view)
 {
+#ifdef USE_WPE
   gtk_widget_grab_focus(wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view))));
+#endif
   gtk_window_present(GTK_WINDOW(win));
 }
 
@@ -498,6 +510,7 @@ static GMenu *build_context_menu(GList *items, GSimpleActionGroup *action_group,
 static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
                                                  WebKitHitTestResult *hit_test_result)
 {
+#ifdef USE_WPE
   if (!win->current_web_view)
     return FALSE;
 
@@ -514,6 +527,9 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
                                  G_ACTION_GROUP(action_group), has_position ? &target : NULL);
 
   return TRUE;
+#else
+  return FALSE;
+#endif
 }
 
 static void wig_window_update_stop_reload_actions(WigWindow *win)
@@ -667,7 +683,9 @@ static void wig_window_constructed(GObject *object)
   adw_application_window_set_content(ADW_APPLICATION_WINDOW(win), win->tab_overview);
 
   WigApplication *app = wig_application_get();
+#ifdef USE_WPE
   win->toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(wig_application_get_display(app)), 0, GTK_WINDOW(win));
+#endif
 
   if (win->id == 0)
     win->id = wig_window_next_id++;
@@ -706,6 +724,19 @@ static void wig_window_dispose(GObject *object)
       else
         wig_closed_group_free(group);
     }
+
+    // Disconnect notify::selected-page before parent dispose triggers widget teardown,
+    // preventing wig_window_selected_page_changed from running on a partially-destroyed tree.
+    g_signal_handlers_disconnect_by_data(win->tab_view, win);
+  }
+
+  // Release current_web_view here (not finalize) so parent dispose can safely
+  // tear down the widget hierarchy without leaving a dangling pointer.
+  g_autoptr(WebKitWebView) previous_web_view = g_steal_pointer(&win->current_web_view);
+  if (previous_web_view) {
+    g_signal_handlers_disconnect_by_data(previous_web_view, win);
+    WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(previous_web_view);
+    g_signal_handlers_disconnect_by_data(bfl, win);
   }
 
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
@@ -714,9 +745,10 @@ static void wig_window_dispose(GObject *object)
 static void wig_window_finalize(GObject *object)
 {
   WigWindow *win = WIG_WINDOW(object);
-  g_clear_object(&win->current_web_view);
-  g_clear_object(&win->toplevel);
   g_clear_object(&win->context_menu_action_group);
+#ifdef USE_WPE
+  g_clear_object(&win->toplevel);
+#endif
 
   G_OBJECT_CLASS(wig_window_parent_class)->finalize(object);
 }

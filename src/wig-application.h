@@ -24,7 +24,12 @@
 
 #include <adwaita.h>
 #include <gtk/gtk.h>
+
+#ifdef USE_WPE
 #include <wpe/webkit.h>
+#else
+#include <webkit/webkit.h>
+#endif
 
 G_BEGIN_DECLS
 
@@ -43,11 +48,14 @@ typedef struct {
 
 WigApplication *wig_application_new(void);
 WigApplication *wig_application_get(void);
-WPEDisplay *wig_application_get_display(WigApplication *app);
 WebKitNetworkSession *wig_application_get_network_session(WigApplication *app);
 WebKitWebContext *wig_application_get_web_context(WigApplication *app);
 WebKitSettings *wig_application_get_web_settings(WigApplication *app);
 WebKitWebView *wig_application_create_web_view(WigApplication *app);
+
+#ifdef USE_WPE
+WPEDisplay *wig_application_get_display(WigApplication *app);
+#endif
 
 void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group);
 WigClosedGroup *wig_application_pop_closed_group(WigApplication *app);
