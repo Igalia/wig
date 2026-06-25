@@ -396,6 +396,45 @@ static const GActionEntry context_menu_actions[] = {
   { "open-in-new-tab", wig_window_open_in_new_tab, "s" },
 };
 
+static void wig_window_tab_reload(WigTabList *list, guint tab_id, WigWindow *win)
+{
+  WigTab *tab = wig_tab_list_get_by_id(list, tab_id);
+  if (tab)
+    webkit_web_view_reload(wig_tab_get_web_view(tab));
+}
+
+static void wig_window_tab_mute(WigTabList *list, guint tab_id, WigWindow *win)
+{
+  WigTab *tab = wig_tab_list_get_by_id(list, tab_id);
+  if (!tab)
+    return;
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
+  webkit_web_view_set_is_muted(web_view, !webkit_web_view_get_is_muted(web_view));
+}
+
+static void wig_window_tab_duplicate(WigTabList *list, guint tab_id, WigWindow *win)
+{
+  WigTab *tab = wig_tab_list_get_by_id(list, tab_id);
+  if (!tab)
+    return;
+  const char *uri = webkit_web_view_get_uri(wig_tab_get_web_view(tab));
+  g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
+  WigTab *new_tab = wig_window_add_tab_for_view(win, web_view);
+  if (uri)
+    webkit_web_view_load_uri(web_view, uri);
+  wig_tab_list_set_active(win->tab_list, new_tab);
+}
+
+static void wig_window_tab_copy_link(WigTabList *list, guint tab_id, WigWindow *win)
+{
+  WigTab *tab = wig_tab_list_get_by_id(list, tab_id);
+  if (!tab)
+    return;
+  const char *uri = webkit_web_view_get_uri(wig_tab_get_web_view(tab));
+  if (uri)
+    gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(win)), uri);
+}
+
 static void wig_window_update_url(WigWindow *win)
 {
   const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
@@ -679,11 +718,16 @@ static void wig_window_constructed(GObject *object)
   gtk_header_bar_set_title_widget(GTK_HEADER_BAR(win->header_bar), clamp);
 
   win->tab_list = wig_tab_list_new();
+  gtk_widget_insert_action_group(GTK_WIDGET(win), "tabs", G_ACTION_GROUP(wig_tab_list_get_action_group(win->tab_list)));
   g_signal_connect_object(win->tab_list, "close-tab", G_CALLBACK(wig_window_tab_close), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "notify::active-tab", G_CALLBACK(wig_window_active_tab_changed), win,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(win->tab_list, "tab-added", G_CALLBACK(wig_window_tab_added), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "tab-removed", G_CALLBACK(wig_window_tab_removed), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "reload-tab", G_CALLBACK(wig_window_tab_reload), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "mute-tab", G_CALLBACK(wig_window_tab_mute), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "duplicate-tab", G_CALLBACK(wig_window_tab_duplicate), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "copy-link-tab", G_CALLBACK(wig_window_tab_copy_link), win, G_CONNECT_DEFAULT);
 
   GtkWidget *content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 

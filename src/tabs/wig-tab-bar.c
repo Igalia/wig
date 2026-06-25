@@ -100,6 +100,12 @@ static void wig_tab_bar_tab_pressed(GtkGestureClick *gesture, int n_press, doubl
     wig_tab_list_set_active(self->list, tab);
 }
 
+static void wig_tab_bar_tab_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigTabBar *self)
+{
+  GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  wig_tab_widget_show_context_menu(WIG_TAB_WIDGET(widget), self->list);
+}
+
 static void wig_tab_bar_tab_added(WigTabList *list, WigTab *tab, guint position, WigTabBar *self)
 {
   GtkWidget *widget = wig_tab_widget_new(tab);
@@ -115,6 +121,11 @@ static void wig_tab_bar_tab_added(WigTabList *list, WigTab *tab, guint position,
   GtkGestureClick *gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
   g_signal_connect_object(gesture, "pressed", G_CALLBACK(wig_tab_bar_tab_pressed), self, G_CONNECT_DEFAULT);
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(gesture));
+
+  GtkGestureClick *right_gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right_gesture), GDK_BUTTON_SECONDARY);
+  g_signal_connect_object(right_gesture, "pressed", G_CALLBACK(wig_tab_bar_tab_right_pressed), self, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(right_gesture));
 
   GtkWidget *prev_sibling = position > 0 ? GTK_WIDGET(g_slist_nth_data(self->tab_widgets, position - 1)) : NULL;
   self->tab_widgets = g_slist_insert(self->tab_widgets, tab_widget, (gint)position);

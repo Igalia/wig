@@ -25,16 +25,9 @@
 #include <gtk/gtk.h>
 
 #include "wig-tab-list.h"
-#include "wig-tab.h"
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_TAB_WIDGET (wig_tab_widget_get_type())
-G_DECLARE_FINAL_TYPE(WigTabWidget, wig_tab_widget, WIG, TAB_WIDGET, GtkWidget)
-
-GtkWidget *wig_tab_widget_new(WigTab *tab);
-WigTab *wig_tab_widget_get_tab(WigTabWidget *self);
-void wig_tab_widget_set_width(WigTabWidget *self, int width);
-void wig_tab_widget_show_context_menu(WigTabWidget *self, WigTabList *list);
+GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab);
 
 G_END_DECLS

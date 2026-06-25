@@ -36,13 +36,17 @@ WigTabList *wig_tab_list_new(void);
 
 WigTab *wig_tab_list_append(WigTabList *self, WebKitWebView *web_view);
 void wig_tab_list_close(WigTabList *self, WigTab *tab);
+void wig_tab_list_close_many(WigTabList *self, GPtrArray *tabs);
 void wig_tab_list_move(WigTabList *self, WigTab *tab, guint new_index);
 
 guint wig_tab_list_get_n_tabs(WigTabList *self);
 WigTab *wig_tab_list_get_nth(WigTabList *self, guint i);
 guint wig_tab_list_index_of(WigTabList *self, WigTab *tab);
+WigTab *wig_tab_list_get_by_id(WigTabList *self, guint id);
 
 WigTab *wig_tab_list_get_active(WigTabList *self);
 void wig_tab_list_set_active(WigTabList *self, WigTab *tab);
+
+GSimpleActionGroup *wig_tab_list_get_action_group(WigTabList *self);
 
 G_END_DECLS

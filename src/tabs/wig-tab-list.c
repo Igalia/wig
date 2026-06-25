@@ -22,11 +22,21 @@
 
 #include "wig-tab-list.h"
 
+static void on_action_reload(GSimpleAction *, GVariant *, gpointer);
+static void on_action_mute(GSimpleAction *, GVariant *, gpointer);
+static void on_action_duplicate(GSimpleAction *, GVariant *, gpointer);
+static void on_action_copy_link(GSimpleAction *, GVariant *, gpointer);
+static void on_action_close(GSimpleAction *, GVariant *, gpointer);
+static void on_action_close_to_left(GSimpleAction *, GVariant *, gpointer);
+static void on_action_close_to_right(GSimpleAction *, GVariant *, gpointer);
+static void on_action_close_others(GSimpleAction *, GVariant *, gpointer);
+
 struct _WigTabList {
   GObject parent;
 
   GPtrArray *tabs; /* type WigTab*, owned */
   WigTab *active; /* owned, nullable */
+  GSimpleActionGroup *actions;
 };
 
 G_DEFINE_FINAL_TYPE(WigTabList, wig_tab_list, G_TYPE_OBJECT)
@@ -34,13 +44,24 @@ G_DEFINE_FINAL_TYPE(WigTabList, wig_tab_list, G_TYPE_OBJECT)
 enum { PROP_0, PROP_ACTIVE_TAB, N_PROPS };
 static GParamSpec *props[N_PROPS];
 
-enum { SIGNAL_TAB_ADDED, SIGNAL_TAB_REMOVED, SIGNAL_CLOSE_TAB, SIGNAL_CREATE_TAB, N_SIGNALS };
+enum {
+  SIGNAL_TAB_ADDED,
+  SIGNAL_TAB_REMOVED,
+  SIGNAL_CLOSE_TAB,
+  SIGNAL_CREATE_TAB,
+  SIGNAL_RELOAD_TAB,
+  SIGNAL_MUTE_TAB,
+  SIGNAL_DUPLICATE_TAB,
+  SIGNAL_COPY_LINK_TAB,
+  N_SIGNALS
+};
 static guint signals[N_SIGNALS];
 
 static void wig_tab_list_dispose(GObject *object)
 {
   WigTabList *self = WIG_TAB_LIST(object);
   g_clear_object(&self->active);
+  g_clear_object(&self->actions);
   g_clear_pointer(&self->tabs, g_ptr_array_unref);
   G_OBJECT_CLASS(wig_tab_list_parent_class)->dispose(object);
 }
@@ -72,6 +93,19 @@ static void wig_tab_list_set_property(GObject *object, guint prop_id, const GVal
 static void wig_tab_list_init(WigTabList *self)
 {
   self->tabs = g_ptr_array_new_with_free_func(g_object_unref);
+
+  static const GActionEntry entries[] = {
+    { "reload", on_action_reload, "u", NULL, NULL },
+    { "mute", on_action_mute, "u", NULL, NULL },
+    { "duplicate", on_action_duplicate, "u", NULL, NULL },
+    { "copy-link", on_action_copy_link, "u", NULL, NULL },
+    { "close", on_action_close, "u", NULL, NULL },
+    { "close-to-left", on_action_close_to_left, "u", NULL, NULL },
+    { "close-to-right", on_action_close_to_right, "u", NULL, NULL },
+    { "close-others", on_action_close_others, "u", NULL, NULL },
+  };
+  self->actions = g_simple_action_group_new();
+  g_action_map_add_action_entries(G_ACTION_MAP(self->actions), entries, G_N_ELEMENTS(entries), self);
 }
 
 static void wig_tab_list_class_init(WigTabListClass *klass)
@@ -100,6 +134,15 @@ static void wig_tab_list_class_init(WigTabListClass *klass)
 
   signals[SIGNAL_CREATE_TAB] = g_signal_new("create-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
                                             NULL, WIG_TYPE_TAB, 0);
+
+  signals[SIGNAL_RELOAD_TAB] = g_signal_new("reload-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+                                            NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
+  signals[SIGNAL_MUTE_TAB] = g_signal_new("mute-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
+                                          G_TYPE_NONE, 1, G_TYPE_UINT);
+  signals[SIGNAL_DUPLICATE_TAB] = g_signal_new("duplicate-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL,
+                                               NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
+  signals[SIGNAL_COPY_LINK_TAB] = g_signal_new("copy-link-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL,
+                                               NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
 }
 
 WigTabList *wig_tab_list_new(void)
@@ -177,6 +220,25 @@ guint wig_tab_list_index_of(WigTabList *self, WigTab *tab)
   return GTK_INVALID_LIST_POSITION;
 }
 
+WigTab *wig_tab_list_get_by_id(WigTabList *self, guint id)
+{
+  for (guint i = 0; i < self->tabs->len; i++) {
+    WigTab *tab = g_ptr_array_index(self->tabs, i);
+    if (wig_tab_get_id(tab) == id)
+      return tab;
+  }
+  return NULL;
+}
+
+void wig_tab_list_close_many(WigTabList *self, GPtrArray *tabs)
+{
+  g_autoptr(GPtrArray) alive_tabs = g_ptr_array_new_with_free_func(g_object_unref);
+  for (guint i = 0; i < tabs->len; i++)
+    g_ptr_array_add(alive_tabs, g_object_ref(g_ptr_array_index(tabs, i)));
+  for (guint i = 0; i < alive_tabs->len; i++)
+    wig_tab_list_close(self, g_ptr_array_index(alive_tabs, i));
+}
+
 WigTab *wig_tab_list_get_active(WigTabList *self)
 {
   return self->active;
@@ -188,4 +250,84 @@ void wig_tab_list_set_active(WigTabList *self, WigTab *tab)
     return;
   g_set_object(&self->active, tab);
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE_TAB]);
+}
+
+static void on_action_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  g_signal_emit(self, signals[SIGNAL_RELOAD_TAB], 0, g_variant_get_uint32(parameter));
+}
+
+static void on_action_mute(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  g_signal_emit(self, signals[SIGNAL_MUTE_TAB], 0, g_variant_get_uint32(parameter));
+}
+
+static void on_action_duplicate(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  g_signal_emit(self, signals[SIGNAL_DUPLICATE_TAB], 0, g_variant_get_uint32(parameter));
+}
+
+static void on_action_copy_link(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  g_signal_emit(self, signals[SIGNAL_COPY_LINK_TAB], 0, g_variant_get_uint32(parameter));
+}
+
+static void on_action_close(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (tab)
+    wig_tab_list_close(self, tab);
+}
+
+static void on_action_close_to_left(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+  guint pos = wig_tab_list_index_of(self, tab);
+  g_autoptr(GPtrArray) tabs = g_ptr_array_new();
+  for (guint i = 0; i < pos; i++)
+    g_ptr_array_add(tabs, wig_tab_list_get_nth(self, i));
+  wig_tab_list_close_many(self, tabs);
+}
+
+static void on_action_close_to_right(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+  guint pos = wig_tab_list_index_of(self, tab);
+  guint n = wig_tab_list_get_n_tabs(self);
+  g_autoptr(GPtrArray) tabs = g_ptr_array_new();
+  for (guint i = pos + 1; i < n; i++)
+    g_ptr_array_add(tabs, wig_tab_list_get_nth(self, i));
+  wig_tab_list_close_many(self, tabs);
+}
+
+static void on_action_close_others(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+  guint n = wig_tab_list_get_n_tabs(self);
+  g_autoptr(GPtrArray) tabs = g_ptr_array_new();
+  for (guint i = 0; i < n; i++) {
+    WigTab *t = wig_tab_list_get_nth(self, i);
+    if (t != tab)
+      g_ptr_array_add(tabs, t);
+  }
+  wig_tab_list_close_many(self, tabs);
+}
+
+GSimpleActionGroup *wig_tab_list_get_action_group(WigTabList *self)
+{
+  return self->actions;
 }

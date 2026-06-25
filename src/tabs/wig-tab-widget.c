@@ -22,6 +22,8 @@
 
 #include "wig-tab-widget.h"
 
+#include "wig-tab-context-menu.h"
+
 /* Below this width there is only room for the favicon, so the title and close
  * button are hidden and the icon is centred. */
 // FIXME: Scale aware.
@@ -36,6 +38,7 @@ struct _WigTabWidget {
   GtkWidget *spinner;
   GtkWidget *title_label;
   GtkWidget *close_button;
+  GtkWidget *context_menu_popover;
 
   int target_width;
 };
@@ -62,6 +65,7 @@ static void wig_tab_widget_dispose(GObject *object)
   g_clear_pointer(&self->title_label, gtk_widget_unparent);
   g_clear_pointer(&self->spinner, gtk_widget_unparent);
   g_clear_pointer(&self->favicon, gtk_widget_unparent);
+  g_clear_pointer(&self->context_menu_popover, gtk_widget_unparent);
   G_OBJECT_CLASS(wig_tab_widget_parent_class)->dispose(object);
 }
 
@@ -108,6 +112,17 @@ static void wig_tab_widget_class_init(WigTabWidgetClass *klass)
 
   signals[SIGNAL_CLOSE_REQUESTED] = g_signal_new("close-requested", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0,
                                                  NULL, NULL, NULL, G_TYPE_NONE, 0);
+}
+
+void wig_tab_widget_show_context_menu(WigTabWidget *self, WigTabList *list)
+{
+  g_return_if_fail(WIG_IS_TAB_WIDGET(self));
+  g_return_if_fail(WIG_IS_TAB_LIST(list));
+
+  g_clear_pointer(&self->context_menu_popover, gtk_widget_unparent);
+  self->context_menu_popover = wig_tab_context_menu_popup(list, self->tab);
+  gtk_widget_set_parent(self->context_menu_popover, GTK_WIDGET(self));
+  gtk_popover_popup(GTK_POPOVER(self->context_menu_popover));
 }
 
 GtkWidget *wig_tab_widget_new(WigTab *tab)
