@@ -27,6 +27,7 @@
 struct _WigTab {
   GObject parent;
 
+  guint id;
   WebKitWebView *web_view;
   GIcon *icon;
   char *title;
@@ -36,6 +37,8 @@ struct _WigTab {
 };
 
 G_DEFINE_FINAL_TYPE(WigTab, wig_tab, G_TYPE_OBJECT)
+
+static guint wig_tab_next_id = 1;
 
 enum { PROP_0, PROP_ICON, PROP_TITLE, PROP_PINNED, PROP_LOADING, PROP_SELECTED, N_PROPS };
 
@@ -122,6 +125,7 @@ static void wig_tab_finalize(GObject *object)
 
 static void wig_tab_init(WigTab *self)
 {
+  self->id = wig_tab_next_id++;
   self->title = g_strdup("New Tab");
 }
 
@@ -236,6 +240,11 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   wig_tab_on_page_icons_changed(self);
 
   return self;
+}
+
+guint wig_tab_get_id(WigTab *self)
+{
+  return self->id;
 }
 
 WebKitWebView *wig_tab_get_web_view(WigTab *self)

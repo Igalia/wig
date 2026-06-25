@@ -40,6 +40,7 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(WigTab, wig_tab, WIG, TAB, GObject)
 
 WigTab *wig_tab_new(WebKitWebView *web_view);
+guint wig_tab_get_id(WigTab *self);
 WebKitWebView *wig_tab_get_web_view(WigTab *self);
 GtkWidget *wig_tab_get_widget(WigTab *self);
 GIcon *wig_tab_get_icon(WigTab *self);
