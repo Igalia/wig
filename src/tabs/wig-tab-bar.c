@@ -30,16 +30,13 @@
 #define MAX_TAB_WIDTH 240
 
 struct _WigTabBar {
-  GtkWidget parent;
+  WigTabListView parent;
 
-  WigTabList *list;
   GtkWidget *scrolled_window;
-  GtkWidget *tab_box;
   GtkWidget *new_tab_button;
   GtkWidget *scroll_left_button;
   GtkWidget *scroll_right_button;
 
-  GSList *tab_widgets;
   int tab_width;
 
   /* Width distribution is applied from an idle rather than directly, because
@@ -49,108 +46,17 @@ struct _WigTabBar {
   int scroll_to_pos;
 };
 
-G_DEFINE_FINAL_TYPE(WigTabBar, wig_tab_bar, GTK_TYPE_WIDGET)
-
-enum { SIGNAL_CLOSE_TAB, N_SIGNALS };
-static guint signals[N_SIGNALS];
+G_DEFINE_FINAL_TYPE(WigTabBar, wig_tab_bar, WIG_TYPE_TAB_LIST_VIEW)
 
 static void wig_tab_bar_queue_relayout(WigTabBar *self, int scroll_to_pos);
 static void wig_tab_bar_try_scroll(WigTabBar *self);
 static int wig_tab_bar_child_width(GtkWidget *child);
 static int wig_tab_bar_available_width(WigTabBar *self);
 
-static void wig_tab_bar_update_active(WigTabBar *self, GParamSpec *pspec, WigTabList *list)
-{
-  WigTab *active = wig_tab_list_get_active(self->list);
-  guint active_pos = 0;
-  guint i = 0;
-  for (GSList *l = self->tab_widgets; l; l = g_slist_next(l), i++) {
-    WigTabWidget *widget = WIG_TAB_WIDGET(l->data);
-    if (wig_tab_widget_get_tab(widget) == active) {
-      gtk_widget_add_css_class(GTK_WIDGET(widget), "active");
-      active_pos = i;
-    } else {
-      gtk_widget_remove_css_class(GTK_WIDGET(widget), "active");
-    }
-  }
-
-  /* The active tab is the last to shrink, so a selection change can shift
-   * width between tabs; also keep it on screen. */
-  wig_tab_bar_queue_relayout(self, active ? (int)active_pos : -1);
-}
-
-static void wig_tab_bar_tab_selected_changed(WigTab *tab, GParamSpec *pspec, WigTabWidget *tab_widget)
-{
-  if (wig_tab_get_selected(tab))
-    gtk_widget_add_css_class(GTK_WIDGET(tab_widget), "selected");
-  else
-    gtk_widget_remove_css_class(GTK_WIDGET(tab_widget), "selected");
-}
-
-static void wig_tab_bar_close_requested(WigTabWidget *tab_widget, WigTabBar *self)
-{
-  g_signal_emit(self, signals[SIGNAL_CLOSE_TAB], 0, wig_tab_widget_get_tab(tab_widget));
-}
-
-static void wig_tab_bar_tab_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigTabBar *self)
-{
-  GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
-  WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(widget));
-  if (tab)
-    wig_tab_list_set_active(self->list, tab);
-}
-
-static void wig_tab_bar_tab_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigTabBar *self)
-{
-  GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
-  wig_tab_widget_show_context_menu(WIG_TAB_WIDGET(widget), self->list);
-}
-
-static void wig_tab_bar_tab_added(WigTabList *list, WigTab *tab, guint position, WigTabBar *self)
-{
-  GtkWidget *widget = wig_tab_widget_new(tab);
-  WigTabWidget *tab_widget = WIG_TAB_WIDGET(widget);
-
-  wig_tab_widget_set_width(tab_widget, self->tab_width > 0 ? self->tab_width : MAX_TAB_WIDTH);
-
-  g_signal_connect_object(tab_widget, "close-requested", G_CALLBACK(wig_tab_bar_close_requested), self,
-                          G_CONNECT_DEFAULT);
-  g_signal_connect_object(tab, "notify::selected", G_CALLBACK(wig_tab_bar_tab_selected_changed), tab_widget,
-                          G_CONNECT_DEFAULT);
-
-  GtkGestureClick *gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
-  g_signal_connect_object(gesture, "pressed", G_CALLBACK(wig_tab_bar_tab_pressed), self, G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(gesture));
-
-  GtkGestureClick *right_gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
-  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right_gesture), GDK_BUTTON_SECONDARY);
-  g_signal_connect_object(right_gesture, "pressed", G_CALLBACK(wig_tab_bar_tab_right_pressed), self, G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(right_gesture));
-
-  GtkWidget *prev_sibling = position > 0 ? GTK_WIDGET(g_slist_nth_data(self->tab_widgets, position - 1)) : NULL;
-  self->tab_widgets = g_slist_insert(self->tab_widgets, tab_widget, (gint)position);
-  gtk_box_insert_child_after(GTK_BOX(self->tab_box), widget, prev_sibling);
-
-  if (wig_tab_widget_get_tab(tab_widget) == wig_tab_list_get_active(self->list))
-    gtk_widget_add_css_class(widget, "active");
-
-  wig_tab_bar_queue_relayout(self, (int)position);
-}
-
-static void wig_tab_bar_tab_removed(WigTabList *list, WigTab *tab, guint position, WigTabBar *self)
-{
-  GSList *link = g_slist_nth(self->tab_widgets, position);
-  WigTabWidget *tab_widget = WIG_TAB_WIDGET(link->data);
-  self->tab_widgets = g_slist_delete_link(self->tab_widgets, link);
-  gtk_box_remove(GTK_BOX(self->tab_box), GTK_WIDGET(tab_widget));
-
-  wig_tab_bar_queue_relayout(self, -1);
-}
-
 static void wig_tab_bar_new_tab_clicked(GtkButton *button, WigTabBar *self)
 {
   WigTab *tab = NULL;
-  g_signal_emit_by_name(self->list, "create-tab", &tab);
+  g_signal_emit_by_name(wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self)), "create-tab", &tab);
 }
 
 /* Scroll the strip by @delta pixels, clamped to the scrollable range. */
@@ -200,7 +106,7 @@ static void wig_tab_bar_scroll_right_clicked(GtkButton *button, WigTabBar *self)
 static gboolean wig_tab_bar_is_scrollable(WigTabBar *self)
 {
   int width = gtk_widget_get_width(GTK_WIDGET(self)) - wig_tab_bar_child_width(self->new_tab_button);
-  guint n = wig_tab_list_get_n_tabs(self->list);
+  guint n = wig_tab_list_get_n_tabs(wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self)));
   return (int)n * MIN_TAB_WIDTH > width;
 }
 
@@ -293,7 +199,8 @@ static gboolean wig_tab_bar_compute_widths(WigTabBar *self, guint n, int *active
  * pending and the next layout pass, with up-to-date geometry, completes it. */
 static gboolean wig_tab_bar_scroll_to_index(WigTabBar *self, int index)
 {
-  guint n = wig_tab_list_get_n_tabs(self->list);
+  WigTabList *list = wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self));
+  guint n = wig_tab_list_get_n_tabs(list);
   if (index < 0 || (guint)index >= n)
     return TRUE;
 
@@ -301,9 +208,12 @@ static gboolean wig_tab_bar_scroll_to_index(WigTabBar *self, int index)
    * position: the modelled width (MIN_TAB_WIDTH-based) does not match the real
    * allocated width once CSS padding, the favicon and the label are accounted
    * for, so the modelled x can be hundreds of pixels off for later tabs. */
-  GtkWidget *target = GTK_WIDGET(g_slist_nth_data(self->tab_widgets, (guint)index));
+  GtkWidget *target = GTK_WIDGET(
+      g_slist_nth_data(wig_tab_list_view_get_tab_widgets(WIG_TAB_LIST_VIEW(self)), (guint)index));
   graphene_rect_t bounds;
-  if (!target || !gtk_widget_compute_bounds(target, self->tab_box, &bounds))
+  if (!target
+      || !gtk_widget_compute_bounds(target, GTK_WIDGET(wig_tab_list_view_get_tab_box(WIG_TAB_LIST_VIEW(self))),
+                                    &bounds))
     return FALSE;
   int x = (int)bounds.origin.x;
   int width = (int)bounds.size.width;
@@ -329,7 +239,8 @@ static gboolean wig_tab_bar_scroll_to_index(WigTabBar *self, int index)
 
 static void wig_tab_bar_distribute_width(WigTabBar *self)
 {
-  guint n = wig_tab_list_get_n_tabs(self->list);
+  WigTabList *list = wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self));
+  guint n = wig_tab_list_get_n_tabs(list);
   int active_width;
   int others_width;
   if (!wig_tab_bar_compute_widths(self, n, &active_width, &others_width))
@@ -338,8 +249,8 @@ static void wig_tab_bar_distribute_width(WigTabBar *self)
   /* Remembered as the initial guess for tab widgets created later. */
   self->tab_width = others_width;
 
-  WigTab *active = wig_tab_list_get_active(self->list);
-  for (GSList *l = self->tab_widgets; l; l = g_slist_next(l)) {
+  WigTab *active = wig_tab_list_get_active(list);
+  for (GSList *l = wig_tab_list_view_get_tab_widgets(WIG_TAB_LIST_VIEW(self)); l; l = g_slist_next(l)) {
     WigTabWidget *widget = WIG_TAB_WIDGET(l->data);
     gboolean is_active = wig_tab_widget_get_tab(widget) == active;
     /* wig_tab_widget_set_width() is a no-op when the width is unchanged, so the
@@ -415,12 +326,17 @@ static void wig_tab_bar_hadjustment_value_changed(WigTabBar *self, GtkAdjustment
   wig_tab_bar_update_scroll_sensitivity(self);
 }
 
+static void wig_tab_bar_tab_widget_added(WigTabListView *view, WigTabWidget *tab_widget, guint position)
+{
+  WigTabBar *self = WIG_TAB_BAR(view);
+  wig_tab_widget_set_width(tab_widget, self->tab_width > 0 ? self->tab_width : MAX_TAB_WIDTH);
+  wig_tab_bar_queue_relayout(self, (int)position);
+}
+
 static void wig_tab_bar_dispose(GObject *object)
 {
   WigTabBar *self = WIG_TAB_BAR(object);
   g_clear_handle_id(&self->relayout_idle_id, g_source_remove);
-  g_clear_pointer(&self->tab_widgets, g_slist_free);
-  g_clear_object(&self->list);
   // FIXME: Why do we need to manually unparent?
   g_clear_pointer(&self->scroll_left_button, gtk_widget_unparent);
   g_clear_pointer(&self->new_tab_button, gtk_widget_unparent);
@@ -450,8 +366,8 @@ static void wig_tab_bar_class_init(WigTabBarClass *klass)
   gtk_widget_class_add_binding_action(widget_class, GDK_KEY_Left, GDK_CONTROL_MASK, "tab.scroll-left", NULL);
   gtk_widget_class_add_binding_action(widget_class, GDK_KEY_Right, GDK_CONTROL_MASK, "tab.scroll-right", NULL);
 
-  signals[SIGNAL_CLOSE_TAB] = g_signal_new("close-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
-                                           NULL, G_TYPE_NONE, 1, WIG_TYPE_TAB);
+  WigTabListViewClass *view_class = WIG_TAB_LIST_VIEW_CLASS(klass);
+  view_class->tab_widget_added = wig_tab_bar_tab_widget_added;
 }
 
 static void wig_tab_bar_load_css(void)
@@ -482,7 +398,6 @@ GtkWidget *wig_tab_bar_new(WigTabList *list)
   wig_tab_bar_load_css();
 
   WigTabBar *self = WIG_TAB_BAR(g_object_new(WIG_TYPE_TAB_BAR, NULL));
-  self->list = g_object_ref(list);
   /* Small gap between the scrolled tab strip and the flanking buttons. */
   gtk_box_layout_set_spacing(GTK_BOX_LAYOUT(gtk_widget_get_layout_manager(GTK_WIDGET(self))), 6);
 
@@ -494,7 +409,7 @@ GtkWidget *wig_tab_bar_new(WigTabList *list)
                           G_CONNECT_DEFAULT);
   gtk_widget_set_parent(self->scroll_left_button, GTK_WIDGET(self));
 
-  self->tab_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkBox *tab_box = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
 
   /* GTK_POLICY_EXTERNAL: no scrollbar widget is shown, but the adjustment still
    * scrolls (driven by wig_tab_bar_scroll() and the scroll-left/right actions). */
@@ -506,7 +421,7 @@ GtkWidget *wig_tab_bar_new(WigTabList *list)
    * remaining width, the strip scrolls inside it, and the "+" button is left
    * pinned at the right edge. */
   gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(self->scrolled_window), TRUE);
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(self->scrolled_window), self->tab_box);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(self->scrolled_window), GTK_WIDGET(tab_box));
   gtk_widget_set_parent(self->scrolled_window, GTK_WIDGET(self));
 
   /* Translate vertical wheel scrolling into horizontal scrolling of the strip. */
@@ -536,9 +451,7 @@ GtkWidget *wig_tab_bar_new(WigTabList *list)
                           G_CONNECT_DEFAULT);
   gtk_widget_set_parent(self->new_tab_button, GTK_WIDGET(self));
 
-  g_signal_connect_object(list, "tab-added", G_CALLBACK(wig_tab_bar_tab_added), self, G_CONNECT_DEFAULT);
-  g_signal_connect_object(list, "tab-removed", G_CALLBACK(wig_tab_bar_tab_removed), self, G_CONNECT_DEFAULT);
-  g_signal_connect_object(list, "notify::active-tab", G_CALLBACK(wig_tab_bar_update_active), self, G_CONNECT_SWAPPED);
+  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, tab_box);
 
   return GTK_WIDGET(self);
 }

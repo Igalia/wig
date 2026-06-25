@@ -24,13 +24,28 @@
 
 #include <gtk/gtk.h>
 
-#include "wig-tab-list-view.h"
+#include "wig-tab-list.h"
+#include "wig-tab-widget.h"
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_TAB_BAR (wig_tab_bar_get_type())
-G_DECLARE_FINAL_TYPE(WigTabBar, wig_tab_bar, WIG, TAB_BAR, WigTabListView)
+#define WIG_TYPE_TAB_LIST_VIEW (wig_tab_list_view_get_type())
+G_DECLARE_DERIVABLE_TYPE(WigTabListView, wig_tab_list_view, WIG, TAB_LIST_VIEW, GtkWidget)
 
-GtkWidget *wig_tab_bar_new(WigTabList *list);
+struct _WigTabListViewClass {
+  GtkWidgetClass parent_class;
+
+  /* Called after a WigTabWidget is created and inserted into the box, allowing
+   * subclasses to perform additional setup (e.g. set width on the bar). */
+  void (*tab_widget_added)(WigTabListView *self, WigTabWidget *tab_widget, guint position);
+};
+
+/* Called by subclass _new functions after g_object_new to wire up the list and
+ * tab box, connect signals, and replay any already-existing tabs. */
+void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *tab_box);
+
+WigTabList *wig_tab_list_view_get_list(WigTabListView *self);
+GtkBox *wig_tab_list_view_get_tab_box(WigTabListView *self);
+GSList *wig_tab_list_view_get_tab_widgets(WigTabListView *self);
 
 G_END_DECLS

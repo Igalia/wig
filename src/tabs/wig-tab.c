@@ -176,6 +176,9 @@ static void wig_tab_on_title_changed(WigTab *self)
  * back to the hostname.  A real title, if any, arrives via notify::title. */
 static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
 {
+  if (load_event == WEBKIT_LOAD_STARTED)
+    wig_tab_set_icon(self, NULL);
+
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
 

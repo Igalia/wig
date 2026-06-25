@@ -25,6 +25,7 @@
 #include "wig-application.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
+#include "wig-tab-sidebar.h"
 #include "wig-utils.h"
 #include "wpe-toplevel-gtk.h"
 #include "wpe-view-gtk.h"
@@ -43,12 +44,17 @@ struct _WigWindow {
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
   WigTabList *tab_list;
+  GtkWidget *content_box;
+  GtkWidget *paned;
   GtkWidget *tab_bar;
+  GtkWidget *tab_separator;
+  GtkWidget *tab_sidebar;
   GtkWidget *tab_stack;
   GtkWidget *overview_button;
   WebKitWebView *current_web_view;
   guint progress_timeout_id;
   GActionGroup *context_menu_action_group;
+  GtkWidget *tab_view_context_menu;
 };
 
 G_DEFINE_FINAL_TYPE(WigWindow, wig_window, GTK_TYPE_APPLICATION_WINDOW)
@@ -336,6 +342,62 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
   wig_closed_group_free(group);
 }
 
+static void wig_window_tab_view_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
+{
+  gboolean is_sidebar = win->tab_sidebar != NULL;
+
+  g_autoptr(GMenu) menu = g_menu_new();
+  g_menu_append(menu, is_sidebar ? "Switch to Tab Bar" : "Switch to Sidebar",
+                is_sidebar ? "win.switch-to-tabbar" : "win.switch-to-sidebar");
+
+  GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
+  win->tab_view_context_menu = gtk_popover_menu_new_from_model(G_MENU_MODEL(menu));
+  gtk_widget_set_parent(win->tab_view_context_menu, widget);
+  gtk_popover_set_has_arrow(GTK_POPOVER(win->tab_view_context_menu), FALSE);
+  GdkRectangle rect = { (int)x, (int)y, 1, 1 };
+  gtk_popover_set_pointing_to(GTK_POPOVER(win->tab_view_context_menu), &rect);
+  gtk_popover_popup(GTK_POPOVER(win->tab_view_context_menu));
+}
+
+static void wig_window_add_tab_view_context_menu(WigWindow *win, GtkWidget *widget)
+{
+  g_autoptr(GtkGestureClick) gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(gesture), GDK_BUTTON_SECONDARY);
+  g_signal_connect_object(gesture, "pressed", G_CALLBACK(wig_window_tab_view_right_pressed), win, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(g_steal_pointer(&gesture)));
+}
+
+static void wig_window_switch_to_sidebar(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+
+  g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
+  g_clear_pointer(&win->tab_bar, gtk_widget_unparent);
+  g_clear_pointer(&win->tab_separator, gtk_widget_unparent);
+
+  win->tab_sidebar = wig_tab_sidebar_new(win->tab_list);
+  wig_window_add_tab_view_context_menu(win, win->tab_sidebar);
+  gtk_paned_set_start_child(GTK_PANED(win->paned), win->tab_sidebar);
+}
+
+static void wig_window_switch_to_tabbar(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+
+  g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
+  // FIXME: Error finding last focus widget of GtkPaned 0x55daa38feb70, gtk_paned_set_focus_child was called on widget
+  // (nil) which is not child of ...
+  g_clear_pointer(&win->tab_sidebar, gtk_widget_unparent);
+
+  win->tab_bar = wig_tab_bar_new(win->tab_list);
+  wig_window_add_tab_view_context_menu(win, win->tab_bar);
+  gtk_box_insert_child_after(GTK_BOX(win->content_box), win->tab_bar, NULL);
+
+  win->tab_separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_box_insert_child_after(GTK_BOX(win->content_box), win->tab_separator, win->tab_bar);
+}
+
 static void wig_window_zoom_in(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -377,6 +439,8 @@ static const GActionEntry actions[] = {
   { "zoom-out", wig_window_zoom_out },
   { "zoom-reset", wig_window_zoom_reset },
   { "undo-close-tab", wig_window_undo_close_tab },
+  { "switch-to-sidebar", wig_window_switch_to_sidebar },
+  { "switch-to-tabbar", wig_window_switch_to_tabbar },
 };
 
 static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -602,7 +666,12 @@ static void wig_window_fullscreen_changed(WigWindow *win)
   bool is_fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
 
   gtk_widget_set_visible(win->header_bar, !is_fullscreen);
-  gtk_widget_set_visible(win->tab_bar, !is_fullscreen);
+  if (win->tab_bar)
+    gtk_widget_set_visible(win->tab_bar, !is_fullscreen);
+  if (win->tab_separator)
+    gtk_widget_set_visible(win->tab_separator, !is_fullscreen);
+  if (win->tab_sidebar)
+    gtk_widget_set_visible(win->tab_sidebar, !is_fullscreen);
 }
 
 static void wig_window_tab_added(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
@@ -729,18 +798,29 @@ static void wig_window_constructed(GObject *object)
   g_signal_connect_object(win->tab_list, "duplicate-tab", G_CALLBACK(wig_window_tab_duplicate), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "copy-link-tab", G_CALLBACK(wig_window_tab_copy_link), win, G_CONNECT_DEFAULT);
 
-  GtkWidget *content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  win->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  GtkWidget *content_box = win->content_box;
 
   win->tab_bar = wig_tab_bar_new(win->tab_list);
-  g_signal_connect_object(win->tab_bar, "close-tab", G_CALLBACK(wig_tab_list_close), win->tab_list, G_CONNECT_SWAPPED);
   g_signal_connect_object(win->tab_list, "create-tab", G_CALLBACK(wig_window_create_tab), win, G_CONNECT_SWAPPED);
+  wig_window_add_tab_view_context_menu(win, win->tab_bar);
   gtk_box_append(GTK_BOX(content_box), win->tab_bar);
 
-  gtk_box_append(GTK_BOX(content_box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+  win->tab_separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_box_append(GTK_BOX(content_box), win->tab_separator);
 
   win->tab_stack = gtk_stack_new();
-  gtk_widget_set_vexpand(win->tab_stack, TRUE);
-  gtk_box_append(GTK_BOX(content_box), win->tab_stack);
+
+  win->paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+  GtkWidget *paned = win->paned;
+  gtk_widget_set_vexpand(paned, TRUE);
+  gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
+  gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
+  gtk_paned_set_end_child(GTK_PANED(paned), win->tab_stack);
+  gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
+  gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
+  gtk_paned_set_position(GTK_PANED(paned), 200);
+  gtk_box_append(GTK_BOX(content_box), paned);
   gtk_window_set_child(GTK_WINDOW(win), content_box);
   gtk_window_set_titlebar(GTK_WINDOW(win), win->header_bar);
 
@@ -786,6 +866,7 @@ static void wig_window_dispose(GObject *object)
     g_clear_object(&win->tab_list);
   }
 
+  g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
 }
 

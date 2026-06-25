@@ -28,9 +28,9 @@
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_TAB_BAR (wig_tab_bar_get_type())
-G_DECLARE_FINAL_TYPE(WigTabBar, wig_tab_bar, WIG, TAB_BAR, WigTabListView)
+#define WIG_TYPE_TAB_SIDEBAR (wig_tab_sidebar_get_type())
+G_DECLARE_FINAL_TYPE(WigTabSidebar, wig_tab_sidebar, WIG, TAB_SIDEBAR, WigTabListView)
 
-GtkWidget *wig_tab_bar_new(WigTabList *list);
+GtkWidget *wig_tab_sidebar_new(WigTabList *list);
 
 G_END_DECLS

@@ -48,12 +48,49 @@ G_DEFINE_FINAL_TYPE(WigTabWidget, wig_tab_widget, GTK_TYPE_WIDGET)
 enum { SIGNAL_CLOSE_REQUESTED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
+static void wig_tab_widget_on_icon_changed(WigTabWidget *self, GParamSpec *pspec, WigTab *tab)
+{
+  if (self->spinner)
+    return;
+
+  GIcon *icon = wig_tab_get_icon(tab);
+  if (icon) {
+    if (!self->favicon) {
+      self->favicon = gtk_image_new();
+      gtk_image_set_pixel_size(GTK_IMAGE(self->favicon), WIG_TAB_FAVICON_SIZE);
+      gtk_widget_set_halign(self->favicon, GTK_ALIGN_CENTER);
+      gtk_widget_set_hexpand(self->favicon, FALSE);
+      gtk_widget_insert_before(self->favicon, GTK_WIDGET(self), self->title_label);
+    }
+    gtk_image_set_from_gicon(GTK_IMAGE(self->favicon), icon);
+  } else {
+    g_clear_pointer(&self->favicon, gtk_widget_unparent);
+  }
+}
+
 static void wig_tab_widget_on_loading_changed(WigTabWidget *self, GParamSpec *pspec, WigTab *tab)
 {
   gboolean loading = wig_tab_get_loading(tab);
-  gtk_widget_set_visible(self->spinner, loading);
-  gtk_spinner_set_spinning(GTK_SPINNER(self->spinner), loading);
-  gtk_widget_set_visible(self->favicon, !loading);
+
+  gboolean compact = self->target_width >= 0 && self->target_width < WIG_TAB_COMPACT_WIDTH;
+
+  if (loading) {
+    g_clear_pointer(&self->favicon, gtk_widget_unparent);
+    if (!self->spinner) {
+      self->spinner = gtk_spinner_new();
+      gtk_widget_set_size_request(self->spinner, WIG_TAB_FAVICON_SIZE, WIG_TAB_FAVICON_SIZE);
+      gtk_widget_set_halign(self->spinner, compact ? GTK_ALIGN_CENTER : GTK_ALIGN_START);
+      gtk_widget_set_hexpand(self->spinner, compact);
+      gtk_widget_insert_before(self->spinner, GTK_WIDGET(self), self->title_label);
+    }
+    gtk_spinner_set_spinning(GTK_SPINNER(self->spinner), TRUE);
+  } else {
+    if (self->spinner) {
+      gtk_spinner_set_spinning(GTK_SPINNER(self->spinner), FALSE);
+      g_clear_pointer(&self->spinner, gtk_widget_unparent);
+    }
+    wig_tab_widget_on_icon_changed(self, NULL, self->tab);
+  }
 }
 
 static void wig_tab_widget_dispose(GObject *object)
@@ -76,16 +113,10 @@ static void wig_tab_widget_close_clicked(GtkButton *button, WigTabWidget *self)
 
 static void wig_tab_widget_init(WigTabWidget *self)
 {
-  self->favicon = gtk_image_new();
-  gtk_image_set_pixel_size(GTK_IMAGE(self->favicon), WIG_TAB_FAVICON_SIZE);
-  gtk_widget_set_halign(self->favicon, GTK_ALIGN_CENTER);
-  gtk_widget_set_parent(self->favicon, GTK_WIDGET(self));
+  self->target_width = -1;
 
-  self->spinner = gtk_spinner_new();
-  gtk_widget_set_size_request(self->spinner, WIG_TAB_FAVICON_SIZE, WIG_TAB_FAVICON_SIZE);
-  gtk_widget_set_halign(self->spinner, GTK_ALIGN_CENTER);
-  gtk_widget_set_visible(self->spinner, FALSE);
-  gtk_widget_set_parent(self->spinner, GTK_WIDGET(self));
+  GtkLayoutManager *layout = gtk_widget_get_layout_manager(GTK_WIDGET(self));
+  gtk_box_layout_set_spacing(GTK_BOX_LAYOUT(layout), 6);
 
   self->title_label = gtk_label_new("New Tab");
   // FIXME: We don't want to render ellisize. Instead the text should fade out at the end.
@@ -131,7 +162,7 @@ GtkWidget *wig_tab_widget_new(WigTab *tab)
 
   self->tab = g_object_ref(tab);
   g_object_bind_property(G_OBJECT(tab), "title", self->title_label, "label", G_BINDING_SYNC_CREATE);
-  g_object_bind_property(G_OBJECT(tab), "icon", self->favicon, "gicon", G_BINDING_SYNC_CREATE);
+  g_signal_connect_object(tab, "notify::icon", G_CALLBACK(wig_tab_widget_on_icon_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(tab, "notify::loading", G_CALLBACK(wig_tab_widget_on_loading_changed), self,
                           G_CONNECT_SWAPPED);
   wig_tab_widget_on_loading_changed(self, NULL, tab);
@@ -153,6 +184,11 @@ void wig_tab_widget_set_width(WigTabWidget *self, int width)
 
   gboolean compact = width >= 0 && width < WIG_TAB_COMPACT_WIDTH;
   gtk_widget_set_visible(self->close_button, !compact);
-  gtk_widget_set_hexpand(self->favicon, compact);
-  gtk_widget_set_hexpand(self->spinner, compact);
+  gtk_widget_set_visible(self->title_label, !compact);
+  if (self->favicon)
+    gtk_widget_set_hexpand(self->favicon, compact);
+  if (self->spinner) {
+    gtk_widget_set_hexpand(self->spinner, compact);
+    gtk_widget_set_halign(self->spinner, compact ? GTK_ALIGN_CENTER : GTK_ALIGN_START);
+  }
 }
