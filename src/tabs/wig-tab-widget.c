@@ -24,11 +24,6 @@
 
 #include "wig-tab-context-menu.h"
 
-/* Below this width there is only room for the favicon, so the title and close
- * button are hidden and the icon is centred. */
-// FIXME: Scale aware.
-#define WIG_TAB_COMPACT_WIDTH 80
-
 struct _WigTabWidget {
   GtkWidget parent;
 
@@ -72,15 +67,12 @@ static void wig_tab_widget_on_loading_changed(WigTabWidget *self, GParamSpec *ps
 {
   gboolean loading = wig_tab_get_loading(tab);
 
-  gboolean compact = self->target_width >= 0 && self->target_width < WIG_TAB_COMPACT_WIDTH;
-
   if (loading) {
     g_clear_pointer(&self->favicon, gtk_widget_unparent);
     if (!self->spinner) {
       self->spinner = gtk_spinner_new();
       gtk_widget_set_size_request(self->spinner, WIG_TAB_FAVICON_SIZE, WIG_TAB_FAVICON_SIZE);
-      gtk_widget_set_halign(self->spinner, compact ? GTK_ALIGN_CENTER : GTK_ALIGN_START);
-      gtk_widget_set_hexpand(self->spinner, compact);
+      gtk_widget_set_halign(self->spinner, GTK_ALIGN_START);
       gtk_widget_insert_before(self->spinner, GTK_WIDGET(self), self->title_label);
     }
     gtk_spinner_set_spinning(GTK_SPINNER(self->spinner), TRUE);
@@ -120,7 +112,7 @@ static void wig_tab_widget_init(WigTabWidget *self)
 
   self->title_label = gtk_label_new("New Tab");
   // FIXME: We don't want to render ellisize. Instead the text should fade out at the end.
-  gtk_label_set_ellipsize(GTK_LABEL(self->title_label), PANGO_ELLIPSIZE_END);
+  gtk_label_set_ellipsize(GTK_LABEL(self->title_label), PANGO_ELLIPSIZE_NONE);
   gtk_label_set_xalign(GTK_LABEL(self->title_label), 0.0f);
   gtk_widget_set_hexpand(self->title_label, TRUE);
   gtk_widget_set_parent(self->title_label, GTK_WIDGET(self));
@@ -181,14 +173,4 @@ void wig_tab_widget_set_width(WigTabWidget *self, int width)
     return;
   self->target_width = width;
   gtk_widget_set_size_request(GTK_WIDGET(self), width, -1);
-
-  gboolean compact = width >= 0 && width < WIG_TAB_COMPACT_WIDTH;
-  gtk_widget_set_visible(self->close_button, !compact);
-  gtk_widget_set_visible(self->title_label, !compact);
-  if (self->favicon)
-    gtk_widget_set_hexpand(self->favicon, compact);
-  if (self->spinner) {
-    gtk_widget_set_hexpand(self->spinner, compact);
-    gtk_widget_set_halign(self->spinner, compact ? GTK_ALIGN_CENTER : GTK_ALIGN_START);
-  }
 }

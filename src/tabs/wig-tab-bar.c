@@ -24,9 +24,7 @@
 
 #include "wig-tab-widget.h"
 
-/* A fully collapsed tab is just the favicon plus the tab's horizontal padding
- * (see the wig-tab padding in the CSS below). */
-#define MIN_TAB_WIDTH (WIG_TAB_FAVICON_SIZE + 20)
+#define MIN_TAB_WIDTH 80
 #define MAX_TAB_WIDTH 240
 
 struct _WigTabBar {
