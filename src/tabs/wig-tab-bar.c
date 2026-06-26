@@ -171,25 +171,15 @@ static int wig_tab_bar_available_width(WigTabBar *self)
       - wig_tab_bar_child_width(self->scroll_left_button) - wig_tab_bar_child_width(self->scroll_right_button);
 }
 
-/* Compute the width of the active tab and of every other tab for the current
- * bar width.  The active tab keeps its full size for as long as possible:
- * every other tab shrinks down to MIN_TAB_WIDTH first, and only once they have
- * all bottomed out does the active tab start to shrink.  When even the active
- * tab can no longer fit, all tabs sit at MIN_TAB_WIDTH, the box overflows its
- * viewport, and the surrounding scrolled window makes the bar scrollable.
+/* Compute the tab width for the current bar width.
  * Returns FALSE if the bar has no usable width yet. */
-static gboolean wig_tab_bar_compute_widths(WigTabBar *self, guint n, int *active_width, int *others_width)
+static gboolean wig_tab_bar_compute_widths(WigTabBar *self, guint n, int *tab_width)
 {
   int available = wig_tab_bar_available_width(self);
   if (available <= 0 || n == 0)
     return FALSE;
 
-  if (n == 1) {
-    *active_width = *others_width = CLAMP(available, MIN_TAB_WIDTH, MAX_TAB_WIDTH);
-  } else {
-    *active_width = CLAMP(available - (int)(n - 1) * MIN_TAB_WIDTH, MIN_TAB_WIDTH, MAX_TAB_WIDTH);
-    *others_width = CLAMP((available - *active_width) / (int)(n - 1), MIN_TAB_WIDTH, MAX_TAB_WIDTH);
-  }
+  *tab_width = CLAMP(available / (int)n, MIN_TAB_WIDTH, MAX_TAB_WIDTH);
   return TRUE;
 }
 
@@ -241,21 +231,18 @@ static void wig_tab_bar_distribute_width(WigTabBar *self)
 {
   WigTabList *list = wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self));
   guint n = wig_tab_list_get_n_tabs(list);
-  int active_width;
-  int others_width;
-  if (!wig_tab_bar_compute_widths(self, n, &active_width, &others_width))
+  int tab_width;
+  if (!wig_tab_bar_compute_widths(self, n, &tab_width))
     return;
 
   /* Remembered as the initial guess for tab widgets created later. */
-  self->tab_width = others_width;
+  self->tab_width = tab_width;
 
-  WigTab *active = wig_tab_list_get_active(list);
   for (GSList *l = wig_tab_list_view_get_tab_widgets(WIG_TAB_LIST_VIEW(self)); l; l = g_slist_next(l)) {
     WigTabWidget *widget = WIG_TAB_WIDGET(l->data);
-    gboolean is_active = wig_tab_widget_get_tab(widget) == active;
     /* wig_tab_widget_set_width() is a no-op when the width is unchanged, so the
      * relayout it triggers settles after a single pass without looping. */
-    wig_tab_widget_set_width(widget, is_active ? active_width : others_width);
+    wig_tab_widget_set_width(widget, tab_width);
   }
 }
 
