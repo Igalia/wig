@@ -366,10 +366,16 @@ static void wig_tab_bar_load_css(void)
   gtk_css_provider_load_from_string(provider,
                                     /* Horizontal padding here defines the collapsed (favicon-only)
                                      * width together with WIG_TAB_FAVICON_SIZE; keep them in sync. */
-                                    "wig-tab { padding: 4px 10px; min-height: 36px; }"
+                                    "wig-tab {"
+                                    "  padding: 0px 12px;"
+                                    "  min-height: 24px;"
+                                    "  margin: 6px 6px;"
+                                    "  border-radius: 6px;"
+                                    "}"
                                     "wig-tab.active {"
-                                    "  background-color: alpha(@accent_bg_color, 0.2);"
-                                    "  border-radius: 4px;"
+                                    "  background-color: alpha(@headerbar_fg_color, 0.1);"
+                                    "  border-radius: 6px;"
+                                    "  box-shadow: 0 0 8px 1px alpha(@headerbar_fg_color, 0.1);"
                                     "}"
                                     "wig-tab.dragging {"
                                     "  opacity: 0.5;"
