@@ -1,0 +1,52 @@
+/* History navigation popover */
+.back-history-popover > contents {
+  box-shadow: 0 4px 16px 2px rgba(0,0,0,0.55);
+}
+
+.current-history-item {
+  font-weight: bold;
+}
+
+.current-history-item:hover {
+  background: transparent;
+}
+
+/* Tab bar - horizontal padding here defines the collapsed (favicon-only)
+ * width together with WIG_TAB_FAVICON_SIZE; keep them in sync. */
+wig-tab-bar wig-tab:first-child {
+  margin: 8px 5px 8px 10px;
+}
+
+wig-tab-bar wig-tab:last-child {
+  margin: 8px 10px 8px 5px;
+}
+
+wig-tab-bar wig-tab {
+  margin: 8px 5px;
+}
+
+wig-tab {
+  padding: 0px 12px;
+  min-height: 28px;
+  border-radius: 6px;
+}
+
+wig-tab-sidebar wig-tab {
+  margin: 6px 6px;
+  min-width: 0;
+}
+
+wig-tab.active {
+  background-color: alpha(@headerbar_fg_color, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 0 8px 1px alpha(@headerbar_fg_color, 0.1);
+}
+
+wig-tab.dragging {
+  opacity: 0.5;
+}
+
+wig-tab.selected {
+  box-shadow: 0 0 6px 2px alpha(@accent_color, 0.6);
+  border-radius: 6px;
+}

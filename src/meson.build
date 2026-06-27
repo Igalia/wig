@@ -1,7 +1,15 @@
 subdir('internal-pages')
 subdir('tabs')
 
-wig_sources = files('main.c', 'wig-application.c', 'wig-utils.c', 'wig-window.c') + internal_pages_sources + wig_tab_sources
+gnome = import('gnome')
+
+wig_resources = gnome.compile_resources(
+    'wig-resources',
+    'wig-application.gresource.xml',
+    source_dir: meson.current_source_dir(),
+)
+
+wig_sources = files('main.c', 'wig-application.c', 'wig-utils.c', 'wig-window.c') + internal_pages_sources + wig_tab_sources + wig_resources
 
 executable(
     'wig',

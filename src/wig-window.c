@@ -975,25 +975,6 @@ static void wig_window_constructed(GObject *object)
                                   G_N_ELEMENTS(context_menu_actions), win);
   gtk_widget_insert_action_group(GTK_WIDGET(win), "popup", win->context_menu_action_group);
 
-  static gsize css_loaded = 0;
-  if (g_once_init_enter(&css_loaded)) {
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider,
-                                      ".back-history-popover > contents {"
-                                      "  box-shadow: 0 4px 16px 2px rgba(0,0,0,0.55);"
-                                      "}"
-                                      ".current-history-item {"
-                                      "  font-weight: bold;"
-                                      "}"
-                                      ".current-history-item:hover {"
-                                      "  background: transparent;"
-                                      "}");
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
-    g_once_init_leave(&css_loaded, 1);
-  }
-
   g_signal_connect(win, "notify::fullscreened", G_CALLBACK(wig_window_fullscreen_changed), NULL);
 
   win->toolbar_view = adw_toolbar_view_new();

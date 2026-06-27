@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/com/igalia/wig">
+    <file>wig-application.css</file>
+  </gresource>
+</gresources>

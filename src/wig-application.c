@@ -209,6 +209,11 @@ static void wig_application_startup(GApplication *application)
 
   G_APPLICATION_CLASS(wig_application_parent_class)->startup(application);
 
+  g_autoptr(GtkCssProvider) provider = gtk_css_provider_new();
+  gtk_css_provider_load_from_resource(provider, "/com/igalia/wig/wig-application.css");
+  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
   g_action_map_add_action_entries(G_ACTION_MAP(application), app_actions, G_N_ELEMENTS(app_actions), application);
 
   app->display = wpe_display_gtk_new();

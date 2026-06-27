@@ -355,56 +355,9 @@ static void wig_tab_bar_class_init(WigTabBarClass *klass)
   view_class->tab_widget_added = wig_tab_bar_tab_widget_added;
 }
 
-static void wig_tab_bar_load_css(void)
-{
-  static gboolean loaded = FALSE;
-  if (loaded)
-    return;
-  loaded = TRUE;
-
-  GtkCssProvider *provider = gtk_css_provider_new();
-  gtk_css_provider_load_from_string(provider,
-                                    /* Horizontal padding here defines the collapsed (favicon-only)
-                                     * width together with WIG_TAB_FAVICON_SIZE; keep them in sync. */
-                                    "wig-tab-bar wig-tab:first-child {"
-                                    "    margin: 8px 5px 8px 10px;"
-                                    "}"
-                                    "wig-tab-bar wig-tab:last-child {"
-                                    "    margin: 8px 10px 8px 5px;"
-                                    "}"
-                                    "wig-tab-bar wig-tab {"
-                                    "  margin: 8px 5px;"
-                                    "}"
-                                    "wig-tab {"
-                                    "  padding: 0px 12px;"
-                                    "  min-height: 28px;"
-                                    "  border-radius: 6px;"
-                                    "}"
-                                    "wig-tab-sidebar wig-tab {"
-                                    "  margin: 6px 6px;"
-                                    "}"
-                                    "wig-tab.active {"
-                                    "  background-color: alpha(@headerbar_fg_color, 0.1);"
-                                    "  border-radius: 6px;"
-                                    "  box-shadow: 0 0 8px 1px alpha(@headerbar_fg_color, 0.1);"
-                                    "}"
-                                    "wig-tab.dragging {"
-                                    "  opacity: 0.5;"
-                                    "}"
-                                    "wig-tab.selected {"
-                                    "  box-shadow: 0 0 6px 2px alpha(@accent_color, 0.6);"
-                                    "  border-radius: 6px;"
-                                    "}");
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
-}
-
 GtkWidget *wig_tab_bar_new(WigTabList *list)
 {
   g_return_val_if_fail(WIG_IS_TAB_LIST(list), NULL);
-
-  wig_tab_bar_load_css();
 
   WigTabBar *self = WIG_TAB_BAR(g_object_new(WIG_TYPE_TAB_BAR, NULL));
   /* Small gap between the scrolled tab strip and the flanking buttons. */

@@ -60,25 +60,9 @@ static void wig_tab_sidebar_class_init(WigTabSidebarClass *klass)
   gtk_widget_class_set_css_name(widget_class, "wig-tab-sidebar");
 }
 
-static void wig_tab_sidebar_load_css(void)
-{
-  static gboolean loaded = FALSE;
-  if (loaded)
-    return;
-  loaded = TRUE;
-
-  GtkCssProvider *provider = gtk_css_provider_new();
-  gtk_css_provider_load_from_string(provider, "wig-tab-sidebar wig-tab { min-width: 0; }");
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
-}
-
 GtkWidget *wig_tab_sidebar_new(WigTabList *list)
 {
   g_return_val_if_fail(WIG_IS_TAB_LIST(list), NULL);
-
-  wig_tab_sidebar_load_css();
 
   WigTabSidebar *self = WIG_TAB_SIDEBAR(g_object_new(WIG_TYPE_TAB_SIDEBAR, NULL));
 
