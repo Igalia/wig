@@ -936,6 +936,18 @@ static void wig_window_update_stop_reload_actions(WigWindow *win)
   g_action_change_state(action, g_variant_new_boolean(is_loading));
 }
 
+static gboolean wig_window_on_enter_fullscreen(WigWindow *win)
+{
+  gtk_window_fullscreen(GTK_WINDOW(win));
+  return TRUE;
+}
+
+static gboolean wig_window_on_leave_fullscreen(WigWindow *win)
+{
+  gtk_window_unfullscreen(GTK_WINDOW(win));
+  return TRUE;
+}
+
 static void wig_window_fullscreen_changed(WigWindow *win)
 {
   bool is_fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
@@ -1000,6 +1012,10 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
                             G_CONNECT_SWAPPED);
     g_signal_connect_object(win->current_web_view, "load-changed", G_CALLBACK(wig_window_update_stop_reload_actions),
                             win, G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "enter-fullscreen", G_CALLBACK(wig_window_on_enter_fullscreen), win,
+                            G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "leave-fullscreen", G_CALLBACK(wig_window_on_leave_fullscreen), win,
+                            G_CONNECT_SWAPPED);
 
     WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(win->current_web_view);
     g_signal_connect_object(backForwardlist, "changed", G_CALLBACK(wig_window_update_navigation_actions), win,
