@@ -219,6 +219,10 @@ static gboolean wig_tab_widget_snapshot_timeout(gpointer user_data)
 
 static void wig_tab_widget_hover_enter(GtkEventControllerMotion *controller, double x, double y, WigTabWidget *self)
 {
+  for (GtkWidget *w = gtk_widget_get_parent(GTK_WIDGET(self)); w != NULL; w = gtk_widget_get_parent(w)) {
+    if (gtk_widget_has_css_class(w, "tab-drag-active"))
+      return;
+  }
   if (self->snapshot_timeout_id || self->snapshot_cancellable)
     return;
   self->snapshot_timeout_id = g_timeout_add(500, wig_tab_widget_snapshot_timeout, self);

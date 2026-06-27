@@ -190,6 +190,7 @@ static void wig_tab_list_view_drag_begin(GtkDragSource *source, GdkDrag *drag, W
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(source));
   priv->drag_widget = widget;
+  gtk_widget_add_css_class(GTK_WIDGET(self), "tab-drag-active");
   g_signal_connect_object(drag, "cancel", G_CALLBACK(wig_tab_list_view_drag_cancelled), self, G_CONNECT_DEFAULT);
 
   /* Take a static snapshot before adding .dragging so the icon is undimmed. */
@@ -213,6 +214,7 @@ static void wig_tab_list_view_drag_end(GtkDragSource *source, GdkDrag *drag, gbo
   GtkWidget *widget = priv->drag_widget;
   priv->drag_widget = NULL;
 
+  gtk_widget_remove_css_class(GTK_WIDGET(self), "tab-drag-active");
   if (GTK_IS_WIDGET(widget))
     gtk_widget_remove_css_class(widget, "dragging");
   wig_tab_list_view_set_drop_indicator(self, -1);
