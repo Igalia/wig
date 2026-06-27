@@ -24,7 +24,7 @@
 
 #include "wig-tab-widget.h"
 
-#define MIN_TAB_WIDTH 80
+#define MIN_TAB_WIDTH 100
 #define MAX_TAB_WIDTH 240
 
 struct _WigTabBar {

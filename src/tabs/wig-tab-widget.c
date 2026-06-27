@@ -60,6 +60,7 @@ static void wig_tab_widget_on_icon_changed(WigTabWidget *self, GParamSpec *pspec
       gtk_image_set_pixel_size(GTK_IMAGE(self->favicon), WIG_TAB_FAVICON_SIZE);
       gtk_widget_set_halign(self->favicon, GTK_ALIGN_CENTER);
       gtk_widget_set_hexpand(self->favicon, FALSE);
+      gtk_widget_add_css_class(self->favicon, "tab-favicon");
       gtk_widget_insert_before(self->favicon, GTK_WIDGET(self), self->title_label);
     }
     gtk_image_set_from_gicon(GTK_IMAGE(self->favicon), icon);
@@ -78,6 +79,7 @@ static void wig_tab_widget_on_loading_changed(WigTabWidget *self, GParamSpec *ps
       self->spinner = gtk_spinner_new();
       gtk_widget_set_size_request(self->spinner, WIG_TAB_FAVICON_SIZE, WIG_TAB_FAVICON_SIZE);
       gtk_widget_set_halign(self->spinner, GTK_ALIGN_START);
+      gtk_widget_add_css_class(self->spinner, "tab-favicon");
       gtk_widget_insert_before(self->spinner, GTK_WIDGET(self), self->title_label);
     }
     gtk_spinner_set_spinning(GTK_SPINNER(self->spinner), TRUE);
@@ -272,18 +274,21 @@ static void wig_tab_widget_init(WigTabWidget *self)
   self->target_width = -1;
 
   GtkLayoutManager *layout = gtk_widget_get_layout_manager(GTK_WIDGET(self));
-  gtk_box_layout_set_spacing(GTK_BOX_LAYOUT(layout), 6);
+  gtk_box_layout_set_spacing(GTK_BOX_LAYOUT(layout), 0);
 
   self->title_label = gtk_label_new("New Tab");
-  // FIXME: We don't want to render ellisize. Instead the text should fade out at the end.
-  gtk_label_set_ellipsize(GTK_LABEL(self->title_label), PANGO_ELLIPSIZE_NONE);
+  gtk_label_set_single_line_mode(GTK_LABEL(self->title_label), TRUE);
   gtk_label_set_xalign(GTK_LABEL(self->title_label), 0.0f);
+  gtk_label_set_ellipsize(GTK_LABEL(self->title_label), PANGO_ELLIPSIZE_END);
   gtk_widget_set_hexpand(self->title_label, TRUE);
   gtk_widget_set_parent(self->title_label, GTK_WIDGET(self));
 
   self->close_button = gtk_button_new_from_icon_name("window-close-symbolic");
   gtk_widget_add_css_class(self->close_button, "flat");
   gtk_widget_add_css_class(self->close_button, "circular");
+  gtk_widget_add_css_class(self->close_button, "tab-close");
+  gtk_widget_set_valign(self->close_button, GTK_ALIGN_CENTER);
+  gtk_widget_set_focusable(self->close_button, FALSE);
   gtk_widget_set_parent(self->close_button, GTK_WIDGET(self));
   g_signal_connect(self->close_button, "clicked", G_CALLBACK(wig_tab_widget_close_clicked), self);
 

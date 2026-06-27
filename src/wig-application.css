@@ -52,8 +52,9 @@ wig-tab-bar wig-tab {
 }
 
 wig-tab {
-  padding: 0px 12px;
-  min-height: 28px;
+  padding: 0px 8px;
+  min-height: 32px;
+  min-width: 80px;
   border-radius: 6px;
 }
 
@@ -72,6 +73,24 @@ wig-tab.active {
   border-radius: 6px;
   box-shadow: 0 0 8px 1px alpha(@headerbar_fg_color, 0.15);
 }
+
+wig-tab .tab-favicon {
+  margin: 6px 6px 6px 0px;
+}
+
+
+wig-tab .tab-close {
+  padding: 6px 6px 6px 0px;
+  min-width: 0;
+  min-height: 0;
+}
+
+wig-tab .tab-close:hover,
+wig-tab .tab-close:active {
+  background: transparent;
+  box-shadow: none;
+}
+
 
 wig-tab.dragging {
   opacity: 0.5;
