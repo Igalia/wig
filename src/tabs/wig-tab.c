@@ -22,6 +22,7 @@
 
 #include "wig-tab.h"
 
+#include "wig-script-dialog.h"
 #include "wpe-view-gtk.h"
 
 struct _WigTab {
@@ -29,12 +30,19 @@ struct _WigTab {
 
   guint id;
   WebKitWebView *web_view;
+  GtkWidget *view_overlay;
   GIcon *icon;
   char *title;
   gboolean pinned;
   gboolean loading;
   gboolean selected;
 };
+
+static gboolean wig_tab_on_script_dialog(WigTab *self, WebKitScriptDialog *dialog)
+{
+  wig_script_dialog_show(GTK_OVERLAY(self->view_overlay), dialog);
+  return TRUE;
+}
 
 G_DEFINE_FINAL_TYPE(WigTab, wig_tab, G_TYPE_OBJECT)
 
@@ -113,6 +121,7 @@ static void wig_tab_dispose(GObject *object)
   if (self->web_view)
     g_signal_handlers_disconnect_by_data(self->web_view, self);
   g_clear_object(&self->web_view);
+  g_clear_object(&self->view_overlay);
   G_OBJECT_CLASS(wig_tab_parent_class)->dispose(object);
 }
 
@@ -232,10 +241,15 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   WigTab *self = WIG_TAB(g_object_new(WIG_TYPE_TAB, NULL));
   self->web_view = g_object_ref(web_view);
 
+  GtkWidget *web_view_widget = wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)));
+  self->view_overlay = g_object_ref_sink(gtk_overlay_new());
+  gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), web_view_widget);
+
   g_signal_connect_object(web_view, "notify::title", G_CALLBACK(wig_tab_on_title_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "notify::page-icons", G_CALLBACK(wig_tab_on_page_icons_changed), self,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "load-changed", G_CALLBACK(wig_tab_on_load_changed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "script-dialog", G_CALLBACK(wig_tab_on_script_dialog), self, G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
 
   /* Pick up a title and icons the view may already have (e.g. a related view). */
@@ -257,7 +271,7 @@ WebKitWebView *wig_tab_get_web_view(WigTab *self)
 
 GtkWidget *wig_tab_get_widget(WigTab *self)
 {
-  return wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(self->web_view)));
+  return self->view_overlay;
 }
 
 GIcon *wig_tab_get_icon(WigTab *self)

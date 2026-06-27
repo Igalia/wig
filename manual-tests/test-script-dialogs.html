@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Script Dialog Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.95em;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button:hover { background: #1c71d8; }
+    #result {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      display: none;
+    }
+    #result.visible { display: block; }
+    .true  { color: #26a269; }
+    .false { color: #c01c28; }
+    .null  { color: #9141ac; }
+  </style>
+</head>
+<body>
+
+<h1>Script Dialog Tests</h1>
+<p class="subtitle">Tests all four <code>WebKitScriptDialog</code> variants.</p>
+
+<section>
+  <h2>Alert (<code>window.alert</code>)</h2>
+  <p class="desc">Shows a message. No return value. The dialog should have a single "Close" button.</p>
+  <button onclick="testAlert()">Trigger alert()</button>
+  <div id="result-alert" class="result"></div>
+</section>
+
+<section>
+  <h2>Confirm (<code>window.confirm</code>)</h2>
+  <p class="desc">
+    Asks the user to confirm. Returns <code>true</code> (OK) or <code>false</code> (Cancel).
+    The dialog should have "OK" and "Cancel" buttons.
+  </p>
+  <button onclick="testConfirm()">Trigger confirm()</button>
+  <div id="result-confirm" class="result"></div>
+</section>
+
+<section>
+  <h2>Prompt (<code>window.prompt</code>)</h2>
+  <p class="desc">
+    Asks the user for text input. Returns the entered string, or <code>null</code> if cancelled.
+    The dialog should have a text entry pre-filled with "default value", plus "OK" and "Cancel" buttons.
+  </p>
+  <button onclick="testPrompt()">Trigger prompt()</button>
+  <div id="result-prompt" class="result"></div>
+</section>
+
+<section>
+  <h2>Before-unload confirm (<code>onbeforeunload</code>)</h2>
+  <p class="desc">
+    Fired when navigating away from the page. The dialog should have "Stay" and "Leave" buttons.
+    Clicking "Leave" navigates to <em>about:blank</em>; "Stay" keeps you here.
+  </p>
+  <button onclick="testBeforeUnload()">Navigate away (triggers beforeunload)</button>
+</section>
+
+<script>
+  function showResult(id, html) {
+    const el = document.getElementById(id);
+    el.innerHTML = html;
+    el.className = 'result visible';
+  }
+
+  function testAlert() {
+    window.alert('This is an alert message.\nIt can span multiple lines.');
+    showResult('result-alert', 'Alert dismissed.');
+  }
+
+  function testConfirm() {
+    const result = window.confirm('Do you confirm this action?');
+    const cls = result ? 'true' : 'false';
+    showResult('result-confirm', `confirm() returned: <span class="${cls}">${result}</span>`);
+  }
+
+  function testPrompt() {
+    const result = window.prompt('Enter some text below:', 'default value');
+    let html;
+    if (result === null)
+      html = `prompt() returned: <span class="null">null</span> (cancelled)`;
+    else
+      html = `prompt() returned: <span class="true">"${result}"</span>`;
+    showResult('result-prompt', html);
+  }
+
+  function testBeforeUnload() {
+    window.onbeforeunload = function (e) {
+      window.onbeforeunload = null;
+      return 'Are you sure you want to leave?';
+    };
+    window.location.href = 'about:blank';
+  }
+</script>
+</body>
+</html>
