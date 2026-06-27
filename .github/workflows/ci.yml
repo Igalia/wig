@@ -18,7 +18,7 @@ jobs:
         with:
           filters: |
             containerfile:
-              - 'Containerfile'
+              - '.github/workflows/Containerfile'
 
   build-image:
     runs-on: ubuntu-latest
@@ -40,8 +40,8 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Containerfile
+          context: .github/workflows
+          file: .github/workflows/Containerfile
           push: ${{ github.event_name == 'push' }}
           tags: ghcr.io/igalia/wig-ci:latest
 
