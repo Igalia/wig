@@ -370,6 +370,9 @@ static void wig_tab_bar_load_css(void)
                                     "wig-tab.active {"
                                     "  background-color: alpha(@accent_bg_color, 0.2);"
                                     "  border-radius: 4px;"
+                                    "}"
+                                    "wig-tab.dragging {"
+                                    "  opacity: 0.5;"
                                     "}");
   gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);

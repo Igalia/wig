@@ -47,6 +47,7 @@ static GParamSpec *props[N_PROPS];
 enum {
   SIGNAL_TAB_ADDED,
   SIGNAL_TAB_REMOVED,
+  SIGNAL_TAB_MOVED,
   SIGNAL_CLOSE_TAB,
   SIGNAL_CREATE_TAB,
   SIGNAL_RELOAD_TAB,
@@ -125,6 +126,9 @@ static void wig_tab_list_class_init(WigTabListClass *klass)
                                            NULL, G_TYPE_NONE, 2, WIG_TYPE_TAB, G_TYPE_UINT);
   signals[SIGNAL_TAB_REMOVED] = g_signal_new("tab-removed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
                                              NULL, G_TYPE_NONE, 2, WIG_TYPE_TAB, G_TYPE_UINT);
+  /* tab-moved(tab, old_index, new_index) */
+  signals[SIGNAL_TAB_MOVED] = g_signal_new("tab-moved", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+                                           NULL, G_TYPE_NONE, 3, WIG_TYPE_TAB, G_TYPE_UINT, G_TYPE_UINT);
 
   /* Returns gboolean: TRUE means the caller handled close (e.g. window destroy);
    * FALSE means the list should remove the tab itself. */
@@ -187,6 +191,38 @@ void wig_tab_list_close(WigTabList *self, WigTab *tab)
   g_signal_emit(self, signals[SIGNAL_TAB_REMOVED], 0, alive_tab, pos);
 }
 
+/* Remove a tab from the list without going through the close-tab signal.
+ * Callers are responsible for handling the web view lifecycle (e.g. re-attaching
+ * it to a new list with wig_tab_list_attach). */
+WigTab *wig_tab_list_detach(WigTabList *self, WigTab *tab)
+{
+  guint pos = wig_tab_list_index_of(self, tab);
+  if (pos == GTK_INVALID_LIST_POSITION)
+    return NULL;
+
+  if (self->active == tab) {
+    WigTab *new_active = self->tabs->len > 1 ? g_ptr_array_index(self->tabs, pos > 0 ? pos - 1 : pos + 1) : NULL;
+    g_set_object(&self->active, new_active);
+    g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE_TAB]);
+  }
+
+  g_autoptr(WigTab) alive_tab = g_object_ref(tab);
+  g_ptr_array_remove_index(self->tabs, pos);
+  g_signal_emit(self, signals[SIGNAL_TAB_REMOVED], 0, alive_tab, pos);
+  return g_steal_pointer(&alive_tab);
+}
+
+/* Add an existing WigTab to this list (e.g. after detaching from another list).
+ * The tab is appended. */
+void wig_tab_list_attach(WigTabList *self, WigTab *tab)
+{
+  g_ptr_array_add(self->tabs, g_object_ref(tab));
+  guint pos = self->tabs->len - 1;
+  g_signal_emit(self, signals[SIGNAL_TAB_ADDED], 0, tab, pos);
+  if (self->tabs->len == 1)
+    wig_tab_list_set_active(self, tab);
+}
+
 void wig_tab_list_move(WigTabList *self, WigTab *tab, guint new_index)
 {
   guint old_index = wig_tab_list_index_of(self, tab);
@@ -198,6 +234,7 @@ void wig_tab_list_move(WigTabList *self, WigTab *tab, guint new_index)
   if (old_index < new_index)
     new_index--;
   g_ptr_array_insert(self->tabs, (gint)new_index, g_steal_pointer(&alive_tab));
+  g_signal_emit(self, signals[SIGNAL_TAB_MOVED], 0, tab, old_index, new_index);
 }
 
 guint wig_tab_list_get_n_tabs(WigTabList *self)

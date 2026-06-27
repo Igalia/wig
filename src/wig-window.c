@@ -735,6 +735,108 @@ static WigTab *wig_window_create_tab(WigWindow *win)
   return wig_tab_list_get_active(win->tab_list);
 }
 
+/* Find which window in this application owns a given tab id. */
+static WigWindow *wig_window_find_owner(WigApplication *app, guint32 tab_id)
+{
+  GList *windows = gtk_application_get_windows(GTK_APPLICATION(app));
+  for (GList *l = windows; l; l = g_list_next(l)) {
+    if (!WIG_IS_WINDOW(l->data))
+      continue;
+    WigWindow *w = WIG_WINDOW(l->data);
+    if (wig_tab_list_get_by_id(w->tab_list, tab_id))
+      return w;
+  }
+  return NULL;
+}
+
+/* tab.move-to(uu): move tab_id to this window at insert_index.
+ * If the tab already lives here, this is a reorder. */
+static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, GVariant *parameter)
+{
+  WigWindow *dst = WIG_WINDOW(widget);
+  guint32 tab_id, insert_index;
+  g_variant_get(parameter, "(uu)", &tab_id, &insert_index);
+
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(dst)));
+  WigWindow *src = wig_window_find_owner(app, tab_id);
+  if (!src)
+    return;
+
+  WigTab *tab = wig_tab_list_get_by_id(src->tab_list, tab_id);
+  if (!tab)
+    return;
+
+  if (src == dst) {
+    /* Same window — reorder only. */
+    guint current = wig_tab_list_index_of(dst->tab_list, tab);
+    guint target = (guint)insert_index;
+    if (target != current && target != current + 1)
+      wig_tab_list_move(dst->tab_list, tab, target);
+    return;
+  }
+
+  /* Cross-window move: source must keep at least one tab. */
+  if (wig_tab_list_get_n_tabs(src->tab_list) <= 1)
+    return;
+
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
+
+  /* Hold a ref so the widget survives gtk_stack_remove in wig_tab_list_detach. */
+  GtkWidget *tab_widget = g_object_ref(wig_tab_get_widget(tab));
+  g_autoptr(WigTab) owned_tab = wig_tab_list_detach(src->tab_list, tab);
+
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_close_tab, src);
+  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), dst, G_CONNECT_SWAPPED);
+
+  guint n = wig_tab_list_get_n_tabs(dst->tab_list);
+  guint pos = MIN((guint)insert_index, n);
+  wig_tab_list_attach(dst->tab_list, owned_tab);
+  g_object_unref(tab_widget);
+  /* attach appends; reorder if not at end */
+  if (pos < n)
+    wig_tab_list_move(dst->tab_list, owned_tab, pos);
+  wig_tab_list_set_active(dst->tab_list, owned_tab);
+
+  wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), dst->toplevel);
+  gtk_window_present(GTK_WINDOW(dst));
+}
+
+static void wig_window_detach_tab(GtkWidget *widget, const char *action_name, GVariant *parameter)
+{
+  WigWindow *win = WIG_WINDOW(widget);
+  guint32 tab_id = g_variant_get_uint32(parameter);
+  WigTab *tab = wig_tab_list_get_by_id(win->tab_list, tab_id);
+  if (!tab)
+    return;
+
+  if (wig_tab_list_get_n_tabs(win->tab_list) <= 1)
+    return;
+
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+  WigWindow *new_win = wig_window_new(app);
+
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
+
+  /* Detach reuses the existing WigTab — no close-tab signal, no history save.
+   * This fires tab-removed on the old list, which removes the WPE widget from
+   * the old stack. We hold a ref so it survives unparenting. */
+  GtkWidget *tab_widget = g_object_ref(wig_tab_get_widget(tab));
+  g_autoptr(WigTab) owned_tab = wig_tab_list_detach(win->tab_list, tab);
+
+  /* Re-wire the web view's "close" signal from the old window to the new one. */
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_close_tab, win);
+  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), new_win, G_CONNECT_SWAPPED);
+
+  /* Attach before changing the toplevel so the widget is in the new stack when
+   * wpe_view_set_toplevel migrates the native surface. */
+  wig_tab_list_attach(new_win->tab_list, owned_tab);
+  wig_tab_list_set_active(new_win->tab_list, owned_tab);
+  g_object_unref(tab_widget);
+
+  wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), new_win->toplevel);
+  gtk_window_present(GTK_WINDOW(new_win));
+}
+
 static void wig_window_constructed(GObject *object)
 {
   G_OBJECT_CLASS(wig_window_parent_class)->constructed(object);
@@ -897,6 +999,10 @@ static void wig_window_class_init(WigWindowClass *klass)
                                      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties(gobject_class, N_PROPS, props);
+
+  GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
+  gtk_widget_class_install_action(widget_class, "tab.detach", "u", wig_window_detach_tab);
+  gtk_widget_class_install_action(widget_class, "tab.move-to", "(uu)", wig_window_move_tab_to);
 }
 
 WigWindow *wig_window_new(WigApplication *application)
