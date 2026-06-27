@@ -48,6 +48,7 @@ struct _WigApplication {
   WebKitUserContentFilterStore *content_filter_store;
 
   GQueue *closed_tab_history;
+  GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -201,6 +202,16 @@ static void wig_application_init(WigApplication *app)
   app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
+  app->notifications = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
+}
+
+static void on_notification_clicked_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigApplication *app = WIG_APPLICATION(user_data);
+  const char *id = g_variant_get_string(parameter, NULL);
+  WebKitNotification *notif = g_hash_table_lookup(app->notifications, id);
+  if (notif)
+    webkit_notification_clicked(notif);
 }
 
 static void wig_application_startup(GApplication *application)
@@ -215,6 +226,10 @@ static void wig_application_startup(GApplication *application)
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
   g_action_map_add_action_entries(G_ACTION_MAP(application), app_actions, G_N_ELEMENTS(app_actions), application);
+
+  g_autoptr(GSimpleAction) notif_clicked_action = g_simple_action_new("notification-clicked", G_VARIANT_TYPE_STRING);
+  g_signal_connect(notif_clicked_action, "activate", G_CALLBACK(on_notification_clicked_action), application);
+  g_action_map_add_action(G_ACTION_MAP(application), G_ACTION(notif_clicked_action));
 
   app->display = wpe_display_gtk_new();
   wpe_settings_set_boolean(wpe_display_get_settings(app->display), WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, FALSE,
@@ -286,6 +301,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->user_scripts, g_ptr_array_unref);
   g_clear_pointer(&app->user_style_sheets, g_ptr_array_unref);
   g_clear_object(&app->content_filter_store);
+  g_clear_pointer(&app->notifications, g_hash_table_unref);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -394,4 +410,21 @@ WigClosedGroup *wig_application_pop_closed_group(WigApplication *app)
   if (group)
     g_debug("Popping closed group of size %d for window %d", g_slist_length(group->tabs), group->window_id);
   return group;
+}
+
+void wig_application_track_notification(WigApplication *app, const char *id, WebKitNotification *notif)
+{
+  g_return_if_fail(WIG_IS_APPLICATION(app));
+  g_return_if_fail(id != NULL);
+  g_return_if_fail(WEBKIT_IS_NOTIFICATION(notif));
+
+  g_hash_table_insert(app->notifications, g_strdup(id), g_object_ref(notif));
+}
+
+void wig_application_untrack_notification(WigApplication *app, const char *id)
+{
+  g_return_if_fail(WIG_IS_APPLICATION(app));
+  g_return_if_fail(id != NULL);
+
+  g_hash_table_remove(app->notifications, id);
 }

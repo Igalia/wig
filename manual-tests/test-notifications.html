@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Notification Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.95em;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-bottom: 6px;
+    }
+    button:hover { background: #1c71d8; }
+    button:disabled { background: #aaa; cursor: default; }
+    .status {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+    }
+    .granted  { color: #26a269; }
+    .denied   { color: #c01c28; }
+    .default  { color: #9141ac; }
+  </style>
+</head>
+<body>
+
+<h1>Notification Tests</h1>
+<p class="subtitle">Tests the Web Notifications API and <code>show-notification</code> WebKit signal.</p>
+
+<section>
+  <h2>Permission</h2>
+  <p class="desc">
+    Current permission: <strong id="perm-label">—</strong>.
+    Request permission before sending notifications.
+  </p>
+  <button onclick="requestPermission()">Request Permission</button>
+  <div class="status" id="perm-status">Permission not yet requested.</div>
+</section>
+
+<section>
+  <h2>Simple Notification</h2>
+  <p class="desc">Sends a notification with a title and body.</p>
+  <button onclick="sendSimple()">Send Notification</button>
+  <div class="status" id="simple-status">Not sent yet.</div>
+</section>
+
+<section>
+  <h2>Notification with Tag (Replacement)</h2>
+  <p class="desc">
+    Sends a notification with a fixed tag. A second send replaces the first in the notification tray.
+  </p>
+  <button onclick="sendTagged()">Send Tagged Notification</button>
+  <div class="status" id="tagged-status">Not sent yet.</div>
+</section>
+
+<section>
+  <h2>Auto-Close Notification</h2>
+  <p class="desc">Sends a notification and closes it programmatically after 3 seconds.</p>
+  <button onclick="sendAutoClose()">Send Auto-Close Notification</button>
+  <div class="status" id="autoclose-status">Not sent yet.</div>
+</section>
+
+<section>
+  <h2>Click Event</h2>
+  <p class="desc">
+    Sends a notification and listens for the <code>onclick</code> event. Click the notification
+    in the shell to see the event registered here.
+  </p>
+  <button onclick="sendClickable()">Send Clickable Notification</button>
+  <div class="status" id="click-status">Not sent yet.</div>
+</section>
+
+<script>
+  let taggedNotif = null;
+
+  function updatePermLabel() {
+    const label = document.getElementById('perm-label');
+    const perm = Notification.permission;
+    label.textContent = perm;
+    label.className = perm;
+  }
+
+  updatePermLabel();
+
+  function requestPermission() {
+    Notification.requestPermission().then(perm => {
+      updatePermLabel();
+      document.getElementById('perm-status').textContent = `Permission result: ${perm}`;
+    });
+  }
+
+  function checkPermission(statusId) {
+    if (Notification.permission !== 'granted') {
+      document.getElementById(statusId).textContent =
+        'Permission not granted. Request permission first.';
+      return false;
+    }
+    return true;
+  }
+
+  function sendSimple() {
+    if (!checkPermission('simple-status')) return;
+    const n = new Notification('Hello from wig!', {
+      body: 'This is a simple notification sent via the Web Notifications API.',
+    });
+    n.onshow  = () => { document.getElementById('simple-status').textContent = 'Notification shown.'; };
+    n.onclose = () => { document.getElementById('simple-status').textContent = 'Notification closed.'; };
+    n.onerror = (e) => { document.getElementById('simple-status').textContent = `Error: ${e.message}`; };
+  }
+
+  function sendTagged() {
+    if (!checkPermission('tagged-status')) return;
+    if (taggedNotif) taggedNotif.close();
+    taggedNotif = new Notification('Tagged Notification', {
+      body: `Sent at ${new Date().toLocaleTimeString()} — re-send to replace.`,
+      tag: 'wig-test-tag',
+    });
+    taggedNotif.onshow = () => {
+      document.getElementById('tagged-status').textContent =
+        `Tagged notification sent at ${new Date().toLocaleTimeString()}.`;
+    };
+  }
+
+  function sendAutoClose() {
+    if (!checkPermission('autoclose-status')) return;
+    const n = new Notification('Auto-Close Test', {
+      body: 'This notification will close in 3 seconds.',
+    });
+    document.getElementById('autoclose-status').textContent = 'Notification sent, closing in 3 s…';
+    n.onclose = () => {
+      document.getElementById('autoclose-status').textContent = 'Notification closed by script.';
+    };
+    setTimeout(() => n.close(), 3000);
+  }
+
+  function sendClickable() {
+    if (!checkPermission('click-status')) return;
+    const n = new Notification('Clickable Notification', {
+      body: 'Click this notification in the shell.',
+    });
+    document.getElementById('click-status').textContent = 'Notification sent — waiting for click…';
+    n.onclick = () => {
+      document.getElementById('click-status').textContent =
+        `Notification clicked at ${new Date().toLocaleTimeString()}!`;
+    };
+    n.onclose = () => {
+      if (document.getElementById('click-status').textContent.includes('waiting'))
+        document.getElementById('click-status').textContent = 'Notification closed without click.';
+    };
+  }
+</script>
+</body>
+</html>

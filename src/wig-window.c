@@ -226,11 +226,59 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
   return FALSE;
 }
 
+static void wig_window_on_webkit_notification_closed(WebKitNotification *webkit_notif, char *notif_id)
+{
+  WigApplication *app = wig_application_get();
+  g_application_withdraw_notification(G_APPLICATION(app), notif_id);
+  wig_application_untrack_notification(app, notif_id);
+}
+
+static void free_with_closure(void *data, GClosure *closure)
+{
+  g_free(data);
+}
+
+static gboolean wig_window_on_show_notification(WigWindow *win, WebKitNotification *webkit_notif)
+{
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+
+  const char *title = webkit_notification_get_title(webkit_notif);
+  g_autoptr(GNotification) notif = g_notification_new(title && *title ? title : "Notification");
+
+  const char *body = webkit_notification_get_body(webkit_notif);
+  if (body && *body)
+    g_notification_set_body(notif, body);
+
+  g_autofree char *notif_id = g_strdup_printf("wig-%" G_GUINT64_FORMAT, webkit_notification_get_id(webkit_notif));
+  g_notification_set_default_action_and_target(notif, "app.notification-clicked", "s", notif_id);
+
+  wig_application_track_notification(app, notif_id, webkit_notif);
+  g_application_send_notification(G_APPLICATION(app), notif_id, notif);
+
+  g_signal_connect_data(webkit_notif, "closed", G_CALLBACK(wig_window_on_webkit_notification_closed),
+                        g_steal_pointer(&notif_id), free_with_closure, G_CONNECT_DEFAULT);
+
+  return TRUE;
+}
+
+static gboolean wig_window_on_permission_request(WigWindow *win, WebKitPermissionRequest *request)
+{
+  if (!WEBKIT_IS_NOTIFICATION_PERMISSION_REQUEST(request))
+    return FALSE;
+
+  webkit_permission_request_allow(request);
+  return TRUE;
+}
+
 static WigTab *wig_window_add_tab_for_view(WigWindow *win, WebKitWebView *web_view)
 {
   WigTab *tab = wig_tab_list_append(win->tab_list, web_view);
 
   g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "show-notification", G_CALLBACK(wig_window_on_show_notification), win,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "permission-request", G_CALLBACK(wig_window_on_permission_request), win,
+                          G_CONNECT_SWAPPED);
 
   wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), win->toplevel);
 
