@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chooser Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    input[type="file"],
+    input[type="color"] {
+      font-size: 0.95em;
+    }
+    .status {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+    }
+    .ok   { color: #26a269; }
+    .fail { color: #c01c28; }
+    .info { color: #9141ac; }
+    .swatch {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      border: 1px solid #aaa;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Chooser Tests</h1>
+<p class="subtitle">
+  Tests the <code>run-file-chooser</code> WebKit signal via <code>&lt;input type="file"&gt;</code>
+  elements. The browser should open a native GTK file chooser dialog.
+</p>
+
+<section>
+  <h2>Single File</h2>
+  <p class="desc">
+    Clicking the input should open a native file chooser. After selecting, the file name and
+    size are shown below.
+  </p>
+  <label>
+    <input type="file" id="file-single">
+  </label>
+  <div class="status" id="single-status">No file selected.</div>
+  <script>
+    document.getElementById('file-single').addEventListener('change', function () {
+      const file = this.files[0];
+      if (file) {
+        const kb = (file.size / 1024).toFixed(1);
+        document.getElementById('single-status').textContent =
+          `Selected: ${file.name}  (${kb} KB, ${file.type || 'unknown type'})`;
+        document.getElementById('single-status').className = 'status ok';
+      } else {
+        document.getElementById('single-status').textContent = 'No file selected.';
+        document.getElementById('single-status').className = 'status';
+      }
+    });
+  </script>
+</section>
+
+<section>
+  <h2>Multiple Files</h2>
+  <p class="desc">
+    The dialog should allow selecting more than one file at once.
+    All selected file names are listed below.
+  </p>
+  <label>
+    <input type="file" id="file-multiple" multiple>
+  </label>
+  <div class="status" id="multiple-status">No files selected.</div>
+  <script>
+    document.getElementById('file-multiple').addEventListener('change', function () {
+      const files = Array.from(this.files);
+      if (files.length > 0) {
+        const names = files.map(f => `${f.name} (${(f.size / 1024).toFixed(1)} KB)`).join(', ');
+        document.getElementById('multiple-status').textContent =
+          `${files.length} file(s): ${names}`;
+        document.getElementById('multiple-status').className = 'status ok';
+      } else {
+        document.getElementById('multiple-status').textContent = 'No files selected.';
+        document.getElementById('multiple-status').className = 'status';
+      }
+    });
+  </script>
+</section>
+
+<section>
+  <h2>MIME Type Filter — Images Only</h2>
+  <p class="desc">
+    The dialog should be pre-filtered to show only image files
+    (<code>accept="image/*"</code>).
+  </p>
+  <label>
+    <input type="file" id="file-images" accept="image/*">
+  </label>
+  <div class="status" id="images-status">No file selected.</div>
+  <script>
+    document.getElementById('file-images').addEventListener('change', function () {
+      const file = this.files[0];
+      if (file) {
+        document.getElementById('images-status').textContent =
+          `Selected: ${file.name} (${file.type || 'unknown type'})`;
+        document.getElementById('images-status').className = 'status ok';
+      } else {
+        document.getElementById('images-status').textContent = 'No file selected.';
+        document.getElementById('images-status').className = 'status';
+      }
+    });
+  </script>
+</section>
+
+<section>
+  <h2>MIME Type Filter — Videos Only</h2>
+  <p class="desc">
+    The dialog should be pre-filtered to show only video files
+    (<code>accept="video/*"</code>).
+  </p>
+  <label>
+    <input type="file" id="file-videos" accept="video/*">
+  </label>
+  <div class="status" id="videos-status">No file selected.</div>
+  <script>
+    document.getElementById('file-videos').addEventListener('change', function () {
+      const file = this.files[0];
+      if (file) {
+        document.getElementById('videos-status').textContent =
+          `Selected: ${file.name} (${file.type || 'unknown type'})`;
+        document.getElementById('videos-status').className = 'status ok';
+      } else {
+        document.getElementById('videos-status').textContent = 'No file selected.';
+        document.getElementById('videos-status').className = 'status';
+      }
+    });
+  </script>
+</section>
+
+<section>
+  <h2>Cancel Handling</h2>
+  <p class="desc">
+    Open the dialog and click <em>Cancel</em>. The status below should remain "No file selected."
+    and the page should not hang.
+  </p>
+  <label>
+    <input type="file" id="file-cancel">
+  </label>
+  <div class="status" id="cancel-status">No file selected.</div>
+  <script>
+    document.getElementById('file-cancel').addEventListener('change', function () {
+      const file = this.files[0];
+      document.getElementById('cancel-status').textContent = file
+        ? `Selected: ${file.name}`
+        : 'No file selected (cancelled).';
+      document.getElementById('cancel-status').className = file ? 'status ok' : 'status';
+    });
+  </script>
+</section>
+
+</body>
+</html>

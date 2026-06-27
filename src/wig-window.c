@@ -320,6 +320,57 @@ static gboolean wig_window_on_permission_request(WebKitWebView *web_view, WebKit
   return TRUE;
 }
 
+static void wig_window_file_chooser_done(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WebKitFileChooserRequest) request = user_data;
+  g_autoptr(GError) error = NULL;
+
+  if (webkit_file_chooser_request_get_select_multiple(request)) {
+    g_autoptr(GListModel) files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(source), result, &error);
+    if (files) {
+      guint n = g_list_model_get_n_items(files);
+      g_auto(GStrv) paths = g_new0(char *, n + 1);
+      for (guint i = 0; i < n; i++) {
+        g_autoptr(GFile) file = g_list_model_get_item(files, i);
+        paths[i] = g_file_get_path(file);
+      }
+      webkit_file_chooser_request_select_files(request, (const char *const *)paths);
+    } else {
+      g_debug("file-chooser failed: %s", error->message);
+      webkit_file_chooser_request_cancel(request);
+    }
+  } else {
+    g_autoptr(GFile) file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
+    if (file) {
+      const char *paths[] = { g_file_peek_path(file), NULL };
+      webkit_file_chooser_request_select_files(request, paths);
+    } else {
+      g_debug("file-chooser failed: %s", error->message);
+      webkit_file_chooser_request_cancel(request);
+    }
+  }
+}
+
+static gboolean wig_window_on_run_file_chooser(WigWindow *win, WebKitFileChooserRequest *request)
+{
+  g_autoptr(GtkFileDialog) dialog = gtk_file_dialog_new();
+
+  const char *const *mime_types = webkit_file_chooser_request_get_mime_types(request);
+  if (mime_types && *mime_types) {
+    g_autoptr(GtkFileFilter) filter = gtk_file_filter_new();
+    for (guint i = 0; mime_types[i]; i++)
+      gtk_file_filter_add_mime_type(filter, mime_types[i]);
+    gtk_file_dialog_set_default_filter(dialog, filter);
+  }
+
+  if (webkit_file_chooser_request_get_select_multiple(request))
+    gtk_file_dialog_open_multiple(dialog, GTK_WINDOW(win), NULL, wig_window_file_chooser_done, g_object_ref(request));
+  else
+    gtk_file_dialog_open(dialog, GTK_WINDOW(win), NULL, wig_window_file_chooser_done, g_object_ref(request));
+
+  return TRUE;
+}
+
 static WigTab *wig_window_add_tab_for_view(WigWindow *win, WebKitWebView *web_view)
 {
   WigTab *tab = wig_tab_list_append(win->tab_list, web_view);
@@ -329,6 +380,8 @@ static WigTab *wig_window_add_tab_for_view(WigWindow *win, WebKitWebView *web_vi
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "permission-request", G_CALLBACK(wig_window_on_permission_request), win,
                           G_CONNECT_DEFAULT);
+  g_signal_connect_object(web_view, "run-file-chooser", G_CALLBACK(wig_window_on_run_file_chooser), win,
+                          G_CONNECT_SWAPPED);
 
   wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), win->toplevel);
 
