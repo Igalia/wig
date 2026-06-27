@@ -55,6 +55,8 @@ struct _WigWindow {
   guint progress_timeout_id;
   GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
+  GtkWidget *back_history_popover;
+  GtkWidget *forward_history_popover;
 };
 
 G_DEFINE_FINAL_TYPE(WigWindow, wig_window, GTK_TYPE_APPLICATION_WINDOW)
@@ -340,6 +342,113 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
     gtk_window_present(GTK_WINDOW(target_win));
 
   wig_closed_group_free(group);
+}
+
+static GtkWidget *wig_window_build_history_row(WebKitBackForwardListItem *item)
+{
+  const char *title = webkit_back_forward_list_item_get_title(item);
+  const char *uri = webkit_back_forward_list_item_get_uri(item);
+
+  GtkWidget *label = gtk_label_new(title && *title ? title : uri);
+  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+  gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+  gtk_widget_set_hexpand(label, TRUE);
+  return label;
+}
+
+static GtkWidget *wig_window_build_history_popover(WigWindow *win, WebKitBackForwardListItem *current, GList *items)
+{
+  GtkWidget *list_box = gtk_list_box_new();
+  gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
+  gtk_widget_set_size_request(list_box, 240, -1);
+
+  GtkWidget *current_row_widget = wig_window_build_history_row(current);
+  gtk_list_box_append(GTK_LIST_BOX(list_box), current_row_widget);
+  GtkListBoxRow *current_row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(list_box), 0);
+  gtk_widget_add_css_class(GTK_WIDGET(current_row), "current-history-item");
+
+  for (GList *l = items; l; l = l->next)
+    gtk_list_box_append(GTK_LIST_BOX(list_box), wig_window_build_history_row(WEBKIT_BACK_FORWARD_LIST_ITEM(l->data)));
+
+  GtkWidget *popover = gtk_popover_new();
+  gtk_widget_add_css_class(popover, "back-history-popover");
+  gtk_popover_set_child(GTK_POPOVER(popover), list_box);
+  gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
+  return popover;
+}
+
+static void wig_window_back_history_row_activated(GtkListBox *list_box, GtkListBoxRow *row, WigWindow *win)
+{
+  int index = gtk_list_box_row_get_index(row);
+  g_clear_pointer(&win->back_history_popover, gtk_widget_unparent);
+
+  /* Row 0 is the current item — nothing to do. */
+  if (index == 0 || !win->current_web_view)
+    return;
+
+  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
+  WebKitBackForwardListItem *item = webkit_back_forward_list_get_nth_item(bfl, -index);
+  if (item)
+    webkit_web_view_go_to_back_forward_list_item(win->current_web_view, item);
+}
+
+static void wig_window_back_button_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
+                                                 WigWindow *win)
+{
+  if (!win->current_web_view)
+    return;
+
+  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
+  g_autoptr(GList) back_list = webkit_back_forward_list_get_back_list(bfl);
+  if (!back_list)
+    return;
+
+  WebKitBackForwardListItem *current = webkit_back_forward_list_get_current_item(bfl);
+  g_clear_pointer(&win->back_history_popover, gtk_widget_unparent);
+
+  win->back_history_popover = wig_window_build_history_popover(win, current, back_list);
+  GtkWidget *list_box = gtk_popover_get_child(GTK_POPOVER(win->back_history_popover));
+  g_signal_connect_object(list_box, "row-activated", G_CALLBACK(wig_window_back_history_row_activated), win,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_set_parent(win->back_history_popover, win->back_button);
+  gtk_popover_popup(GTK_POPOVER(win->back_history_popover));
+}
+
+static void wig_window_forward_history_row_activated(GtkListBox *list_box, GtkListBoxRow *row, WigWindow *win)
+{
+  int index = gtk_list_box_row_get_index(row);
+  g_clear_pointer(&win->forward_history_popover, gtk_widget_unparent);
+
+  /* Row 0 is the current item — nothing to do. */
+  if (index == 0 || !win->current_web_view)
+    return;
+
+  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
+  WebKitBackForwardListItem *item = webkit_back_forward_list_get_nth_item(bfl, index);
+  if (item)
+    webkit_web_view_go_to_back_forward_list_item(win->current_web_view, item);
+}
+
+static void wig_window_forward_button_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
+                                                    WigWindow *win)
+{
+  if (!win->current_web_view)
+    return;
+
+  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
+  g_autoptr(GList) forward_list = webkit_back_forward_list_get_forward_list(bfl);
+  if (!forward_list)
+    return;
+
+  WebKitBackForwardListItem *current = webkit_back_forward_list_get_current_item(bfl);
+  g_clear_pointer(&win->forward_history_popover, gtk_widget_unparent);
+
+  win->forward_history_popover = wig_window_build_history_popover(win, current, forward_list);
+  GtkWidget *list_box = gtk_popover_get_child(GTK_POPOVER(win->forward_history_popover));
+  g_signal_connect_object(list_box, "row-activated", G_CALLBACK(wig_window_forward_history_row_activated), win,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_set_parent(win->forward_history_popover, win->forward_button);
+  gtk_popover_popup(GTK_POPOVER(win->forward_history_popover));
 }
 
 static void wig_window_tab_view_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
@@ -866,6 +975,25 @@ static void wig_window_constructed(GObject *object)
                                   G_N_ELEMENTS(context_menu_actions), win);
   gtk_widget_insert_action_group(GTK_WIDGET(win), "popup", win->context_menu_action_group);
 
+  static gsize css_loaded = 0;
+  if (g_once_init_enter(&css_loaded)) {
+    GtkCssProvider *provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(provider,
+                                      ".back-history-popover > contents {"
+                                      "  box-shadow: 0 4px 16px 2px rgba(0,0,0,0.55);"
+                                      "}"
+                                      ".current-history-item {"
+                                      "  font-weight: bold;"
+                                      "}"
+                                      ".current-history-item:hover {"
+                                      "  background: transparent;"
+                                      "}");
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
+                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(provider);
+    g_once_init_leave(&css_loaded, 1);
+  }
+
   g_signal_connect(win, "notify::fullscreened", G_CALLBACK(wig_window_fullscreen_changed), NULL);
 
   win->toolbar_view = adw_toolbar_view_new();
@@ -883,10 +1011,24 @@ static void wig_window_constructed(GObject *object)
   gtk_widget_add_css_class(win->back_button, "toolbar-button");
   gtk_box_append(GTK_BOX(box), win->back_button);
 
+  GtkGestureClick *back_right = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(back_right), GDK_BUTTON_SECONDARY);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(back_right), GTK_PHASE_CAPTURE);
+  g_signal_connect_object(back_right, "pressed", G_CALLBACK(wig_window_back_button_right_pressed), win,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(win->back_button, GTK_EVENT_CONTROLLER(back_right));
+
   win->forward_button = gtk_button_new_from_icon_name("go-next-symbolic");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->forward_button), "win.go-forward");
   gtk_widget_add_css_class(win->forward_button, "toolbar-button");
   gtk_box_append(GTK_BOX(box), win->forward_button);
+
+  GtkGestureClick *forward_right = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(forward_right), GDK_BUTTON_SECONDARY);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(forward_right), GTK_PHASE_CAPTURE);
+  g_signal_connect_object(forward_right, "pressed", G_CALLBACK(wig_window_forward_button_right_pressed), win,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(win->forward_button, GTK_EVENT_CONTROLLER(forward_right));
   gtk_box_append(GTK_BOX(start_box), box);
 
   win->stop_reload_button = gtk_button_new_from_icon_name("view-refresh-symbolic");
@@ -993,6 +1135,8 @@ static void wig_window_dispose(GObject *object)
   }
 
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
+  g_clear_pointer(&win->back_history_popover, gtk_widget_unparent);
+  g_clear_pointer(&win->forward_history_popover, gtk_widget_unparent);
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
 }
 
