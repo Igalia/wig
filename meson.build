@@ -94,6 +94,21 @@ foreach ldflag : test_ldflags
 endforeach
 add_project_link_arguments(global_ldflags, language: 'c')
 
+config_h = configuration_data()
+config_h.set10(
+    'HAVE_FAVICON_SUPPORT',
+    cc.has_function(
+        'webkit_website_data_manager_set_favicons_enabled',
+        dependencies: wpe_webkit_dep,
+    ),
+)
+configure_file(output: 'config.h', configuration: config_h)
+add_project_arguments(
+    '-include',
+    meson.project_build_root() / 'config.h',
+    language: 'c',
+)
+
 subdir('icons')
 subdir('src')
 subdir('data')

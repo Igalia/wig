@@ -23,6 +23,7 @@
 #include "wig-utils.h"
 
 #include <libpsl.h>
+#include <wpe/webkit.h>
 
 // https://en.wikipedia.org/wiki/Special-use_domain_name
 static const char *const special_use_tlds[] = {
@@ -96,3 +97,32 @@ char *wig_util_complete_uri(const char *url)
   g_autofree char *escaped = g_uri_escape_string(url, NULL, FALSE);
   return g_strconcat("https://duckduckgo.com/?q=", escaped, NULL);
 }
+
+#if HAVE_FAVICON_SUPPORT
+GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size)
+{
+  if (!icons)
+    return NULL;
+
+  WebKitImage *best = NULL;
+  WebKitImage *largest = NULL;
+  int best_width = 0;
+  int largest_width = -1;
+
+  gsize n = webkit_image_list_get_length(icons);
+  for (gsize i = 0; i < n; i++) {
+    WebKitImage *image = webkit_image_list_get(icons, i);
+    int width = webkit_image_get_width(image);
+    if (width > largest_width) {
+      largest = image;
+      largest_width = width;
+    }
+    if (width >= min_size && (!best || width < best_width)) {
+      best = image;
+      best_width = width;
+    }
+  }
+
+  return G_ICON(best ? best : largest);
+}
+#endif

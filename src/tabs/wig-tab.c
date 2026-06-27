@@ -23,6 +23,7 @@
 #include "wig-tab.h"
 
 #include "wig-script-dialog.h"
+#include "wig-utils.h"
 #include "wpe-view-gtk.h"
 
 struct _WigTab {
@@ -199,40 +200,15 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
   wig_tab_set_title(self, host ? host : "New Tab");
 }
 
-static GIcon *wig_tab_best_page_icon(WebKitImageList *icons)
-{
-  if (!icons)
-    return NULL;
-
-  WebKitImage *best = NULL; /* smallest icon >= WIG_TAB_FAVICON_SIZE */
-  WebKitImage *largest = NULL; /* fallback when all icons are smaller */
-  int best_width = 0;
-  int largest_width = -1;
-
-  gsize n = webkit_image_list_get_length(icons);
-  for (gsize i = 0; i < n; i++) {
-    WebKitImage *image = webkit_image_list_get(icons, i);
-    int width = webkit_image_get_width(image);
-    if (width > largest_width) {
-      largest = image;
-      largest_width = width;
-    }
-    if (width >= WIG_TAB_FAVICON_SIZE && (!best || width < best_width)) {
-      best = image;
-      best_width = width;
-    }
-  }
-
-  return G_ICON(best ? best : largest);
-}
-
+#if HAVE_FAVICON_SUPPORT
 static void wig_tab_on_page_icons_changed(WigTab *self)
 {
   // FIXME: Maybe we could have a custom GIconLoadable that is backed by the list.
   // on loading, which is passed a size, it then chooses the best one?
   // This allows for DPI changes working automatically?
-  wig_tab_set_icon(self, wig_tab_best_page_icon(webkit_web_view_get_page_icons(self->web_view)));
+  wig_tab_set_icon(self, wig_util_best_page_icon(webkit_web_view_get_page_icons(self->web_view), WIG_TAB_FAVICON_SIZE));
 }
+#endif
 
 WigTab *wig_tab_new(WebKitWebView *web_view)
 {
@@ -246,15 +222,19 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), web_view_widget);
 
   g_signal_connect_object(web_view, "notify::title", G_CALLBACK(wig_tab_on_title_changed), self, G_CONNECT_SWAPPED);
+#if HAVE_FAVICON_SUPPORT
   g_signal_connect_object(web_view, "notify::page-icons", G_CALLBACK(wig_tab_on_page_icons_changed), self,
                           G_CONNECT_SWAPPED);
+#endif
   g_signal_connect_object(web_view, "load-changed", G_CALLBACK(wig_tab_on_load_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "script-dialog", G_CALLBACK(wig_tab_on_script_dialog), self, G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
 
   /* Pick up a title and icons the view may already have (e.g. a related view). */
   wig_tab_on_title_changed(self);
+#if HAVE_FAVICON_SUPPORT
   wig_tab_on_page_icons_changed(self);
+#endif
 
   return self;
 }

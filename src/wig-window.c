@@ -27,6 +27,7 @@
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
 #include "wig-tab-sidebar.h"
+#include "wig-tab.h"
 #include "wig-utils.h"
 #include "wpe-toplevel-gtk.h"
 #include "wpe-view-gtk.h"
@@ -441,31 +442,82 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
   wig_closed_group_free(group);
 }
 
-static GtkWidget *wig_window_build_history_row(WebKitBackForwardListItem *item)
+#if HAVE_FAVICON_SUPPORT
+static void on_favicon_ready(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  WebKitFaviconDatabase *db = WEBKIT_FAVICON_DATABASE(source);
+  g_autoptr(GtkImage) image = GTK_IMAGE(user_data);
+  g_autoptr(GError) error = NULL;
+  g_autoptr(WebKitImageList) image_list = webkit_favicon_database_get_page_icons_finish(db, result, &error);
+  GIcon *icon = wig_util_best_page_icon(image_list, WIG_TAB_FAVICON_SIZE);
+  if (icon)
+    gtk_image_set_from_gicon(image, icon);
+}
+#endif
+
+static GtkWidget *wig_window_build_history_row(WebKitBackForwardListItem *item
+#if HAVE_FAVICON_SUPPORT
+                                               ,
+                                               WebKitFaviconDatabase *favicon_db
+#endif
+)
 {
   const char *title = webkit_back_forward_list_item_get_title(item);
   const char *uri = webkit_back_forward_list_item_get_uri(item);
+
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+
+#if HAVE_FAVICON_SUPPORT
+  GtkWidget *image = gtk_image_new();
+  gtk_image_set_icon_size(GTK_IMAGE(image), GTK_ICON_SIZE_NORMAL);
+  gtk_box_append(GTK_BOX(box), image);
+
+  if (favicon_db && uri)
+    webkit_favicon_database_get_page_icons(favicon_db, uri, NULL, on_favicon_ready, g_object_ref(image));
+#endif
 
   GtkWidget *label = gtk_label_new(title && *title ? title : uri);
   gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
   gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
   gtk_widget_set_hexpand(label, TRUE);
-  return label;
+  gtk_box_append(GTK_BOX(box), label);
+
+  return box;
 }
 
 static GtkWidget *wig_window_build_history_popover(WigWindow *win, WebKitBackForwardListItem *current, GList *items)
 {
+#if HAVE_FAVICON_SUPPORT
+  WigApplication *app = wig_application_get();
+  WebKitNetworkSession *session = wig_application_get_network_session(app);
+  WebKitWebsiteDataManager *data_manager = webkit_network_session_get_website_data_manager(session);
+  WebKitFaviconDatabase *favicon_db = webkit_website_data_manager_get_favicon_database(data_manager);
+#endif
+
   GtkWidget *list_box = gtk_list_box_new();
   gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
   gtk_widget_set_size_request(list_box, 240, -1);
 
-  GtkWidget *current_row_widget = wig_window_build_history_row(current);
+  GtkWidget *current_row_widget = wig_window_build_history_row(current
+#if HAVE_FAVICON_SUPPORT
+                                                               ,
+                                                               favicon_db
+#endif
+  );
   gtk_list_box_append(GTK_LIST_BOX(list_box), current_row_widget);
   GtkListBoxRow *current_row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(list_box), 0);
   gtk_widget_add_css_class(GTK_WIDGET(current_row), "current-history-item");
 
-  for (GList *l = items; l; l = l->next)
-    gtk_list_box_append(GTK_LIST_BOX(list_box), wig_window_build_history_row(WEBKIT_BACK_FORWARD_LIST_ITEM(l->data)));
+  for (GList *l = items; l; l = l->next) {
+    GtkWidget *row = wig_window_build_history_row(WEBKIT_BACK_FORWARD_LIST_ITEM(l->data)
+#if HAVE_FAVICON_SUPPORT
+                                                      ,
+                                                  favicon_db
+#endif
+    );
+
+    gtk_list_box_append(GTK_LIST_BOX(list_box), row);
+  }
 
   GtkWidget *popover = gtk_popover_new();
   gtk_widget_add_css_class(popover, "back-history-popover");

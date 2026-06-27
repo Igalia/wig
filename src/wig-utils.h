@@ -22,10 +22,15 @@
 
 #pragma once
 
+#include <gio/gio.h>
 #include <glib.h>
+#include <wpe/webkit.h>
 
 G_BEGIN_DECLS
 
 char *wig_util_complete_uri(const char *url);
+#if HAVE_FAVICON_SUPPORT
+GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size);
+#endif
 
 G_END_DECLS
