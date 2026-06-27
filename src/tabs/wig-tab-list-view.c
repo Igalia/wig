@@ -62,6 +62,14 @@ static void wig_tab_list_view_close_requested(WigTabWidget *tab_widget, WigTabLi
   wig_tab_list_close(priv->list, wig_tab_widget_get_tab(tab_widget));
 }
 
+static void wig_tab_list_view_tab_middle_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
+                                                 WigTabListView *self)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  wig_tab_list_close(priv->list, wig_tab_widget_get_tab(WIG_TAB_WIDGET(widget)));
+}
+
 static void wig_tab_list_view_tab_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
                                           WigTabListView *self)
 {
@@ -274,6 +282,12 @@ static void wig_tab_list_view_tab_added(WigTabList *list, WigTab *tab, guint pos
   g_signal_connect_object(right_gesture, "pressed", G_CALLBACK(wig_tab_list_view_tab_right_pressed), self,
                           G_CONNECT_DEFAULT);
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(right_gesture));
+
+  GtkGestureClick *middle_gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(middle_gesture), GDK_BUTTON_MIDDLE);
+  g_signal_connect_object(middle_gesture, "pressed", G_CALLBACK(wig_tab_list_view_tab_middle_pressed), self,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(middle_gesture));
 
   GtkDragSource *drag_source = gtk_drag_source_new();
   gtk_drag_source_set_actions(drag_source, GDK_ACTION_MOVE);

@@ -425,6 +425,22 @@ static void wig_window_zoom_reset(GSimpleAction *action, GVariant *parameter, gp
   webkit_web_view_set_zoom_level(win->current_web_view, 1.0);
 }
 
+static void wig_window_reload_middle_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
+{
+  g_action_group_activate_action(G_ACTION_GROUP(win), "duplicate-active-tab", NULL);
+}
+
+static void wig_window_tab_duplicate(WigTabList *list, guint tab_id, WigWindow *win);
+
+static void wig_window_duplicate_active_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  WigTab *tab = wig_tab_list_get_active(win->tab_list);
+  if (!tab)
+    return;
+  wig_window_tab_duplicate(win->tab_list, wig_tab_get_id(tab), win);
+}
+
 static const GActionEntry actions[] = {
   { "go-back", wig_window_go_back },
   { "go-forward", wig_window_go_forward },
@@ -439,6 +455,7 @@ static const GActionEntry actions[] = {
   { "zoom-out", wig_window_zoom_out },
   { "zoom-reset", wig_window_zoom_reset },
   { "undo-close-tab", wig_window_undo_close_tab },
+  { "duplicate-active-tab", wig_window_duplicate_active_tab },
   { "switch-to-sidebar", wig_window_switch_to_sidebar },
   { "switch-to-tabbar", wig_window_switch_to_tabbar },
 };
@@ -876,6 +893,13 @@ static void wig_window_constructed(GObject *object)
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->stop_reload_button), "win.stop-reload");
   gtk_widget_add_css_class(win->stop_reload_button, "toolbar-button");
   gtk_box_append(GTK_BOX(start_box), win->stop_reload_button);
+
+  GtkGestureClick *reload_middle = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(reload_middle), GDK_BUTTON_MIDDLE);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(reload_middle), GTK_PHASE_CAPTURE);
+  g_signal_connect_object(reload_middle, "pressed", G_CALLBACK(wig_window_reload_middle_pressed), win,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(win->stop_reload_button, GTK_EVENT_CONTROLLER(reload_middle));
 
   gtk_header_bar_pack_start(GTK_HEADER_BAR(win->header_bar), start_box);
 
