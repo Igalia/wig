@@ -989,6 +989,19 @@ static void wig_window_update_stop_reload_actions(WigWindow *win)
   g_action_change_state(action, g_variant_new_boolean(is_loading));
 }
 
+static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResult *hit_test_result, guint modifiers)
+{
+  WigTab *tab = wig_tab_list_get_active(win->tab_list);
+  if (!tab)
+    return;
+
+  const char *uri = NULL;
+  if (webkit_hit_test_result_context_is_link(hit_test_result))
+    uri = webkit_hit_test_result_get_link_uri(hit_test_result);
+
+  wig_tab_set_hovered_link(tab, uri, win->current_origin);
+}
+
 static gboolean wig_window_on_enter_fullscreen(WigWindow *win)
 {
   gtk_window_fullscreen(GTK_WINDOW(win));
@@ -1069,6 +1082,8 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
                             G_CONNECT_SWAPPED);
     g_signal_connect_object(win->current_web_view, "leave-fullscreen", G_CALLBACK(wig_window_on_leave_fullscreen), win,
                             G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "mouse-target-changed",
+                            G_CALLBACK(wig_window_on_mouse_target_changed), win, G_CONNECT_SWAPPED);
 
     WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(win->current_web_view);
     g_signal_connect_object(backForwardlist, "changed", G_CALLBACK(wig_window_update_navigation_actions), win,

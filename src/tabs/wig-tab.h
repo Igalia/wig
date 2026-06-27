@@ -51,5 +51,6 @@ void wig_tab_set_pinned(WigTab *self, gboolean pinned);
 gboolean wig_tab_get_loading(WigTab *self);
 gboolean wig_tab_get_selected(WigTab *self);
 void wig_tab_set_selected(WigTab *self, gboolean selected);
+void wig_tab_set_hovered_link(WigTab *self, const char *uri, const char *page_origin);
 
 G_END_DECLS

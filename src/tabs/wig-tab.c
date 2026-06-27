@@ -32,11 +32,18 @@ struct _WigTab {
   guint id;
   WebKitWebView *web_view;
   GtkWidget *view_overlay;
+  GtkWidget *status_label;
   GIcon *icon;
   char *title;
   gboolean pinned;
   gboolean loading;
   gboolean selected;
+
+  gboolean status_active;
+  double cursor_x;
+  double cursor_y;
+  int status_label_w;
+  int status_label_h;
 };
 
 static gboolean wig_tab_on_script_dialog(WigTab *self, WebKitScriptDialog *dialog)
@@ -186,8 +193,10 @@ static void wig_tab_on_title_changed(WigTab *self)
  * back to the hostname.  A real title, if any, arrives via notify::title. */
 static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
 {
-  if (load_event == WEBKIT_LOAD_STARTED)
+  if (load_event == WEBKIT_LOAD_STARTED) {
     wig_tab_set_icon(self, NULL);
+    wig_tab_set_hovered_link(self, NULL, NULL);
+  }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
@@ -210,6 +219,51 @@ static void wig_tab_on_page_icons_changed(WigTab *self)
 }
 #endif
 
+static void wig_tab_update_label_position(WigTab *self, double cx, double cy);
+
+static void wig_tab_overlay_motion(GtkEventControllerMotion *controller, double x, double y, WigTab *self)
+{
+  self->cursor_x = x;
+  self->cursor_y = y;
+  wig_tab_update_label_position(self, x, y);
+}
+
+/* The status label sits in the bottom-left corner of the overlay. Whenever the
+ * cursor enters the bottom strip the label occupies, hide it completely until
+ * the cursor leaves that region again. */
+static void wig_tab_update_label_position(WigTab *self, double cx, double cy)
+{
+  GtkWidget *label = self->status_label;
+  GtkWidget *overlay = self->view_overlay;
+
+  if (!self->status_active)
+    return;
+
+  int overlay_w = gtk_widget_get_width(overlay);
+  int overlay_h = gtk_widget_get_height(overlay);
+  if (overlay_w == 0 || overlay_h == 0)
+    return;
+
+  int label_w = gtk_widget_get_width(label);
+  int label_h = gtk_widget_get_height(label);
+  if (label_w > 0 && label_h > 0) {
+    self->status_label_w = label_w;
+    self->status_label_h = label_h;
+  } else if (self->status_label_w == 0 || self->status_label_h == 0) {
+    int min_w, nat_w, min_h, nat_h;
+    gtk_widget_measure(label, GTK_ORIENTATION_HORIZONTAL, -1, &min_w, &nat_w, NULL, NULL);
+    gtk_widget_measure(label, GTK_ORIENTATION_VERTICAL, nat_w, &min_h, &nat_h, NULL, NULL);
+    self->status_label_w = MIN(nat_w, overlay_w);
+    self->status_label_h = nat_h;
+  }
+
+  const int margin = 10;
+
+  gboolean over_label = cy >= overlay_h - self->status_label_h - margin && cx <= self->status_label_w + margin;
+
+  gtk_widget_set_visible(label, !over_label);
+}
+
 WigTab *wig_tab_new(WebKitWebView *web_view)
 {
   g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
@@ -220,6 +274,21 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   GtkWidget *web_view_widget = wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)));
   self->view_overlay = g_object_ref_sink(gtk_overlay_new());
   gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), web_view_widget);
+
+  self->status_label = gtk_label_new(NULL);
+  gtk_label_set_ellipsize(GTK_LABEL(self->status_label), PANGO_ELLIPSIZE_END);
+  gtk_label_set_xalign(GTK_LABEL(self->status_label), 0.0f);
+  gtk_widget_set_halign(self->status_label, GTK_ALIGN_START);
+  gtk_widget_set_valign(self->status_label, GTK_ALIGN_END);
+  gtk_widget_add_css_class(self->status_label, "link-status-bar");
+  gtk_widget_set_visible(self->status_label, FALSE);
+  gtk_widget_set_can_target(self->status_label, FALSE);
+
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), self->status_label);
+
+  GtkEventController *motion = gtk_event_controller_motion_new();
+  g_signal_connect_object(motion, "motion", G_CALLBACK(wig_tab_overlay_motion), self, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(self->view_overlay, motion);
 
   g_signal_connect_object(web_view, "notify::title", G_CALLBACK(wig_tab_on_title_changed), self, G_CONNECT_SWAPPED);
 #if HAVE_FAVICON_SUPPORT
@@ -302,4 +371,41 @@ void wig_tab_set_selected(WigTab *self, gboolean selected)
     return;
   self->selected = selected;
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_SELECTED]);
+}
+
+void wig_tab_set_hovered_link(WigTab *self, const char *uri, const char *page_origin)
+{
+  if (!uri || !*uri) {
+    self->status_active = FALSE;
+    gtk_widget_set_visible(self->status_label, FALSE);
+    return;
+  }
+
+  g_autoptr(WebKitSecurityOrigin) link_origin_obj = webkit_security_origin_new_for_uri(uri);
+  g_autofree char *link_origin = link_origin_obj ? webkit_security_origin_to_string(link_origin_obj) : NULL;
+
+  /* A neat indicator that the link will take you to a different origin. */
+  const char *color = NULL;
+  gsize origin_len = 0;
+  if (link_origin && *link_origin && g_str_has_prefix(uri, link_origin)) {
+    gboolean same = (g_strcmp0(link_origin, page_origin) == 0);
+    color = same ? "#96ffbb" : "#ffa2a6";
+    origin_len = strlen(link_origin);
+  }
+
+  g_autofree char *markup = NULL;
+  if (color && origin_len > 0) {
+    g_autofree char *origin_escaped = g_markup_escape_text(uri, (gssize)origin_len);
+    g_autofree char *rest_escaped = g_markup_escape_text(uri + origin_len, -1);
+    markup = g_strdup_printf("<span color=\"%s\">%s</span>%s", color, origin_escaped, rest_escaped);
+  } else {
+    markup = g_markup_escape_text(uri, -1);
+  }
+
+  gtk_label_set_markup(GTK_LABEL(self->status_label), markup);
+  self->status_active = TRUE;
+  self->status_label_w = 0;
+  self->status_label_h = 0;
+  gtk_widget_set_visible(self->status_label, TRUE);
+  wig_tab_update_label_position(self, self->cursor_x, self->cursor_y);
 }

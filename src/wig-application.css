@@ -1,4 +1,19 @@
-/* Script dialog overlay */
+/* Link hover status bar */
+.link-status-bar {
+  background-color: alpha(@window_bg_color, 0.8);
+  color: @window_fg_color;
+  border: 1px solid alpha(@borders, 0.5);
+  padding: 3px 10px;
+  font-size: 1em;
+  /* bottom-left: round the top-right corner only */
+  border-radius: 0 4px 0 0;
+}
+
+.link-status-bar.right {
+  /* bottom-right: round the top-left corner only */
+  border-radius: 4px 0 0 0;
+}
+
 .script-dialog-backdrop {
   background-color: alpha(@window_bg_color, 0.65);
 }
