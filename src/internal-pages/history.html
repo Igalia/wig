@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset='utf-8'>
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
+  <title>History</title>
+  <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
+</head>
+
+<body>
+  <h1>History</h1>
+
+  <form class='search-form' id='history-search'>
+    <input type='search' name='q' value='{{query}}' placeholder='Search history' autofocus>
+    <button type='submit'>Search</button>
+    {{if (has_query)}}<a class='btn' href='wig:history'>Clear</a>{{end}}
+  </form>
+
+  {{if (has_items)}}
+  <div class='history-list'>
+    {{for item in items}}
+    <a class='history-item' href='{{item.url}}'>
+      <span class='history-title'>{{item.title}}</span>
+      <span class='history-time'>{{item.formatted_time}}</span>
+      <span class='history-url'>{{item.url}}</span>
+      <span class='history-meta'>{{item.visit_count}} visits &middot; {{item.typed_count}} typed</span>
+    </a>
+    {{end}}
+  </div>
+  {{else}}
+  <p class='empty'>No history yet.</p>
+  {{end}}
+
+  {{if (has_more)}}
+  <a class='btn more-link' href='{{next_url}}' data-next-url='{{next_url}}'>More</a>
+  {{end}}
+
+  <script nonce='{{nonce}}'>
+    document.getElementById('history-search').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const query = new FormData(e.target).get('q').trim();
+      location.href = query ? 'wig:history?q=' + encodeURIComponent(query) : 'wig:history';
+    });
+
+    const more = document.querySelector('[data-next-url]');
+    if (more) {
+      new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting))
+          location.href = more.dataset.nextUrl;
+      }).observe(more);
+    }
+  </script>
+</body>
+
+</html>

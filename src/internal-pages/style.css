@@ -360,6 +360,81 @@ li a:hover {
   font-style: italic;
 }
 
+/* === History page === */
+
+.search-form {
+  display: grid;
+  grid-template-columns: 1fr max-content max-content;
+  gap: 0.5rem;
+  max-width: none;
+  margin-block: 1rem;
+}
+
+.search-form input[type=search] {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--view-bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.search-form input[type=search]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.history-item:hover {
+  border-color: var(--border-strong);
+}
+
+.history-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-time,
+.history-url,
+.history-meta {
+  color: var(--text-dim);
+  font-size: 0.8em;
+}
+
+.history-url {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+
+.history-meta {
+  grid-column: 1 / -1;
+}
+
+.more-link {
+  margin-block: 1rem 2rem;
+}
+
 /* === Memory pressure page === */
 
 form {

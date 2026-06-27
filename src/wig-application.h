@@ -26,6 +26,7 @@
 #include <gtk/gtk.h>
 #include <wpe/webkit.h>
 
+#include "wig-history-store.h"
 #include "wig-permissions-manager.h"
 
 G_BEGIN_DECLS
@@ -74,6 +75,8 @@ WigApplication *wig_application_get(void);
 WPEDisplay *wig_application_get_display(WigApplication *app);
 WebKitNetworkSession *wig_application_get_network_session(WigApplication *app);
 WebKitWebView *wig_application_create_web_view(WigApplication *app);
+WigHistoryStore *wig_application_get_history_store(WigApplication *app);
+void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 
 void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group);
 WigClosedGroup *wig_application_pop_closed_group(WigApplication *app);

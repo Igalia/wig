@@ -24,6 +24,7 @@
 #include "internal-pages/wig-content-filters.h"
 #include "internal-pages/wig-downloads.h"
 #include "internal-pages/wig-features.h"
+#include "internal-pages/wig-history.h"
 #include "internal-pages/wig-internal-page.h"
 #include "internal-pages/wig-memory-pressure.h"
 #include "internal-pages/wig-user-scripts.h"
@@ -41,6 +42,8 @@ struct _WigApplication {
   WebKitWebContext *web_context;
   WebKitSettings *web_settings;
   WebKitMemoryPressureSettings *memory_pressure_settings;
+  WigHistoryStore *history_store;
+  GHashTable *typed_navigations; /* WebKitWebView* -> char* pending URI */
   GPtrArray *downloads;
   WebKitUserContentManager *user_content_manager;
   GPtrArray *user_scripts;
@@ -64,6 +67,68 @@ static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow 
   g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
   wig_window_add_web_view(win, web_view);
   webkit_web_view_load_uri(web_view, uri);
+}
+
+static gboolean uri_should_be_recorded(const char *uri)
+{
+  if (!uri || !*uri)
+    return FALSE;
+
+  const char *scheme = g_uri_peek_scheme(uri);
+  if (!scheme)
+    return FALSE;
+
+  return !g_str_equal(scheme, "wig") && !g_str_equal(scheme, "about") && !g_str_equal(scheme, "webkit");
+}
+
+static void history_web_view_finalized(gpointer data, GObject *web_view)
+{
+  WigApplication *app = WIG_APPLICATION(data);
+  g_hash_table_remove(app->typed_navigations, web_view);
+}
+
+static void record_history_visit(WigApplication *app, WebKitWebView *web_view, gboolean typed)
+{
+  if (!app->history_store)
+    return;
+
+  const char *uri = webkit_web_view_get_uri(web_view);
+  if (!uri_should_be_recorded(uri))
+    return;
+
+  const char *title = webkit_web_view_get_title(web_view);
+  g_autoptr(GError) error = NULL;
+  wig_history_store_record_visit(app->history_store, uri, title ? title : "", typed, g_get_real_time() / 1000, &error);
+  if (error)
+    g_warning("history: record visit: %s", error->message);
+}
+
+static void on_history_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, WigApplication *app)
+{
+  if (load_event != WEBKIT_LOAD_COMMITTED)
+    return;
+
+  gboolean typed = g_hash_table_remove(app->typed_navigations, web_view);
+  record_history_visit(app, web_view, typed);
+}
+
+static void on_history_title_changed(WebKitWebView *web_view, GParamSpec *pspec, WigApplication *app)
+{
+  if (!app->history_store)
+    return;
+
+  const char *uri = webkit_web_view_get_uri(web_view);
+  if (!uri_should_be_recorded(uri))
+    return;
+
+  const char *title = webkit_web_view_get_title(web_view);
+  if (!title || !*title)
+    return;
+
+  g_autoptr(GError) error = NULL;
+  wig_history_store_update_title(app->history_store, uri, title, &error);
+  if (error)
+    g_warning("history: update title: %s", error->message);
 }
 
 static void wig_application_new_window_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -179,6 +244,9 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   } else if (g_str_has_prefix(uri, "wig:downloads")) {
     scope = handle_downloads_uri(request, app->downloads);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/downloads.html", scope);
+  } else if (g_str_has_prefix(uri, "wig:history")) {
+    scope = handle_history_uri(request, app->history_store);
+    html = wig_internal_page_render("/com/igalia/wig/internal-pages/history.html", scope);
   } else if (g_str_has_prefix(uri, "wig:user-scripts")) {
     handle_user_scripts_uri(request, app->user_content_manager, app->user_scripts);
     return; // async
@@ -200,6 +268,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
 static void wig_application_init(WigApplication *app)
 {
   app->closed_tab_history = g_queue_new();
+  app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
@@ -246,8 +315,13 @@ static void wig_application_startup(GApplication *application)
   }
 
   g_autofree char *data_dir = g_build_filename(g_get_user_data_dir(), "com.igalia.wig", NULL);
+  g_autofree char *state_dir = g_build_filename(g_get_user_state_dir(), "com.igalia.wig", NULL);
   g_autofree char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
+  g_autoptr(GError) history_error = NULL;
+  app->history_store = wig_history_store_new(state_dir, &history_error);
+  if (!app->history_store)
+    g_warning("history: disabled: %s", history_error->message);
   webkit_network_session_set_itp_enabled(app->network_session, TRUE);
 #if HAVE_FAVICON_SUPPORT
   webkit_website_data_manager_set_favicons_enabled(
@@ -300,6 +374,8 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->web_context);
   g_clear_object(&app->web_settings);
   g_clear_pointer(&app->memory_pressure_settings, webkit_memory_pressure_settings_free);
+  g_clear_object(&app->history_store);
+  g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
   g_clear_pointer(&app->downloads, g_ptr_array_unref);
   g_clear_object(&app->user_content_manager);
   g_clear_pointer(&app->user_scripts, g_ptr_array_unref);
@@ -383,9 +459,32 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
-  return WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context,
-                                      "network-session", app->network_session, "settings", app->web_settings,
-                                      "user-content-manager", app->user_content_manager, NULL));
+  WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(
+      WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context, "network-session",
+      app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
+  g_signal_connect(web_view, "load-changed", G_CALLBACK(on_history_load_changed), app);
+  g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
+  g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
+
+  return web_view;
+}
+
+WigHistoryStore *wig_application_get_history_store(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  return app->history_store;
+}
+
+void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
+{
+  g_return_if_fail(WIG_IS_APPLICATION(app));
+  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
+
+  if (!uri_should_be_recorded(uri))
+    return;
+
+  g_hash_table_insert(app->typed_navigations, web_view, GINT_TO_POINTER(1));
 }
 
 static void wig_closed_tab_free(WigClosedTab *tab)

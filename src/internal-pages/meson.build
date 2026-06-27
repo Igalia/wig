@@ -10,6 +10,7 @@ internal_pages_sources = files(
     'wig-content-filters.c',
     'wig-downloads.c',
     'wig-features.c',
+    'wig-history.c',
     'wig-internal-page.c',
     'wig-memory-pressure.c',
     'wig-user-scripts.c',

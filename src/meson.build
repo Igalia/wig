@@ -11,6 +11,8 @@ wig_resources = gnome.compile_resources(
 wig_sources = files(
     'main.c',
     'wig-application.c',
+    'wig-history-item.c',
+    'wig-history-store.c',
     'wig-permissions-manager.c',
     'wig-permissions.c',
     'wig-utils.c',
@@ -25,6 +27,7 @@ executable(
         wpe_webkit_dep,
         adw_dep,
         libpsl_dep,
+        sqlite_dep,
         template_glib_dep,
     ],
     include_directories: ['.', 'internal-pages', 'tabs', 'entry'],

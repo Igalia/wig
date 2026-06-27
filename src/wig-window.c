@@ -854,6 +854,8 @@ static void wig_window_load_url(WigWindow *win)
     return;
 
   g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)));
+  wig_application_mark_typed_navigation(WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))),
+                                        win->current_web_view, complete_uri);
   webkit_web_view_load_uri(win->current_web_view, complete_uri);
   WigTab *selected = wig_tab_list_get_active(win->tab_list);
   if (selected)
