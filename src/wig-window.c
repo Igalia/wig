@@ -23,6 +23,7 @@
 #include "wig-window.h"
 
 #include "wig-application.h"
+#include "wig-permissions-button.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
 #include "wig-tab-sidebar.h"
@@ -43,6 +44,9 @@ struct _WigWindow {
   GtkWidget *stop_reload_button;
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
+  GtkWidget *permissions_button;
+  WigPermissionsManager *permissions_manager; /* borrowed from application */
+  char *current_origin; /* origin string of current_web_view, or NULL */
   WigTabList *tab_list;
   GtkWidget *content_box;
   GtkWidget *paned;
@@ -261,12 +265,57 @@ static gboolean wig_window_on_show_notification(WigWindow *win, WebKitNotificati
   return TRUE;
 }
 
-static gboolean wig_window_on_permission_request(WigWindow *win, WebKitPermissionRequest *request)
+static char *wig_window_current_origin(WigWindow *win)
 {
-  if (!WEBKIT_IS_NOTIFICATION_PERMISSION_REQUEST(request))
+  if (!win->current_web_view)
+    return NULL;
+
+  const char *uri = webkit_web_view_get_uri(win->current_web_view);
+  if (!uri || !*uri)
+    return NULL;
+
+  g_autoptr(WebKitSecurityOrigin) origin = webkit_security_origin_new_for_uri(uri);
+  return webkit_security_origin_to_string(origin);
+}
+
+static void wig_window_update_permissions(WigWindow *win)
+{
+  g_clear_pointer(&win->current_origin, g_free);
+  win->current_origin = wig_window_current_origin(win);
+
+  WigPermissions *permissions = NULL;
+  if (win->current_origin)
+    permissions = wig_permissions_manager_lookup(win->permissions_manager, win->current_origin);
+
+  wig_permissions_button_set_permissions(WIG_PERMISSIONS_BUTTON(win->permissions_button), permissions);
+}
+
+static void wig_window_on_permissions_changed(WigWindow *win, const char *origin)
+{
+  if (g_strcmp0(origin, win->current_origin) != 0)
+    return;
+
+  WigPermissions *permissions = wig_permissions_manager_lookup(win->permissions_manager, origin);
+  wig_permissions_button_set_permissions(WIG_PERMISSIONS_BUTTON(win->permissions_button), permissions);
+}
+
+static gboolean wig_window_on_permission_request(WebKitWebView *web_view, WebKitPermissionRequest *request,
+                                                 WigWindow *win)
+{
+  if (!WEBKIT_IS_DEVICE_INFO_PERMISSION_REQUEST(request) && !WEBKIT_IS_NOTIFICATION_PERMISSION_REQUEST(request))
     return FALSE;
 
-  webkit_permission_request_allow(request);
+  const char *uri = webkit_web_view_get_uri(web_view);
+  if (!uri || !*uri)
+    return FALSE;
+
+  g_autoptr(WebKitSecurityOrigin) origin = webkit_security_origin_new_for_uri(uri);
+  g_autofree char *origin_str = webkit_security_origin_to_string(origin);
+  if (!origin_str)
+    return FALSE;
+
+  wig_permissions_manager_handle_request(win->permissions_manager, origin_str, request,
+                                         WIG_PERMISSIONS_BUTTON(win->permissions_button));
   return TRUE;
 }
 
@@ -278,7 +327,7 @@ static WigTab *wig_window_add_tab_for_view(WigWindow *win, WebKitWebView *web_vi
   g_signal_connect_object(web_view, "show-notification", G_CALLBACK(wig_window_on_show_notification), win,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "permission-request", G_CALLBACK(wig_window_on_permission_request), win,
-                          G_CONNECT_SWAPPED);
+                          G_CONNECT_DEFAULT);
 
   wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), win->toplevel);
 
@@ -878,6 +927,7 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
   wig_window_update_url(win);
   wig_window_update_navigation_actions(win);
   wig_window_update_stop_reload_actions(win);
+  wig_window_update_permissions(win);
   if (!win->current_web_view || webkit_web_view_is_loading(win->current_web_view))
     wig_window_update_load_progress(win);
 
@@ -885,6 +935,8 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
     g_object_ref(win->current_web_view);
 
     g_signal_connect_object(win->current_web_view, "notify::uri", G_CALLBACK(wig_window_update_url), win,
+                            G_CONNECT_SWAPPED);
+    g_signal_connect_object(win->current_web_view, "notify::uri", G_CALLBACK(wig_window_update_permissions), win,
                             G_CONNECT_SWAPPED);
     g_signal_connect_object(win->current_web_view, "notify::estimated-load-progress",
                             G_CALLBACK(wig_window_update_load_progress), win, G_CONNECT_SWAPPED);
@@ -1076,11 +1128,23 @@ static void wig_window_constructed(GObject *object)
 
   win->url_entry = gtk_entry_new();
   g_signal_connect_object(win->url_entry, "activate", G_CALLBACK(wig_window_load_url), win, G_CONNECT_SWAPPED);
+  gtk_widget_set_hexpand(win->url_entry, TRUE);
+
+  win->permissions_button = wig_permissions_button_new();
+  win->permissions_manager = wig_application_get_permissions_manager(wig_application_get());
+  g_signal_connect_object(win->permissions_manager, "changed", G_CALLBACK(wig_window_on_permissions_changed), win,
+                          G_CONNECT_SWAPPED);
+
+  GtkWidget *entry_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_add_css_class(entry_box, "linked");
+  gtk_box_append(GTK_BOX(entry_box), win->permissions_button);
+  gtk_box_append(GTK_BOX(entry_box), win->url_entry);
+
   GtkWidget *clamp = adw_clamp_new();
   gtk_widget_set_hexpand(clamp, TRUE);
   adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 860);
   adw_clamp_set_tightening_threshold(ADW_CLAMP(clamp), 560);
-  adw_clamp_set_child(ADW_CLAMP(clamp), win->url_entry);
+  adw_clamp_set_child(ADW_CLAMP(clamp), entry_box);
   gtk_header_bar_set_title_widget(GTK_HEADER_BAR(win->header_bar), clamp);
 
   win->tab_list = wig_tab_list_new();
@@ -1175,6 +1239,7 @@ static void wig_window_finalize(GObject *object)
   g_clear_object(&win->current_web_view);
   g_clear_object(&win->toplevel);
   g_clear_object(&win->context_menu_action_group);
+  g_clear_pointer(&win->current_origin, g_free);
 
   G_OBJECT_CLASS(wig_window_parent_class)->finalize(object);
 }

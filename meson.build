@@ -7,6 +7,8 @@ project(
     default_options: ['c_std=c11', 'warning_level=2'],
 )
 
+gnome = import('gnome')
+
 libwpeplatformgtk_dep = dependency('wpe-platform-gtk-1.0')
 wpe_webkit_dep = dependency('wpe-webkit-2.0', version: '>= 2.51.3')
 adw_dep = dependency('libadwaita-1', version: '>= 1.6')
@@ -92,5 +94,6 @@ foreach ldflag : test_ldflags
 endforeach
 add_project_link_arguments(global_ldflags, language: 'c')
 
+subdir('icons')
 subdir('src')
 subdir('data')

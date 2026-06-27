@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/com/igalia/wig/icons/scalable/actions/">
+    <file preprocess="xml-stripblanks">sliders-horizontal-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">camera-small-symbolic.svg</file>
+  </gresource>
+</gresources>

@@ -26,6 +26,8 @@
 #include <gtk/gtk.h>
 #include <wpe/webkit.h>
 
+#include "wig-permissions-manager.h"
+
 G_BEGIN_DECLS
 
 #define WIG_TYPE_APPLICATION (wig_application_get_type())
@@ -79,5 +81,7 @@ void wig_closed_group_free(WigClosedGroup *group);
 
 void wig_application_track_notification(WigApplication *app, const char *id, WebKitNotification *notif);
 void wig_application_untrack_notification(WigApplication *app, const char *id);
+
+WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *app);
 
 G_END_DECLS

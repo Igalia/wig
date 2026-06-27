@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Permission Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 720px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 1.05em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.95em;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-bottom: 6px;
+    }
+    button:hover { background: #1c71d8; }
+    button:disabled { background: #aaa; cursor: default; }
+    .status {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .granted, .ok  { color: #26a269; }
+    .denied, .err  { color: #c01c28; }
+    .prompt, .default { color: #9141ac; }
+    .badge {
+      font-size: 0.68em;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge.supported   { background: #d8f5e3; color: #1a7f4b; }
+    .badge.unsupported { background: #fde2e2; color: #a51d2d; }
+    .query-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 0.88em;
+    }
+    .query-row:last-child { border-bottom: none; }
+    .query-row code { color: #333; }
+    code { font-family: monospace; }
+  </style>
+</head>
+<body>
+
+<h1>Permission Tests</h1>
+<p class="subtitle">
+  Exercises every web API that triggers a permission request. Each section is
+  tagged with whether the underlying <code>WebKitPermissionRequest</code> type is
+  implemented in the WPE WebKit port that wig uses.
+</p>
+
+<section>
+  <h2>Permissions API Query <span class="badge supported">Query</span></h2>
+  <p class="desc">
+    Calls <code>navigator.permissions.query()</code> for every standard
+    permission name. Names that the engine does not recognise reject with a
+    <code>TypeError</code>.
+  </p>
+  <button onclick="queryAll()">Query All Permissions</button>
+  <div class="status" id="query-status">Not queried yet.</div>
+</section>
+
+<section>
+  <h2>Geolocation <span class="badge supported">WPE: supported</span></h2>
+  <p class="desc">
+    <code>navigator.geolocation.getCurrentPosition()</code> →
+    <code>WebKitGeolocationPermissionRequest</code>.
+  </p>
+  <button onclick="testGeolocation()">Request Location</button>
+  <div class="status" id="geo-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Notifications <span class="badge supported">WPE: supported</span></h2>
+  <p class="desc">
+    <code>Notification.requestPermission()</code> →
+    <code>WebKitNotificationPermissionRequest</code>.
+  </p>
+  <button onclick="testNotifications()">Request Notification Permission</button>
+  <div class="status" id="notif-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Camera &amp; Microphone <span class="badge supported">WPE: supported</span></h2>
+  <p class="desc">
+    <code>navigator.mediaDevices.getUserMedia()</code> →
+    <code>WebKitUserMediaPermissionRequest</code>.
+  </p>
+  <button onclick="testUserMedia({ video: true, audio: true })">Camera + Mic</button>
+  <button onclick="testUserMedia({ video: true })">Camera Only</button>
+  <button onclick="testUserMedia({ audio: true })">Microphone Only</button>
+  <div class="status" id="media-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Enumerate Devices <span class="badge supported">WPE: supported</span></h2>
+  <p class="desc">
+    <code>navigator.mediaDevices.enumerateDevices()</code> with labels →
+    <code>WebKitDeviceInfoPermissionRequest</code>. Labels are only exposed once
+    device-info access is granted.
+  </p>
+  <button onclick="testDeviceInfo()">Enumerate Devices</button>
+  <div class="status" id="deviceinfo-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Encrypted Media (DRM) <span class="badge supported">WPE: supported</span></h2>
+  <p class="desc">
+    <code>navigator.requestMediaKeySystemAccess()</code> →
+    <code>WebKitMediaKeySystemPermissionRequest</code>.
+  </p>
+  <button onclick="testMediaKeySystem()">Request Clear Key Access</button>
+  <div class="status" id="eme-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Storage Access <span class="badge supported">WPE: supported</span></h2>
+  <p class="desc">
+    <code>document.requestStorageAccess()</code> →
+    <code>WebKitWebsiteDataAccessPermissionRequest</code> (typically only prompts
+    inside a cross-site iframe).
+  </p>
+  <button onclick="testStorageAccess()">Request Storage Access</button>
+  <div class="status" id="storage-access-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>WebXR <span class="badge supported">WPE: supported</span></h2>
+  <p class="desc">
+    <code>navigator.xr.requestSession('immersive-vr')</code> →
+    <code>WebKitXRPermissionRequest</code>.
+  </p>
+  <button onclick="testXR()">Request Immersive VR Session</button>
+  <div class="status" id="xr-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Clipboard Read <span class="badge unsupported">WPE: not supported</span></h2>
+  <p class="desc">
+    <code>navigator.clipboard.readText()</code> →
+    <code>WebKitClipboardPermissionRequest</code> (GTK port only; not built in
+    WPE WebKit).
+  </p>
+  <button onclick="testClipboard()">Read Clipboard</button>
+  <div class="status" id="clipboard-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Pointer Lock <span class="badge unsupported">WPE: not supported</span></h2>
+  <p class="desc">
+    <code>element.requestPointerLock()</code> →
+    <code>WebKitPointerLockPermissionRequest</code> (GTK port only; not built in
+    WPE WebKit). Press <kbd>Esc</kbd> to release.
+  </p>
+  <button onclick="testPointerLock()">Request Pointer Lock</button>
+  <div class="status" id="pointerlock-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Persistent Storage <span class="badge unsupported">WPE: no prompt</span></h2>
+  <p class="desc">
+    <code>navigator.storage.persist()</code>. No dedicated WebKit permission
+    request type; decided by heuristics rather than a user prompt.
+  </p>
+  <button onclick="testPersistentStorage()">Request Persistent Storage</button>
+  <div class="status" id="persist-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Screen Wake Lock <span class="badge unsupported">WPE: no prompt</span></h2>
+  <p class="desc">
+    <code>navigator.wakeLock.request('screen')</code>. No dedicated WebKit
+    permission request type.
+  </p>
+  <button onclick="testWakeLock()">Request Screen Wake Lock</button>
+  <div class="status" id="wakelock-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>MIDI (SysEx) <span class="badge unsupported">WPE: no prompt</span></h2>
+  <p class="desc">
+    <code>navigator.requestMIDIAccess({ sysex: true })</code>. No dedicated
+    WebKit permission request type.
+  </p>
+  <button onclick="testMIDI()">Request MIDI Access</button>
+  <div class="status" id="midi-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Screen Capture <span class="badge unsupported">WPE: no prompt</span></h2>
+  <p class="desc">
+    <code>navigator.mediaDevices.getDisplayMedia()</code>. Surface selection is
+    handled by the platform rather than a WebKit permission request.
+  </p>
+  <button onclick="testDisplayMedia()">Capture Screen</button>
+  <div class="status" id="display-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Idle Detection <span class="badge unsupported">WPE: no prompt</span></h2>
+  <p class="desc">
+    <code>IdleDetector.requestPermission()</code>. Not exposed as a WebKit
+    permission request; the API is usually unavailable.
+  </p>
+  <button onclick="testIdleDetection()">Request Idle Detection</button>
+  <div class="status" id="idle-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Window Management <span class="badge unsupported">WPE: no prompt</span></h2>
+  <p class="desc">
+    <code>window.getScreenDetails()</code>. Not exposed as a WebKit permission
+    request; the API is usually unavailable.
+  </p>
+  <button onclick="testWindowManagement()">Get Screen Details</button>
+  <div class="status" id="window-mgmt-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Local Fonts <span class="badge unsupported">WPE: no prompt</span></h2>
+  <p class="desc">
+    <code>window.queryLocalFonts()</code>. Not exposed as a WebKit permission
+    request; the API is usually unavailable.
+  </p>
+  <button onclick="testLocalFonts()">Query Local Fonts</button>
+  <div class="status" id="fonts-status">Not requested yet.</div>
+</section>
+
+<script>
+  function set(id, text, cls) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'status' + (cls ? ' ' + cls : '');
+  }
+
+  const QUERY_NAMES = [
+    'geolocation', 'notifications', 'push', 'midi', 'camera', 'microphone',
+    'speaker-selection', 'device-info', 'background-fetch', 'background-sync',
+    'bluetooth', 'persistent-storage', 'ambient-light-sensor', 'accelerometer',
+    'gyroscope', 'magnetometer', 'clipboard-read', 'clipboard-write',
+    'display-capture', 'nfc', 'screen-wake-lock', 'system-wake-lock',
+    'payment-handler', 'idle-detection', 'periodic-background-sync',
+    'storage-access', 'window-management', 'local-fonts',
+    'top-level-storage-access', 'captured-surface-control',
+  ];
+
+  async function queryAll() {
+    const status = document.getElementById('query-status');
+    if (!navigator.permissions || !navigator.permissions.query) {
+      set('query-status', 'navigator.permissions.query is not available.', 'err');
+      return;
+    }
+    status.className = 'status';
+    status.textContent = '';
+    for (const name of QUERY_NAMES) {
+      const row = document.createElement('div');
+      row.className = 'query-row';
+      const label = document.createElement('code');
+      label.textContent = name;
+      const result = document.createElement('span');
+      try {
+        const perm = await navigator.permissions.query({ name });
+        result.textContent = perm.state;
+        result.className = perm.state;
+      } catch (e) {
+        result.textContent = e.name === 'TypeError' ? 'unsupported' : `error: ${e.name}`;
+        result.className = 'err';
+      }
+      row.appendChild(label);
+      row.appendChild(result);
+      status.appendChild(row);
+    }
+  }
+
+  function testGeolocation() {
+    if (!navigator.geolocation) {
+      set('geo-status', 'navigator.geolocation is not available.', 'err');
+      return;
+    }
+    set('geo-status', 'Requesting location…');
+    navigator.geolocation.getCurrentPosition(
+      pos => set('geo-status',
+        `Granted. lat ${pos.coords.latitude.toFixed(4)}, lon ${pos.coords.longitude.toFixed(4)}.`, 'granted'),
+      err => set('geo-status', `Denied or failed: ${err.message} (code ${err.code}).`, 'denied'),
+    );
+  }
+
+  function testNotifications() {
+    if (!('Notification' in window)) {
+      set('notif-status', 'Notification API is not available.', 'err');
+      return;
+    }
+    set('notif-status', 'Requesting permission…');
+    Notification.requestPermission().then(perm => {
+      set('notif-status', `Result: ${perm}.`, perm === 'granted' ? 'granted' : 'denied');
+    });
+  }
+
+  async function testUserMedia(constraints) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      set('media-status', 'getUserMedia is not available.', 'err');
+      return;
+    }
+    const what = Object.keys(constraints).join(' + ');
+    set('media-status', `Requesting ${what}…`);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const tracks = stream.getTracks().map(t => t.kind).join(', ');
+      set('media-status', `Granted ${what}. Tracks: ${tracks}.`, 'granted');
+      stream.getTracks().forEach(t => t.stop());
+    } catch (e) {
+      set('media-status', `Denied or failed (${what}): ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testDeviceInfo() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      set('deviceinfo-status', 'enumerateDevices is not available.', 'err');
+      return;
+    }
+    set('deviceinfo-status', 'Enumerating devices…');
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const lines = devices.map(d => `${d.kind}: ${d.label || '(label hidden)'}`);
+      const hasLabels = devices.some(d => d.label);
+      set('deviceinfo-status',
+        `${devices.length} device(s)${hasLabels ? ' with labels' : ' (labels hidden — access not granted)'}:\n` +
+        lines.join('\n'),
+        hasLabels ? 'granted' : 'prompt');
+    } catch (e) {
+      set('deviceinfo-status', `Failed: ${e.name} — ${e.message}.`, 'err');
+    }
+  }
+
+  async function testMediaKeySystem() {
+    if (!navigator.requestMediaKeySystemAccess) {
+      set('eme-status', 'requestMediaKeySystemAccess is not available.', 'err');
+      return;
+    }
+    set('eme-status', 'Requesting Clear Key access…');
+    const config = [{
+      initDataTypes: ['keyids', 'webm'],
+      videoCapabilities: [{ contentType: 'video/webm; codecs="vp9"' }],
+    }];
+    try {
+      const access = await navigator.requestMediaKeySystemAccess('org.w3.clearkey', config);
+      set('eme-status', `Granted access to: ${access.keySystem}.`, 'granted');
+    } catch (e) {
+      set('eme-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testStorageAccess() {
+    if (!document.requestStorageAccess) {
+      set('storage-access-status', 'document.requestStorageAccess is not available.', 'err');
+      return;
+    }
+    set('storage-access-status', 'Requesting storage access…');
+    try {
+      await document.requestStorageAccess();
+      set('storage-access-status', 'Storage access granted.', 'granted');
+    } catch (e) {
+      set('storage-access-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testXR() {
+    if (!navigator.xr) {
+      set('xr-status', 'navigator.xr (WebXR) is not available.', 'err');
+      return;
+    }
+    set('xr-status', 'Requesting immersive-vr session…');
+    try {
+      const supported = await navigator.xr.isSessionSupported('immersive-vr');
+      if (!supported) {
+        set('xr-status', 'immersive-vr is reported as not supported.', 'denied');
+        return;
+      }
+      const session = await navigator.xr.requestSession('immersive-vr');
+      set('xr-status', 'Immersive VR session granted.', 'granted');
+      session.end();
+    } catch (e) {
+      set('xr-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testClipboard() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      set('clipboard-status', 'navigator.clipboard.readText is not available.', 'err');
+      return;
+    }
+    set('clipboard-status', 'Reading clipboard…');
+    try {
+      const text = await navigator.clipboard.readText();
+      set('clipboard-status', `Granted. Clipboard text: ${JSON.stringify(text)}.`, 'granted');
+    } catch (e) {
+      set('clipboard-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  function testPointerLock() {
+    const el = document.getElementById('pointerlock-status');
+    if (!el.requestPointerLock) {
+      set('pointerlock-status', 'requestPointerLock is not available.', 'err');
+      return;
+    }
+    set('pointerlock-status', 'Requesting pointer lock… (press Esc to release)');
+    const onChange = () => {
+      if (document.pointerLockElement === el)
+        set('pointerlock-status', 'Pointer locked. Press Esc to release.', 'granted');
+      else
+        set('pointerlock-status', 'Pointer lock released.', 'prompt');
+    };
+    const onError = () => set('pointerlock-status', 'Pointer lock request failed or was denied.', 'denied');
+    document.addEventListener('pointerlockchange', onChange, { once: false });
+    document.addEventListener('pointerlockerror', onError, { once: true });
+    try {
+      const result = el.requestPointerLock();
+      if (result && typeof result.catch === 'function')
+        result.catch(e => set('pointerlock-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied'));
+    } catch (e) {
+      set('pointerlock-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testPersistentStorage() {
+    if (!navigator.storage || !navigator.storage.persist) {
+      set('persist-status', 'navigator.storage.persist is not available.', 'err');
+      return;
+    }
+    set('persist-status', 'Requesting persistent storage…');
+    try {
+      const persisted = await navigator.storage.persist();
+      set('persist-status', `Result: persisted = ${persisted}.`, persisted ? 'granted' : 'denied');
+    } catch (e) {
+      set('persist-status', `Failed: ${e.name} — ${e.message}.`, 'err');
+    }
+  }
+
+  let wakeLock = null;
+  async function testWakeLock() {
+    if (!navigator.wakeLock || !navigator.wakeLock.request) {
+      set('wakelock-status', 'navigator.wakeLock is not available.', 'err');
+      return;
+    }
+    set('wakelock-status', 'Requesting screen wake lock…');
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      set('wakelock-status', 'Screen wake lock acquired.', 'granted');
+      wakeLock.addEventListener('release', () =>
+        set('wakelock-status', 'Wake lock released.', 'prompt'));
+    } catch (e) {
+      set('wakelock-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testMIDI() {
+    if (!navigator.requestMIDIAccess) {
+      set('midi-status', 'navigator.requestMIDIAccess is not available.', 'err');
+      return;
+    }
+    set('midi-status', 'Requesting MIDI access (sysex)…');
+    try {
+      const access = await navigator.requestMIDIAccess({ sysex: true });
+      set('midi-status',
+        `Granted. ${access.inputs.size} input(s), ${access.outputs.size} output(s).`, 'granted');
+    } catch (e) {
+      set('midi-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testDisplayMedia() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      set('display-status', 'getDisplayMedia is not available.', 'err');
+      return;
+    }
+    set('display-status', 'Requesting screen capture…');
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const tracks = stream.getTracks().map(t => t.kind).join(', ');
+      set('display-status', `Granted. Tracks: ${tracks}.`, 'granted');
+      stream.getTracks().forEach(t => t.stop());
+    } catch (e) {
+      set('display-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testIdleDetection() {
+    if (typeof IdleDetector === 'undefined') {
+      set('idle-status', 'IdleDetector is not available.', 'err');
+      return;
+    }
+    set('idle-status', 'Requesting idle detection permission…');
+    try {
+      const perm = await IdleDetector.requestPermission();
+      set('idle-status', `Result: ${perm}.`, perm === 'granted' ? 'granted' : 'denied');
+    } catch (e) {
+      set('idle-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testWindowManagement() {
+    if (!window.getScreenDetails) {
+      set('window-mgmt-status', 'window.getScreenDetails is not available.', 'err');
+      return;
+    }
+    set('window-mgmt-status', 'Requesting screen details…');
+    try {
+      const details = await window.getScreenDetails();
+      set('window-mgmt-status', `Granted. ${details.screens.length} screen(s).`, 'granted');
+    } catch (e) {
+      set('window-mgmt-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testLocalFonts() {
+    if (!window.queryLocalFonts) {
+      set('fonts-status', 'window.queryLocalFonts is not available.', 'err');
+      return;
+    }
+    set('fonts-status', 'Querying local fonts…');
+    try {
+      const fonts = await window.queryLocalFonts();
+      set('fonts-status', `Granted. ${fonts.length} font(s) enumerated.`, 'granted');
+    } catch (e) {
+      set('fonts-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+</script>
+</body>
+</html>

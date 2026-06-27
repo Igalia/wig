@@ -49,6 +49,7 @@ struct _WigApplication {
 
   GQueue *closed_tab_history;
   GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
+  WigPermissionsManager *permissions_manager;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -203,6 +204,7 @@ static void wig_application_init(WigApplication *app)
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
   app->notifications = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
+  app->permissions_manager = wig_permissions_manager_new();
 }
 
 static void on_notification_clicked_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -302,6 +304,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->user_style_sheets, g_ptr_array_unref);
   g_clear_object(&app->content_filter_store);
   g_clear_pointer(&app->notifications, g_hash_table_unref);
+  g_clear_object(&app->permissions_manager);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -427,4 +430,11 @@ void wig_application_untrack_notification(WigApplication *app, const char *id)
   g_return_if_fail(id != NULL);
 
   g_hash_table_remove(app->notifications, id);
+}
+
+WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  return app->permissions_manager;
 }
