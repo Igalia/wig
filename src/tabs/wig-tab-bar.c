@@ -366,11 +366,22 @@ static void wig_tab_bar_load_css(void)
   gtk_css_provider_load_from_string(provider,
                                     /* Horizontal padding here defines the collapsed (favicon-only)
                                      * width together with WIG_TAB_FAVICON_SIZE; keep them in sync. */
+                                    "wig-tab-bar wig-tab:first-child {"
+                                    "    margin: 8px 5px 8px 10px;"
+                                    "}"
+                                    "wig-tab-bar wig-tab:last-child {"
+                                    "    margin: 8px 10px 8px 5px;"
+                                    "}"
+                                    "wig-tab-bar wig-tab {"
+                                    "  margin: 8px 5px;"
+                                    "}"
                                     "wig-tab {"
                                     "  padding: 0px 12px;"
-                                    "  min-height: 24px;"
-                                    "  margin: 6px 6px;"
+                                    "  min-height: 28px;"
                                     "  border-radius: 6px;"
+                                    "}"
+                                    "wig-tab-sidebar wig-tab {"
+                                    "  margin: 6px 6px;"
                                     "}"
                                     "wig-tab.active {"
                                     "  background-color: alpha(@headerbar_fg_color, 0.1);"
@@ -379,6 +390,10 @@ static void wig_tab_bar_load_css(void)
                                     "}"
                                     "wig-tab.dragging {"
                                     "  opacity: 0.5;"
+                                    "}"
+                                    "wig-tab.selected {"
+                                    "  box-shadow: 0 0 6px 2px alpha(@accent_color, 0.6);"
+                                    "  border-radius: 6px;"
                                     "}");
   gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);

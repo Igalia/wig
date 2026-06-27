@@ -32,15 +32,22 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   guint n_tabs = wig_tab_list_get_n_tabs(list);
   gboolean has_left = pos > 0;
   gboolean has_right = pos < n_tabs - 1;
-  gboolean has_others = n_tabs > 1;
+
+  guint n_selected = 0;
+  for (guint i = 0; i < n_tabs; i++) {
+    if (wig_tab_get_selected(wig_tab_list_get_nth(list, i)))
+      n_selected++;
+  }
+  gboolean multi_selected = n_selected > 1;
+  gboolean has_others_not_selected = (n_tabs - n_selected) > 0;
 
   GSimpleActionGroup *group = wig_tab_list_get_action_group(list);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-to-left")),
-                              has_left);
+                              has_left && !multi_selected);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-to-right")),
-                              has_right);
+                              has_right && !multi_selected);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-others")),
-                              has_others);
+                              has_others_not_selected);
 
 #define APPEND_TAB_ITEM(menu_, label_, action_)                                                                        \
   G_STMT_START                                                                                                         \
@@ -75,9 +82,9 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
 
   /* Attach a dedicated action so the submenu header itself can be insensitive. */
   g_autoptr(GSimpleAction) open_multiple = g_simple_action_new("open-close-multiple", NULL);
-  g_simple_action_set_enabled(open_multiple, has_others);
+  g_simple_action_set_enabled(open_multiple, has_others_not_selected);
   g_action_map_add_action(G_ACTION_MAP(group), G_ACTION(open_multiple));
-  g_menu_item_set_attribute(submenu_item, "action", "s", "tab.open-close-multiple");
+  g_menu_item_set_attribute(submenu_item, "action", "s", "tabs.open-close-multiple");
 
   g_menu_append_item(section3, submenu_item);
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section3));

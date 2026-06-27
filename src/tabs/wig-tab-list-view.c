@@ -31,6 +31,10 @@ typedef struct {
   double drag_hot_y;
   GtkWidget *drag_widget; /* tab widget being dragged, cleared in drag_end */
   int drop_indicator;
+
+  /* Index of the last tab that was Ctrl+clicked; used as the anchor for
+   * Shift+click range selection.  -1 when no anchor has been set yet. */
+  int last_selected_index;
 } WigTabListViewPrivate;
 
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE(WigTabListView, wig_tab_list_view, GTK_TYPE_WIDGET)
@@ -46,6 +50,23 @@ static void wig_tab_list_view_update_active(WigTabListView *self, GParamSpec *ps
     else
       gtk_widget_remove_css_class(GTK_WIDGET(widget), "active");
   }
+}
+
+static void wig_tab_list_view_clear_selection(WigTabListView *self)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  for (GSList *l = priv->tab_widgets; l; l = g_slist_next(l))
+    wig_tab_set_selected(wig_tab_widget_get_tab(WIG_TAB_WIDGET(l->data)), FALSE);
+  priv->last_selected_index = -1;
+}
+
+static void wig_tab_list_view_background_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
+                                                 WigTabListView *self)
+{
+  GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+  GdkModifierType state = event ? gdk_event_get_modifier_state(event) : 0;
+  if (!(state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK)))
+    wig_tab_list_view_clear_selection(self);
 }
 
 static void wig_tab_list_view_tab_selected_changed(WigTab *tab, GParamSpec *pspec, WigTabWidget *tab_widget)
@@ -76,8 +97,29 @@ static void wig_tab_list_view_tab_pressed(GtkGestureClick *gesture, int n_press,
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
   WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(widget));
-  if (tab)
+  if (!tab)
+    return;
+
+  GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+  GdkModifierType state = event ? gdk_event_get_modifier_state(event) : 0;
+  gboolean ctrl = (state & GDK_CONTROL_MASK) != 0;
+  gboolean shift = (state & GDK_SHIFT_MASK) != 0;
+
+  if (ctrl) {
+    wig_tab_set_selected(tab, !wig_tab_get_selected(tab));
+    priv->last_selected_index = (int)wig_tab_list_index_of(priv->list, tab);
+  } else if (shift && priv->last_selected_index >= 0) {
+    int current_index = (int)wig_tab_list_index_of(priv->list, tab);
+    int from = MIN(priv->last_selected_index, current_index);
+    int to = MAX(priv->last_selected_index, current_index);
+    for (int i = from; i <= to; i++) {
+      WigTab *t = wig_tab_list_get_nth(priv->list, (guint)i);
+      wig_tab_set_selected(t, !wig_tab_get_selected(t));
+    }
+  } else {
+    wig_tab_list_view_clear_selection(self);
     wig_tab_list_set_active(priv->list, tab);
+  }
 }
 
 static void wig_tab_list_view_tab_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
@@ -85,6 +127,11 @@ static void wig_tab_list_view_tab_right_pressed(GtkGestureClick *gesture, int n_
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(widget));
+
+  if (!wig_tab_get_selected(tab))
+    wig_tab_list_view_clear_selection(self);
+
   wig_tab_widget_show_context_menu(WIG_TAB_WIDGET(widget), priv->list);
 }
 
@@ -410,6 +457,7 @@ static void wig_tab_list_view_init(WigTabListView *self)
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   priv->drop_indicator = -1;
+  priv->last_selected_index = -1;
 }
 
 static void wig_tab_list_view_class_init(WigTabListViewClass *klass)
@@ -433,6 +481,11 @@ void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *tab
   g_signal_connect_object(list, "tab-moved", G_CALLBACK(wig_tab_list_view_tab_moved), self, G_CONNECT_DEFAULT);
   g_signal_connect_object(list, "notify::active-tab", G_CALLBACK(wig_tab_list_view_update_active), self,
                           G_CONNECT_SWAPPED);
+
+  GtkGestureClick *bg_gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  g_signal_connect_object(bg_gesture, "pressed", G_CALLBACK(wig_tab_list_view_background_pressed), self,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(GTK_WIDGET(self), GTK_EVENT_CONTROLLER(bg_gesture));
 
   GtkDropTarget *box_drop_target = gtk_drop_target_new(wig_tab_id_get_type(), GDK_ACTION_MOVE);
   g_signal_connect_object(box_drop_target, "accept", G_CALLBACK(wig_tab_list_view_drop_accept), self,

@@ -289,36 +289,90 @@ void wig_tab_list_set_active(WigTabList *self, WigTab *tab)
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE_TAB]);
 }
 
+/* Returns: (transfer container): a new GPtrArray of all currently selected tabs. */
+static GPtrArray *wig_tab_list_collect_selected(WigTabList *self)
+{
+  GPtrArray *selected = g_ptr_array_new();
+  for (guint i = 0; i < self->tabs->len; i++) {
+    WigTab *t = g_ptr_array_index(self->tabs, i);
+    if (wig_tab_get_selected(t))
+      g_ptr_array_add(selected, t);
+  }
+  return selected;
+}
+
 static void on_action_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigTabList *self = WIG_TAB_LIST(user_data);
-  g_signal_emit(self, signals[SIGNAL_RELOAD_TAB], 0, g_variant_get_uint32(parameter));
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+  if (wig_tab_get_selected(tab)) {
+    g_autoptr(GPtrArray) selected = wig_tab_list_collect_selected(self);
+    for (guint i = 0; i < selected->len; i++)
+      g_signal_emit(self, signals[SIGNAL_RELOAD_TAB], 0, wig_tab_get_id(g_ptr_array_index(selected, i)));
+  } else {
+    g_signal_emit(self, signals[SIGNAL_RELOAD_TAB], 0, g_variant_get_uint32(parameter));
+  }
 }
 
 static void on_action_mute(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigTabList *self = WIG_TAB_LIST(user_data);
-  g_signal_emit(self, signals[SIGNAL_MUTE_TAB], 0, g_variant_get_uint32(parameter));
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+  if (wig_tab_get_selected(tab)) {
+    g_autoptr(GPtrArray) selected = wig_tab_list_collect_selected(self);
+    for (guint i = 0; i < selected->len; i++)
+      g_signal_emit(self, signals[SIGNAL_MUTE_TAB], 0, wig_tab_get_id(g_ptr_array_index(selected, i)));
+  } else {
+    g_signal_emit(self, signals[SIGNAL_MUTE_TAB], 0, g_variant_get_uint32(parameter));
+  }
 }
 
 static void on_action_duplicate(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigTabList *self = WIG_TAB_LIST(user_data);
-  g_signal_emit(self, signals[SIGNAL_DUPLICATE_TAB], 0, g_variant_get_uint32(parameter));
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+  if (wig_tab_get_selected(tab)) {
+    g_autoptr(GPtrArray) selected = wig_tab_list_collect_selected(self);
+    for (guint i = 0; i < selected->len; i++)
+      g_signal_emit(self, signals[SIGNAL_DUPLICATE_TAB], 0, wig_tab_get_id(g_ptr_array_index(selected, i)));
+  } else {
+    g_signal_emit(self, signals[SIGNAL_DUPLICATE_TAB], 0, g_variant_get_uint32(parameter));
+  }
 }
 
 static void on_action_copy_link(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigTabList *self = WIG_TAB_LIST(user_data);
-  g_signal_emit(self, signals[SIGNAL_COPY_LINK_TAB], 0, g_variant_get_uint32(parameter));
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+  if (wig_tab_get_selected(tab)) {
+    g_autoptr(GPtrArray) selected = wig_tab_list_collect_selected(self);
+    for (guint i = 0; i < selected->len; i++)
+      g_signal_emit(self, signals[SIGNAL_COPY_LINK_TAB], 0, wig_tab_get_id(g_ptr_array_index(selected, i)));
+  } else {
+    g_signal_emit(self, signals[SIGNAL_COPY_LINK_TAB], 0, g_variant_get_uint32(parameter));
+  }
 }
 
 static void on_action_close(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigTabList *self = WIG_TAB_LIST(user_data);
   WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
-  if (tab)
+  if (!tab)
+    return;
+  if (wig_tab_get_selected(tab)) {
+    g_autoptr(GPtrArray) selected = wig_tab_list_collect_selected(self);
+    wig_tab_list_close_many(self, selected);
+  } else {
     wig_tab_list_close(self, tab);
+  }
 }
 
 static void on_action_close_to_left(GSimpleAction *action, GVariant *parameter, gpointer user_data)
