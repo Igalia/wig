@@ -974,7 +974,6 @@ static gboolean wig_window_url_entry_key_pressed(GtkEventControllerKey *controll
 static void wig_window_url_entry_focus_enter(GtkEventControllerFocus *controller, WigWindow *win)
 {
   win->url_entry_focused = TRUE;
-  wig_window_update_entry_completion(win);
 }
 
 static void wig_window_url_entry_focus_leave(GtkEventControllerFocus *controller, WigWindow *win)
