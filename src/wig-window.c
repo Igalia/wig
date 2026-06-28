@@ -703,7 +703,8 @@ static void wig_window_switch_to_tabbar(GSimpleAction *action, GVariant *paramet
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
   // FIXME: Error finding last focus widget of GtkPaned 0x55daa38feb70, gtk_paned_set_focus_child was called on widget
   // (nil) which is not child of ...
-  g_clear_pointer(&win->tab_sidebar, gtk_widget_unparent);
+  gtk_paned_set_start_child(GTK_PANED(win->paned), NULL);
+  win->tab_sidebar = NULL;
 
   win->tab_bar = wig_tab_bar_new(win->tab_list);
   wig_window_add_tab_view_context_menu(win, win->tab_bar);
