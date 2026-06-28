@@ -1,1 +1,4 @@
-wig_entry_sources = files('wig-permissions-button.c')
+wig_entry_sources = files(
+    'wig-entry-completion-popover.c',
+    'wig-permissions-button.c',
+)

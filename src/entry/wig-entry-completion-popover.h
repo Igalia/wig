@@ -22,23 +22,24 @@
 
 #pragma once
 
-#include <gio/gio.h>
-#include <glib.h>
-#include <wpe/webkit.h>
+#include <gtk/gtk.h>
 
 G_BEGIN_DECLS
 
-typedef enum {
-  WIG_UTIL_URI_COMPLETION_PASSTHROUGH,
-  WIG_UTIL_URI_COMPLETION_HTTPS,
-  WIG_UTIL_URI_COMPLETION_HTTP,
-  WIG_UTIL_URI_COMPLETION_SEARCH,
-} WigUtilUriCompletionType;
+typedef struct _WigEntryCompletionItem WigEntryCompletionItem;
 
-WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url);
-char *wig_util_complete_uri(const char *url);
-#if HAVE_FAVICON_SUPPORT
-GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size);
-#endif
+#define WIG_TYPE_ENTRY_COMPLETION_POPOVER (wig_entry_completion_popover_get_type())
+G_DECLARE_FINAL_TYPE(WigEntryCompletionPopover, wig_entry_completion_popover, WIG, ENTRY_COMPLETION_POPOVER, GtkPopover)
+
+WigEntryCompletionItem *wig_entry_completion_item_new(const char *title, const char *url, const char *subtitle,
+                                                      const char *entry_text);
+void wig_entry_completion_item_free(WigEntryCompletionItem *item);
+
+GtkWidget *wig_entry_completion_popover_new(void);
+void wig_entry_completion_popover_set_width(WigEntryCompletionPopover *self, int width);
+void wig_entry_completion_popover_set_items(WigEntryCompletionPopover *self, const char *entry_text, GPtrArray *items);
+gboolean wig_entry_completion_popover_select_next(WigEntryCompletionPopover *self);
+gboolean wig_entry_completion_popover_select_previous(WigEntryCompletionPopover *self);
+guint wig_entry_completion_popover_get_n_items(WigEntryCompletionPopover *self);
 
 G_END_DECLS

@@ -54,6 +54,43 @@ static psl_ctx_t *get_psl_context(void)
 }
 
 /**
+ * wig_util_get_uri_completion_type:
+ *
+ * Returns how an entry string should be completed before loading.
+ */
+WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url)
+{
+  if (!url || !*url)
+    return WIG_UTIL_URI_COMPLETION_SEARCH;
+
+  const char *scheme = g_uri_peek_scheme(url);
+  if (scheme && array_contains(valid_schemes, G_N_ELEMENTS(valid_schemes), scheme))
+    return WIG_UTIL_URI_COMPLETION_PASSTHROUGH;
+
+  const char *host_end = url + strcspn(url, "/:");
+  g_autofree char *hostname = g_strndup(url, (gsize)(host_end - url));
+
+  if (!strcmp(hostname, "localhost") || g_hostname_is_ip_address(hostname))
+    return WIG_UTIL_URI_COMPLETION_HTTP;
+
+  psl_ctx_t *psl = get_psl_context();
+  const char *domain = psl_registrable_domain(psl, hostname);
+  if (!domain)
+    return WIG_UTIL_URI_COMPLETION_SEARCH;
+
+  const char *dot = strchr(domain, '.');
+  const char *suffix = dot ? dot + 1 : domain;
+
+  if (dot && array_contains(special_use_tlds, G_N_ELEMENTS(special_use_tlds), suffix))
+    return WIG_UTIL_URI_COMPLETION_HTTP;
+
+  if (psl_is_public_suffix2(psl, suffix, PSL_TYPE_ANY | PSL_TYPE_NO_STAR_RULE))
+    return WIG_UTIL_URI_COMPLETION_HTTPS;
+
+  return WIG_UTIL_URI_COMPLETION_SEARCH;
+}
+
+/**
  * wig_util_complete_uri:
  *
  * This takes an incomplete URL fragment, that one would type into an entry,
@@ -65,37 +102,30 @@ static psl_ctx_t *get_psl_context(void)
  */
 char *wig_util_complete_uri(const char *url)
 {
-  const char *scheme = g_uri_peek_scheme(url);
+  switch (wig_util_get_uri_completion_type(url)) {
+  case WIG_UTIL_URI_COMPLETION_PASSTHROUGH: {
+    const char *scheme = g_uri_peek_scheme(url);
 
-  // We can't override about so just rewrite them.
-  if (g_strcmp0(scheme, "about") == 0 && g_strcmp0(url, "about:blank") != 0)
-    return g_strconcat("wig:", url + strlen("about:"), NULL);
+    // We can't override about so just rewrite them.
+    if (g_strcmp0(scheme, "about") == 0 && g_strcmp0(url, "about:blank") != 0)
+      return g_strconcat("wig:", url + strlen("about:"), NULL);
 
-  if (scheme && array_contains(valid_schemes, G_N_ELEMENTS(valid_schemes), scheme))
     return g_strdup(url);
-
-  const char *host_end = url + strcspn(url, "/:");
-  g_autofree char *hostname = g_strndup(url, (gsize)(host_end - url));
-
-  if (!strcmp(hostname, "localhost") || g_hostname_is_ip_address(hostname))
-    return g_strconcat("http://", url, NULL);
-
-  psl_ctx_t *psl = get_psl_context();
-  const char *domain = psl_registrable_domain(psl, hostname);
-  if (domain) {
-    // Extract the public suffix from the registrable domain
-    const char *dot = strchr(domain, '.');
-    const char *suffix = dot ? dot + 1 : domain;
-
-    if (dot && array_contains(special_use_tlds, G_N_ELEMENTS(special_use_tlds), suffix))
-      return g_strconcat("http://", url, NULL);
-
-    if (psl_is_public_suffix2(psl, suffix, PSL_TYPE_ANY | PSL_TYPE_NO_STAR_RULE))
-      return g_strconcat("https://", url, NULL);
   }
 
-  g_autofree char *escaped = g_uri_escape_string(url, NULL, FALSE);
-  return g_strconcat("https://duckduckgo.com/?q=", escaped, NULL);
+  case WIG_UTIL_URI_COMPLETION_HTTPS:
+    return g_strconcat("https://", url, NULL);
+
+  case WIG_UTIL_URI_COMPLETION_HTTP:
+    return g_strconcat("http://", url, NULL);
+
+  case WIG_UTIL_URI_COMPLETION_SEARCH: {
+    g_autofree char *escaped = g_uri_escape_string(url ? url : "", NULL, FALSE);
+    return g_strconcat("https://duckduckgo.com/?q=", escaped, NULL);
+  }
+  }
+
+  g_assert_not_reached();
 }
 
 #if HAVE_FAVICON_SUPPORT

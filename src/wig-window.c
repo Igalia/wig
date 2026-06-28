@@ -23,6 +23,7 @@
 #include "wig-window.h"
 
 #include "wig-application.h"
+#include "wig-entry-completion-popover.h"
 #include "wig-permissions-button.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
@@ -45,6 +46,7 @@ struct _WigWindow {
   GtkWidget *stop_reload_button;
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
+  GtkWidget *entry_completion_popover;
   GtkWidget *permissions_button;
   WigPermissionsManager *permissions_manager; /* borrowed from application */
   char *current_origin; /* origin string of current_web_view, or NULL */
@@ -58,6 +60,8 @@ struct _WigWindow {
   GtkWidget *overview_button;
   WebKitWebView *current_web_view;
   guint progress_timeout_id;
+  gboolean suppress_entry_completion;
+  gboolean url_entry_focused;
   GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
   GtkWidget *back_history_popover;
@@ -830,7 +834,9 @@ static void wig_window_tab_copy_link(WigTabList *list, guint tab_id, WigWindow *
 static void wig_window_update_url(WigWindow *win)
 {
   const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
+  win->suppress_entry_completion = TRUE;
   gtk_editable_set_text(GTK_EDITABLE(win->url_entry), url ? url : "");
+  win->suppress_entry_completion = FALSE;
 }
 
 static void wig_window_clear_load_progress(WigWindow *win)
@@ -848,18 +854,161 @@ static void wig_window_update_load_progress(WigWindow *win)
     win->progress_timeout_id = g_timeout_add_once(500, (GSourceOnceFunc)wig_window_clear_load_progress, win);
 }
 
-static void wig_window_load_url(WigWindow *win)
+static void wig_window_load_uri(WigWindow *win, const char *uri)
 {
   if (!win->current_web_view)
     return;
 
-  g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)));
   wig_application_mark_typed_navigation(WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))),
-                                        win->current_web_view, complete_uri);
-  webkit_web_view_load_uri(win->current_web_view, complete_uri);
+                                        win->current_web_view, uri);
+  webkit_web_view_load_uri(win->current_web_view, uri);
   WigTab *selected = wig_tab_list_get_active(win->tab_list);
   if (selected)
     gtk_widget_grab_focus(wig_tab_get_widget(selected));
+}
+
+static void wig_window_load_url(WigWindow *win)
+{
+  g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)));
+  gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+  wig_window_load_uri(win, complete_uri);
+}
+
+static void wig_window_entry_completion_popover_activate(WigEntryCompletionPopover *popover, const char *uri,
+                                                         WigWindow *win)
+{
+  win->suppress_entry_completion = TRUE;
+  gtk_editable_set_text(GTK_EDITABLE(win->url_entry), uri);
+  win->suppress_entry_completion = FALSE;
+
+  gtk_popover_popdown(GTK_POPOVER(popover));
+  wig_window_load_uri(win, uri);
+}
+
+static void wig_window_entry_completion_popover_selected(WigEntryCompletionPopover *popover, const char *text,
+                                                         WigWindow *win)
+{
+  win->suppress_entry_completion = TRUE;
+  gtk_editable_set_text(GTK_EDITABLE(win->url_entry), text);
+  gtk_editable_set_position(GTK_EDITABLE(win->url_entry), -1);
+  win->suppress_entry_completion = FALSE;
+}
+
+static void wig_window_update_entry_completion(WigWindow *win)
+{
+  if (win->suppress_entry_completion || !GTK_IS_POPOVER(win->entry_completion_popover))
+    return;
+
+  const char *text = gtk_editable_get_text(GTK_EDITABLE(win->url_entry));
+  if (!win->url_entry_focused || !text || !*text) {
+    gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+    return;
+  }
+
+  WigHistoryStore *store = wig_application_get_history_store(
+      WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))));
+  if (!store) {
+    gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+    return;
+  }
+
+  gboolean has_more = FALSE;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GPtrArray) history_items = wig_history_store_query(store, text, 0, 10, &has_more, &error);
+  if (!history_items) {
+    g_warning("entry-completion: history query failed: %s", error->message);
+    gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+    return;
+  }
+
+  g_autoptr(GPtrArray) completion_items = g_ptr_array_new_with_free_func(
+      (GDestroyNotify)wig_entry_completion_item_free);
+  for (guint i = 0; i < history_items->len; i++) {
+    WigHistoryItem *history_item = g_ptr_array_index(history_items, i);
+    const char *title = wig_history_item_get_title(history_item);
+    const char *url = wig_history_item_get_url(history_item);
+    g_ptr_array_add(completion_items, wig_entry_completion_item_new(title && *title ? title : url, url, url, url));
+  }
+
+  wig_entry_completion_popover_set_items(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover), text,
+                                         completion_items);
+  if (wig_entry_completion_popover_get_n_items(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover)) > 0) {
+    int width = gtk_widget_get_width(win->url_entry);
+    GdkRectangle pointing_to = {
+      .x = 0,
+      .y = gtk_widget_get_height(win->url_entry),
+      .width = width,
+      .height = 1,
+    };
+    wig_entry_completion_popover_set_width(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover), width);
+    gtk_popover_set_pointing_to(GTK_POPOVER(win->entry_completion_popover), &pointing_to);
+    gtk_popover_popup(GTK_POPOVER(win->entry_completion_popover));
+  } else
+    gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+}
+
+static void wig_window_url_entry_changed(GtkEditable *editable, WigWindow *win)
+{
+  wig_window_update_entry_completion(win);
+}
+
+static gboolean wig_window_url_entry_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode,
+                                                 GdkModifierType state, WigWindow *win)
+{
+  if (!GTK_IS_POPOVER(win->entry_completion_popover) || !gtk_widget_get_visible(win->entry_completion_popover)
+      || wig_entry_completion_popover_get_n_items(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover)) == 0)
+    return FALSE;
+
+  switch (keyval) {
+  case GDK_KEY_Down:
+  case GDK_KEY_KP_Down:
+    return wig_entry_completion_popover_select_next(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover));
+  case GDK_KEY_Up:
+  case GDK_KEY_KP_Up:
+    return wig_entry_completion_popover_select_previous(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover));
+  default:
+    return FALSE;
+  }
+}
+
+static void wig_window_url_entry_focus_enter(GtkEventControllerFocus *controller, WigWindow *win)
+{
+  win->url_entry_focused = TRUE;
+  wig_window_update_entry_completion(win);
+}
+
+static void wig_window_url_entry_focus_leave(GtkEventControllerFocus *controller, WigWindow *win)
+{
+  win->url_entry_focused = FALSE;
+  if (GTK_IS_POPOVER(win->entry_completion_popover))
+    gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+}
+
+static gboolean point_is_inside_widget(GtkWidget *root, GtkWidget *widget, double x, double y)
+{
+  if (!widget || !gtk_widget_get_mapped(widget))
+    return FALSE;
+
+  graphene_point_t root_point = GRAPHENE_POINT_INIT((float)x, (float)y);
+  graphene_point_t widget_point;
+  if (!gtk_widget_compute_point(root, widget, &root_point, &widget_point))
+    return FALSE;
+
+  return widget_point.x >= 0 && widget_point.y >= 0 && widget_point.x < gtk_widget_get_width(widget)
+      && widget_point.y < gtk_widget_get_height(widget);
+}
+
+static void wig_window_click_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
+{
+  if (!GTK_IS_POPOVER(win->entry_completion_popover) || !gtk_widget_get_visible(win->entry_completion_popover))
+    return;
+
+  GtkWidget *root = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  if (point_is_inside_widget(root, win->url_entry, x, y)
+      || point_is_inside_widget(root, win->entry_completion_popover, x, y))
+    return;
+
+  gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
 }
 
 static void wig_window_update_navigation_actions(WigWindow *win)
@@ -1215,6 +1364,12 @@ static void wig_window_constructed(GObject *object)
 
   g_signal_connect(win, "notify::fullscreened", G_CALLBACK(wig_window_fullscreen_changed), NULL);
 
+  GtkGestureClick *window_click = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(window_click), 0);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(window_click), GTK_PHASE_CAPTURE);
+  g_signal_connect_object(window_click, "pressed", G_CALLBACK(wig_window_click_pressed), win, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(GTK_WIDGET(win), GTK_EVENT_CONTROLLER(window_click));
+
   win->toolbar_view = adw_toolbar_view_new();
   adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(win->toolbar_view), ADW_TOOLBAR_FLAT);
 
@@ -1265,8 +1420,26 @@ static void wig_window_constructed(GObject *object)
   gtk_header_bar_pack_start(GTK_HEADER_BAR(win->header_bar), start_box);
 
   win->url_entry = gtk_entry_new();
+  win->entry_completion_popover = wig_entry_completion_popover_new();
+  gtk_widget_set_parent(win->entry_completion_popover, win->url_entry);
+  g_signal_connect_object(win->entry_completion_popover, "activate",
+                          G_CALLBACK(wig_window_entry_completion_popover_activate), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->entry_completion_popover, "selected",
+                          G_CALLBACK(wig_window_entry_completion_popover_selected), win, G_CONNECT_DEFAULT);
+
   g_signal_connect_object(win->url_entry, "activate", G_CALLBACK(wig_window_load_url), win, G_CONNECT_SWAPPED);
+  g_signal_connect_object(win->url_entry, "changed", G_CALLBACK(wig_window_url_entry_changed), win, G_CONNECT_DEFAULT);
   gtk_widget_set_hexpand(win->url_entry, TRUE);
+
+  GtkEventController *url_focus = gtk_event_controller_focus_new();
+  g_signal_connect_object(url_focus, "enter", G_CALLBACK(wig_window_url_entry_focus_enter), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(url_focus, "leave", G_CALLBACK(wig_window_url_entry_focus_leave), win, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(win->url_entry, url_focus);
+
+  GtkEventController *url_keys = gtk_event_controller_key_new();
+  g_signal_connect_object(url_keys, "key-pressed", G_CALLBACK(wig_window_url_entry_key_pressed), win,
+                          G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(win->url_entry, url_keys);
 
   win->permissions_button = wig_permissions_button_new();
   win->permissions_manager = wig_application_get_permissions_manager(wig_application_get());
@@ -1366,6 +1539,7 @@ static void wig_window_dispose(GObject *object)
   }
 
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
+  g_clear_pointer(&win->entry_completion_popover, gtk_widget_unparent);
   g_clear_pointer(&win->back_history_popover, gtk_widget_unparent);
   g_clear_pointer(&win->forward_history_popover, gtk_widget_unparent);
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
