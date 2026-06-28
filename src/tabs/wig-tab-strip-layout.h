@@ -24,16 +24,14 @@
 
 #include <gtk/gtk.h>
 
-#include "wig-tab-list.h"
-#include "wig-tab.h"
-
 G_BEGIN_DECLS
 
-#define WIG_TYPE_TAB_WIDGET (wig_tab_widget_get_type())
-G_DECLARE_FINAL_TYPE(WigTabWidget, wig_tab_widget, WIG, TAB_WIDGET, GtkWidget)
+#define WIG_TAB_MAX_WIDTH 240
 
-GtkWidget *wig_tab_widget_new(WigTab *tab);
-WigTab *wig_tab_widget_get_tab(WigTabWidget *self);
-void wig_tab_widget_show_context_menu(WigTabWidget *self, WigTabList *list);
+#define WIG_TYPE_TAB_STRIP_LAYOUT (wig_tab_strip_layout_get_type())
+G_DECLARE_FINAL_TYPE(WigTabStripLayout, wig_tab_strip_layout, WIG, TAB_STRIP_LAYOUT, GtkLayoutManager)
+
+GtkLayoutManager *wig_tab_strip_layout_new(void);
+int wig_tab_strip_layout_child_min_width(GtkWidget *widget);
 
 G_END_DECLS

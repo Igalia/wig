@@ -5,6 +5,7 @@ wig_tab_sources = files(
     'wig-tab-list-view.c',
     'wig-tab-list.c',
     'wig-tab-sidebar.c',
+    'wig-tab-strip-layout.c',
     'wig-tab-widget.c',
     'wig-tab.c',
 )

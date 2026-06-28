@@ -39,8 +39,6 @@ struct _WigTabWidget {
   GtkWidget *snapshot_popover;
   GCancellable *snapshot_cancellable;
   guint snapshot_timeout_id;
-
-  int target_width;
 };
 
 G_DEFINE_FINAL_TYPE(WigTabWidget, wig_tab_widget, GTK_TYPE_WIDGET)
@@ -271,8 +269,6 @@ static void wig_tab_widget_close_clicked(GtkButton *button, WigTabWidget *self)
 
 static void wig_tab_widget_init(WigTabWidget *self)
 {
-  self->target_width = -1;
-
   GtkLayoutManager *layout = gtk_widget_get_layout_manager(GTK_WIDGET(self));
   gtk_box_layout_set_spacing(GTK_BOX_LAYOUT(layout), 0);
 
@@ -339,12 +335,4 @@ GtkWidget *wig_tab_widget_new(WigTab *tab)
 WigTab *wig_tab_widget_get_tab(WigTabWidget *self)
 {
   return self->tab;
-}
-
-void wig_tab_widget_set_width(WigTabWidget *self, int width)
-{
-  if (self->target_width == width)
-    return;
-  self->target_width = width;
-  gtk_widget_set_size_request(GTK_WIDGET(self), width, -1);
 }
