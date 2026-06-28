@@ -83,7 +83,8 @@ TmplScope *handle_history_uri(WebKitURISchemeRequest *request, WigHistoryStore *
   g_autoptr(GPtrArray) items = store ? wig_history_store_query(store, query, before_time, limit, &has_more, &error)
                                      : g_ptr_array_new_with_free_func(g_object_unref);
   if (!items) {
-    g_warning("history: query failed: %s", error->message);
+    if (error)
+      g_warning("history: query failed: %s", error->message);
     items = g_ptr_array_new_with_free_func(g_object_unref);
   }
 
