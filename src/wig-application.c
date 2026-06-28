@@ -323,6 +323,10 @@ static void wig_application_startup(GApplication *application)
   if (!app->history_store)
     g_warning("history: disabled: %s", history_error->message);
   webkit_network_session_set_itp_enabled(app->network_session, TRUE);
+
+  g_autofree char *cookies_path = g_build_filename(data_dir, "cookies.sqlite", NULL);
+  webkit_cookie_manager_set_persistent_storage(webkit_network_session_get_cookie_manager(app->network_session),
+                                               cookies_path, WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
 #if HAVE_FAVICON_SUPPORT
   webkit_website_data_manager_set_favicons_enabled(
       webkit_network_session_get_website_data_manager(app->network_session), TRUE);
