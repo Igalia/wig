@@ -56,23 +56,28 @@ G_DEFINE_FINAL_TYPE(WigTab, wig_tab, G_TYPE_OBJECT)
 
 static guint wig_tab_next_id = 1;
 
-enum { PROP_0, PROP_ICON, PROP_TITLE, PROP_PINNED, PROP_LOADING, PROP_SELECTED, N_PROPS };
+typedef enum {
+  PROP_ICON = 1,
+  PROP_TITLE,
+  PROP_PINNED,
+  PROP_LOADING,
+  PROP_SELECTED,
+} WigTabProps;
 
-static GParamSpec *props[N_PROPS];
+static GParamSpec *props[PROP_SELECTED + 1];
 
 static void wig_tab_set_title(WigTab *self, const char *title)
 {
   if (g_strcmp0(self->title, title) == 0)
     return;
-  g_free(self->title);
-  self->title = g_strdup(title);
+  g_set_str(&self->title, title);
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_TITLE]);
 }
 
 static void wig_tab_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
   WigTab *self = WIG_TAB(object);
-  switch (prop_id) {
+  switch ((WigTabProps)prop_id) {
   case PROP_ICON:
     g_value_set_object(value, self->icon);
     break;
@@ -88,15 +93,13 @@ static void wig_tab_get_property(GObject *object, guint prop_id, GValue *value, 
   case PROP_SELECTED:
     g_value_set_boolean(value, self->selected);
     break;
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
 static void wig_tab_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
   WigTab *self = WIG_TAB(object);
-  switch (prop_id) {
+  switch ((WigTabProps)prop_id) {
   case PROP_ICON:
     wig_tab_set_icon(self, g_value_get_object(value));
     break;
@@ -117,8 +120,6 @@ static void wig_tab_set_property(GObject *object, guint prop_id, const GValue *v
   case PROP_SELECTED:
     wig_tab_set_selected(self, g_value_get_boolean(value));
     break;
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
@@ -161,7 +162,7 @@ static void wig_tab_class_init(WigTabClass *klass)
   props[PROP_SELECTED] = g_param_spec_boolean("selected", NULL, NULL, FALSE,
                                               G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_properties(gobject_class, N_PROPS, props);
+  g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
 }
 
 /* The title shown for a committed page that provides no <title> of its own. */

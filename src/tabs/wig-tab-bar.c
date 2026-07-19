@@ -213,30 +213,27 @@ static gboolean wig_tab_bar_scroll_to_index(WigTabBar *self, int index)
   return clamped >= desired - 0.5;
 }
 
-static gboolean wig_tab_bar_settle_idle(gpointer data)
+static void wig_tab_bar_settle_idle(gpointer data)
 {
   WigTabBar *self = WIG_TAB_BAR(data);
   self->settle_idle_id = 0;
 
   wig_tab_bar_try_scroll(self);
   wig_tab_bar_update_scroll_sensitivity(self);
-  return G_SOURCE_REMOVE;
 }
 
 /* First of two idle passes.  Toggling the </> buttons' visibility here queues a
  * resize, so the strip geometry is stale by the time this returns; the actual
  * scroll is therefore deferred to wig_tab_bar_settle_idle, which runs on the
  * next iteration once that resize has been laid out and the geometry is final. */
-static gboolean wig_tab_bar_relayout_idle(gpointer data)
+static void wig_tab_bar_relayout_idle(gpointer data)
 {
   WigTabBar *self = WIG_TAB_BAR(data);
   self->relayout_idle_id = 0;
 
   wig_tab_bar_update_scroll_visibility(self);
   if (self->settle_idle_id == 0)
-    self->settle_idle_id = g_idle_add(wig_tab_bar_settle_idle, self);
-
-  return G_SOURCE_REMOVE;
+    self->settle_idle_id = g_idle_add_once(wig_tab_bar_settle_idle, self);
 }
 
 /* Apply width distribution (and any pending scroll) from an idle.  Calling
@@ -249,7 +246,7 @@ static void wig_tab_bar_queue_relayout(WigTabBar *self, int scroll_to_pos)
   if (scroll_to_pos >= 0)
     self->scroll_to_pos = scroll_to_pos;
   if (self->relayout_idle_id == 0)
-    self->relayout_idle_id = g_idle_add(wig_tab_bar_relayout_idle, self);
+    self->relayout_idle_id = g_idle_add_once(wig_tab_bar_relayout_idle, self);
 }
 
 static void wig_tab_bar_size_allocate(GtkWidget *widget, int width, int height, int baseline)

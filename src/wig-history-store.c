@@ -350,7 +350,7 @@ static char *search_to_fts_query(const char *search)
   if (query->len == 0)
     return NULL;
 
-  return g_string_free(g_steal_pointer(&query), FALSE);
+  return g_string_free_and_steal(g_steal_pointer(&query));
 }
 
 static char *search_to_like_pattern(const char *search)
@@ -369,7 +369,7 @@ static char *search_to_like_pattern(const char *search)
   }
   g_string_append_c(pattern, '%');
 
-  return g_string_free(g_steal_pointer(&pattern), FALSE);
+  return g_string_free_and_steal(g_steal_pointer(&pattern));
 }
 
 static WigHistoryItem *item_from_stmt(sqlite3_stmt *stmt)
@@ -448,8 +448,7 @@ GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gi
 
   if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
     set_sqlite_error(error, self->db, "history: query");
-    g_ptr_array_unref(items);
-    items = NULL;
+    g_clear_pointer(&items, g_ptr_array_unref);
   }
 
   sqlite3_finalize(stmt);

@@ -37,7 +37,7 @@ static const char *const valid_schemes[] = {
 static gboolean array_contains(const char *const *array, gsize length, const char *value)
 {
   for (gsize i = 0; i < length; i++) {
-    if (strcmp(array[i], value) == 0)
+    if (g_strcmp0(array[i], value) == 0)
       return TRUE;
   }
   return FALSE;
@@ -70,7 +70,7 @@ WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url)
   const char *host_end = url + strcspn(url, "/:");
   g_autofree char *hostname = g_strndup(url, (gsize)(host_end - url));
 
-  if (!strcmp(hostname, "localhost") || g_hostname_is_ip_address(hostname))
+  if (g_strcmp0(hostname, "localhost") == 0 || g_hostname_is_ip_address(hostname))
     return WIG_UTIL_URI_COMPLETION_HTTP;
 
   psl_ctx_t *psl = get_psl_context();

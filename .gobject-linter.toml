@@ -1,0 +1,5 @@
+[rules.type_style]
+level = "ignore"
+
+[rules.untranslated_string]
+level = "ignore"

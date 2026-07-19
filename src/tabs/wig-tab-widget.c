@@ -195,26 +195,25 @@ static void wig_tab_widget_snapshot_ready(GObject *source_object, GAsyncResult *
   gtk_popover_popup(GTK_POPOVER(self->snapshot_popover));
 }
 
-static gboolean wig_tab_widget_snapshot_timeout(gpointer user_data)
+static void wig_tab_widget_snapshot_timeout(gpointer user_data)
 {
   WigTabWidget *self = WIG_TAB_WIDGET(user_data);
   self->snapshot_timeout_id = 0;
 
   WebKitWebView *web_view = wig_tab_get_web_view(self->tab);
   if (!web_view)
-    return G_SOURCE_REMOVE;
+    return;
 
   const char *uri = webkit_web_view_get_uri(web_view);
   if (g_strcmp0(uri, "about:blank") == 0)
-    return G_SOURCE_REMOVE;
+    return;
 
   if (gtk_widget_has_css_class(GTK_WIDGET(self), "active"))
-    return G_SOURCE_REMOVE;
+    return;
 
   self->snapshot_cancellable = g_cancellable_new();
   webkit_web_view_get_snapshot(web_view, WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE,
                                self->snapshot_cancellable, wig_tab_widget_snapshot_ready, g_object_ref(self));
-  return G_SOURCE_REMOVE;
 }
 
 static void wig_tab_widget_hover_enter(GtkEventControllerMotion *controller, double x, double y, WigTabWidget *self)
@@ -225,7 +224,7 @@ static void wig_tab_widget_hover_enter(GtkEventControllerMotion *controller, dou
   }
   if (self->snapshot_timeout_id || self->snapshot_cancellable)
     return;
-  self->snapshot_timeout_id = g_timeout_add(500, wig_tab_widget_snapshot_timeout, self);
+  self->snapshot_timeout_id = g_timeout_add_once(500, wig_tab_widget_snapshot_timeout, self);
 }
 
 static void wig_tab_widget_hover_leave(GtkEventControllerMotion *controller, WigTabWidget *self)

@@ -81,6 +81,7 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
 void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group);
 WigClosedGroup *wig_application_pop_closed_group(WigApplication *app);
 void wig_closed_group_free(WigClosedGroup *group);
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigClosedGroup, wig_closed_group_free)
 
 void wig_application_track_notification(WigApplication *app, const char *id, WebKitNotification *notif);
 void wig_application_untrack_notification(WigApplication *app, const char *id);

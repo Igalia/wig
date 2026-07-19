@@ -171,7 +171,8 @@ static void on_initial_fetch_for_remove_done(GObject *source, GAsyncResult *res,
 {
   WebsiteDataState *state = user_data;
   GError *error = NULL;
-  GList *all = webkit_website_data_manager_fetch_finish(WEBKIT_WEBSITE_DATA_MANAGER(source), res, &error);
+  g_autolist(WebKitWebsiteData) all = webkit_website_data_manager_fetch_finish(WEBKIT_WEBSITE_DATA_MANAGER(source), res,
+                                                                               &error);
   if (error) {
     g_warning("website-data: fetch for remove failed: %s", error->message);
     g_clear_error(&error);
@@ -179,7 +180,7 @@ static void on_initial_fetch_for_remove_done(GObject *source, GAsyncResult *res,
     return;
   }
 
-  GList *to_remove = NULL;
+  g_autolist(WebKitWebsiteData) to_remove = NULL;
   for (GList *l = all; l; l = l->next) {
     WebKitWebsiteData *data = l->data;
     if (g_str_equal(webkit_website_data_get_name(data), state->remove_origin)) {
@@ -187,16 +188,14 @@ static void on_initial_fetch_for_remove_done(GObject *source, GAsyncResult *res,
       break;
     }
   }
-  g_list_free_full(all, (GDestroyNotify)webkit_website_data_unref);
-
   if (!to_remove) {
     g_warning("website-data: origin '%s' not found for removal", state->remove_origin);
     do_final_fetch(state);
     return;
   }
 
-  webkit_website_data_manager_remove(state->manager, state->fetch_types, to_remove, NULL, on_remove_done, state);
-  g_list_free_full(to_remove, (GDestroyNotify)webkit_website_data_unref);
+  webkit_website_data_manager_remove(state->manager, state->fetch_types, g_steal_pointer(&to_remove), NULL,
+                                     on_remove_done, state);
 }
 
 void handle_website_data_uri(WebKitURISchemeRequest *request, WebKitWebsiteDataManager *manager)

@@ -41,8 +41,11 @@ struct _WigTabList {
 
 G_DEFINE_FINAL_TYPE(WigTabList, wig_tab_list, G_TYPE_OBJECT)
 
-enum { PROP_0, PROP_ACTIVE_TAB, N_PROPS };
-static GParamSpec *props[N_PROPS];
+typedef enum {
+  PROP_ACTIVE_TAB = 1,
+} WigTabListProps;
+
+static GParamSpec *props[PROP_ACTIVE_TAB + 1];
 
 enum {
   SIGNAL_TAB_ADDED,
@@ -70,24 +73,20 @@ static void wig_tab_list_dispose(GObject *object)
 static void wig_tab_list_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
   WigTabList *self = WIG_TAB_LIST(object);
-  switch (prop_id) {
+  switch ((WigTabListProps)prop_id) {
   case PROP_ACTIVE_TAB:
     g_value_set_object(value, self->active);
     break;
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
 static void wig_tab_list_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
   WigTabList *self = WIG_TAB_LIST(object);
-  switch (prop_id) {
+  switch ((WigTabListProps)prop_id) {
   case PROP_ACTIVE_TAB:
     wig_tab_list_set_active(self, g_value_get_object(value));
     break;
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
@@ -118,7 +117,7 @@ static void wig_tab_list_class_init(WigTabListClass *klass)
 
   props[PROP_ACTIVE_TAB] = g_param_spec_object("active-tab", NULL, NULL, WIG_TYPE_TAB,
                                                G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
-  g_object_class_install_properties(gobject_class, N_PROPS, props);
+  g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
 
   /* tab-added / tab-removed: the tab pointer is valid for the duration of the
    * signal — the list holds a strong ref until after all handlers return. */

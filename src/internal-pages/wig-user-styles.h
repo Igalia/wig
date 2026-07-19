@@ -22,9 +22,10 @@
 
 #pragma once
 
-#include "../wig-application.h"
 #include <tmpl-glib.h>
 #include <wpe/webkit.h>
+
+#include "wig-application.h"
 
 void wig_user_style_sheet_record_free(WigUserStyleSheetRecord *record);
 

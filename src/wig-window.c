@@ -70,33 +70,32 @@ struct _WigWindow {
 
 G_DEFINE_FINAL_TYPE(WigWindow, wig_window, GTK_TYPE_APPLICATION_WINDOW)
 
-enum { PROP_0, PROP_ID, N_PROPS };
-static GParamSpec *props[N_PROPS];
+typedef enum {
+  PROP_ID = 1,
+} WigWindowProps;
+
+static GParamSpec *props[PROP_ID + 1];
 
 static guint wig_window_next_id = 1;
 
 static void wig_window_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
   WigWindow *win = WIG_WINDOW(object);
-  switch (prop_id) {
+  switch ((WigWindowProps)prop_id) {
   case PROP_ID:
     g_value_set_uint(value, win->id);
     break;
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
 static void wig_window_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
   WigWindow *win = WIG_WINDOW(object);
-  switch (prop_id) {
+  switch ((WigWindowProps)prop_id) {
   case PROP_ID: {
     win->id = g_value_get_uint(value);
     break;
   }
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
@@ -1512,7 +1511,7 @@ static void wig_window_dispose(GObject *object)
     WigApplication *app = wig_application_get();
     guint n_tabs = wig_tab_list_get_n_tabs(win->tab_list);
     if (n_tabs > 0) {
-      WigClosedGroup *group = g_new(WigClosedGroup, 1);
+      g_autoptr(WigClosedGroup) group = g_new(WigClosedGroup, 1);
       group->window_id = win->id;
       group->tabs = NULL;
 
@@ -1531,9 +1530,7 @@ static void wig_window_dispose(GObject *object)
       group->tabs = g_slist_reverse(group->tabs);
 
       if (group->tabs)
-        wig_application_push_closed_group(app, group);
-      else
-        wig_closed_group_free(group);
+        wig_application_push_closed_group(app, g_steal_pointer(&group));
     }
     g_clear_object(&win->tab_list);
   }
@@ -1572,7 +1569,7 @@ static void wig_window_class_init(WigWindowClass *klass)
   props[PROP_ID] = g_param_spec_uint("id", NULL, NULL, 0, G_MAXUINT, 0,
                                      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_properties(gobject_class, N_PROPS, props);
+  g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
 
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
   gtk_widget_class_install_action(widget_class, "tab.detach", "u", wig_window_detach_tab);

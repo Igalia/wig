@@ -63,7 +63,7 @@ static char *build_history_url(const char *query, gint64 before_time, guint limi
   if (limit != 100)
     g_string_append_printf(url, "%climit=%u", has_param ? '&' : '?', limit);
 
-  return g_string_free(g_steal_pointer(&url), FALSE);
+  return g_string_free_and_steal(g_steal_pointer(&url));
 }
 
 TmplScope *handle_history_uri(WebKitURISchemeRequest *request, WigHistoryStore *store)

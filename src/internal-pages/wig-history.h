@@ -22,9 +22,9 @@
 
 #pragma once
 
-#include "wig-history-store.h"
-
 #include <tmpl-glib.h>
 #include <wpe/webkit.h>
+
+#include "wig-history-store.h"
 
 TmplScope *handle_history_uri(WebKitURISchemeRequest *request, WigHistoryStore *store);

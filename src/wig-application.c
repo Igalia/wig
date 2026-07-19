@@ -21,6 +21,9 @@
  */
 
 #include "wig-application.h"
+
+#include <tmpl-glib.h>
+
 #include "internal-pages/wig-content-filters.h"
 #include "internal-pages/wig-downloads.h"
 #include "internal-pages/wig-features.h"
@@ -32,7 +35,6 @@
 #include "internal-pages/wig-website-data.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
-#include <tmpl-glib.h>
 
 struct _WigApplication {
   AdwApplication parent;
@@ -306,10 +308,9 @@ static void wig_application_startup(GApplication *application)
   wpe_settings_set_boolean(wpe_display_get_settings(app->display), WPE_SETTING_CREATE_VIEWS_WITH_A_TOPLEVEL, FALSE,
                            WPE_SETTINGS_SOURCE_APPLICATION, NULL);
 
-  GError *error = NULL;
+  g_autoptr(GError) error = NULL;
   if (!wpe_display_connect(app->display, &error)) {
     g_warning("Failed to connect to display: %s", error->message);
-    g_error_free(error);
     g_application_quit(application);
     return;
   }

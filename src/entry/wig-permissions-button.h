@@ -22,10 +22,10 @@
 
 #pragma once
 
-#include "wig-permissions.h"
-
 #include <adwaita.h>
 #include <wpe/webkit.h>
+
+#include "wig-permissions.h"
 
 G_BEGIN_DECLS
 

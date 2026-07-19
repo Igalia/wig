@@ -35,24 +35,22 @@ struct _WigHistoryItem {
 
 G_DEFINE_FINAL_TYPE(WigHistoryItem, wig_history_item, G_TYPE_OBJECT)
 
-enum {
-  PROP_0,
-  PROP_ID,
+typedef enum {
+  PROP_ID = 1,
   PROP_URL,
   PROP_TITLE,
   PROP_LAST_VISIT_TIME,
   PROP_VISIT_COUNT,
   PROP_TYPED_COUNT,
-  N_PROPS,
-};
+} WigHistoryItemProps;
 
-static GParamSpec *props[N_PROPS];
+static GParamSpec *props[PROP_TYPED_COUNT + 1];
 
 static void wig_history_item_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
   WigHistoryItem *self = WIG_HISTORY_ITEM(object);
 
-  switch (prop_id) {
+  switch ((WigHistoryItemProps)prop_id) {
   case PROP_ID:
     g_value_set_string(value, self->id);
     break;
@@ -71,8 +69,6 @@ static void wig_history_item_get_property(GObject *object, guint prop_id, GValue
   case PROP_TYPED_COUNT:
     g_value_set_uint(value, self->typed_count);
     break;
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
@@ -80,7 +76,7 @@ static void wig_history_item_set_property(GObject *object, guint prop_id, const 
 {
   WigHistoryItem *self = WIG_HISTORY_ITEM(object);
 
-  switch (prop_id) {
+  switch ((WigHistoryItemProps)prop_id) {
   case PROP_ID:
     g_free(self->id);
     self->id = g_value_dup_string(value);
@@ -102,8 +98,6 @@ static void wig_history_item_set_property(GObject *object, guint prop_id, const 
   case PROP_TYPED_COUNT:
     self->typed_count = g_value_get_uint(value);
     break;
-  default:
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
 }
 
@@ -136,7 +130,7 @@ static void wig_history_item_class_init(WigHistoryItemClass *klass)
   props[PROP_TYPED_COUNT] = g_param_spec_uint("typed-count", NULL, NULL, 0, G_MAXUINT, 0,
                                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_properties(object_class, N_PROPS, props);
+  g_object_class_install_properties(object_class, G_N_ELEMENTS(props), props);
 }
 
 static void wig_history_item_init(WigHistoryItem *self)

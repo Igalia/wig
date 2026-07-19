@@ -197,11 +197,10 @@ static void wig_tab_list_view_drag_begin(GtkDragSource *source, GdkDrag *drag, W
   double w = gtk_widget_get_width(widget);
   double h = gtk_widget_get_height(widget);
   g_autoptr(GdkPaintable) live = gtk_widget_paintable_new(widget);
-  GtkSnapshot *snap = gtk_snapshot_new();
+  g_autoptr(GtkSnapshot) snap = gtk_snapshot_new();
   gdk_paintable_snapshot(GDK_PAINTABLE(live), GDK_SNAPSHOT(snap), w, h);
   graphene_size_t size = GRAPHENE_SIZE_INIT((float)w, (float)h);
   g_autoptr(GdkPaintable) paintable = gtk_snapshot_to_paintable(snap, &size);
-  g_object_unref(snap);
   gtk_drag_source_set_icon(source, paintable, (int)priv->drag_hot_x, (int)priv->drag_hot_y);
 
   gtk_widget_add_css_class(widget, "dragging");
