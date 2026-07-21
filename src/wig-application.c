@@ -105,13 +105,54 @@ static void record_history_visit(WigApplication *app, WebKitWebView *web_view, g
     g_warning("history: record visit: %s", error->message);
 }
 
+static const char *wig_load_event_name(WebKitLoadEvent load_event)
+{
+  switch (load_event) {
+  case WEBKIT_LOAD_STARTED:
+    return "STARTED";
+  case WEBKIT_LOAD_REDIRECTED:
+    return "REDIRECTED";
+  case WEBKIT_LOAD_COMMITTED:
+    return "COMMITTED";
+  case WEBKIT_LOAD_FINISHED:
+    return "FINISHED";
+  default:
+    return "UNKNOWN";
+  }
+}
+
 static void on_history_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, WigApplication *app)
 {
+  g_debug("[load-changed] web_view=%p event=%s (%d) uri=%s", (void *)web_view, wig_load_event_name(load_event),
+          load_event, webkit_web_view_get_uri(web_view) ? webkit_web_view_get_uri(web_view) : "(null)");
+
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
 
   gboolean typed = g_hash_table_remove(app->typed_navigations, web_view);
   record_history_visit(app, web_view, typed);
+}
+
+static gboolean on_load_failed(WebKitWebView *web_view, WebKitLoadEvent load_event, const char *failing_uri,
+                               GError *error, WigApplication *app)
+{
+  g_debug("[load-failed] web_view=%p event=%s (%d) uri=%s error=%s domain=%s code=%d", (void *)web_view,
+          wig_load_event_name(load_event), load_event, failing_uri ? failing_uri : "(null)",
+          error ? error->message : "(null)", error ? g_quark_to_string(error->domain) : "(null)",
+          error ? error->code : 0);
+
+  /* A frame load interrupted by a policy change (e.g. a download starting, or a
+   * navigation that was ignored/redirected) is not a real error: the previously
+   * committed page should stay visible. Returning TRUE suppresses WebKit's
+   * default error page, which would otherwise replace the rendered content.
+   * Cancelled loads are treated the same way. */
+  if (g_error_matches(error, WEBKIT_POLICY_ERROR, WEBKIT_POLICY_ERROR_FRAME_LOAD_INTERRUPTED_BY_POLICY_CHANGE)
+      || g_error_matches(error, WEBKIT_NETWORK_ERROR, WEBKIT_NETWORK_ERROR_CANCELLED)) {
+    g_debug("[load-failed]   -> suppressing error page (policy/cancelled), returning TRUE");
+    return TRUE;
+  }
+
+  return FALSE;
 }
 
 static void on_history_title_changed(WebKitWebView *web_view, GParamSpec *pspec, WigApplication *app)
@@ -172,12 +213,27 @@ static void on_download_failed(WebKitDownload *download, GError *error, WigDownl
     record->state = WIG_DOWNLOAD_FAILED;
 }
 
-static gboolean on_decide_destination(WebKitDownload *download, const char *suggested_filename, gpointer user_data)
+static gboolean on_decide_destination(WebKitDownload *download, const char *suggested_filename, WigApplication *app)
 {
+  // FIXME: Show chooser
+  if (!suggested_filename || !*suggested_filename) {
+    g_warning("download: ignoring download with empty filename");
+    webkit_download_cancel(download);
+    return TRUE;
+  }
+
   const char *dir = g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD);
   g_autofree char *fallback = dir ? NULL : g_build_filename(g_get_home_dir(), "Downloads", NULL);
   g_autofree char *path = g_build_filename(dir ? dir : fallback, suggested_filename, NULL);
   webkit_download_set_destination(download, path);
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (wig_window_focus_tab_by_site(WIG_WINDOW(l->data), "wig:downloads"))
+      return TRUE;
+  }
+
+  GtkWindow *active = gtk_application_get_active_window(GTK_APPLICATION(app));
+  wig_application_add_new_tab_with_uri(app, WIG_WINDOW(active), "wig:downloads");
   return TRUE;
 }
 
@@ -189,17 +245,9 @@ static void on_download_started(WebKitNetworkSession *session, WebKitDownload *d
   record->download = g_object_ref(download);
   g_ptr_array_add(app->downloads, record);
 
-  g_signal_connect(download, "decide-destination", G_CALLBACK(on_decide_destination), NULL);
+  g_signal_connect(download, "decide-destination", G_CALLBACK(on_decide_destination), app);
   g_signal_connect(download, "finished", G_CALLBACK(on_download_finished), record);
   g_signal_connect(download, "failed", G_CALLBACK(on_download_failed), record);
-
-  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
-    if (wig_window_focus_tab_by_site(WIG_WINDOW(l->data), "wig:downloads"))
-      return;
-  }
-
-  GtkWindow *active = gtk_application_get_active_window(GTK_APPLICATION(app));
-  wig_application_add_new_tab_with_uri(app, WIG_WINDOW(active), "wig:downloads");
 }
 
 static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpointer user_data)
@@ -479,6 +527,40 @@ WebKitNetworkSession *wig_application_get_network_session(WigApplication *app)
   return app->network_session;
 }
 
+static gboolean on_web_view_decide_policy(WebKitWebView *web_view, WebKitPolicyDecision *decision,
+                                          WebKitPolicyDecisionType decision_type, WigApplication *app)
+{
+  if (decision_type != WEBKIT_POLICY_DECISION_TYPE_RESPONSE)
+    return FALSE;
+
+  WebKitResponsePolicyDecision *response = WEBKIT_RESPONSE_POLICY_DECISION(decision);
+
+  WebKitURIResponse *uri_response = webkit_response_policy_decision_get_response(response);
+  WebKitURIRequest *uri_request = webkit_response_policy_decision_get_request(response);
+  const char *mime_type = uri_response ? webkit_uri_response_get_mime_type(uri_response) : NULL;
+  const char *response_uri = uri_response ? webkit_uri_response_get_uri(uri_response) : NULL;
+  guint status_code = uri_response ? webkit_uri_response_get_status_code(uri_response) : 0;
+  gboolean mime_supported = webkit_response_policy_decision_is_mime_type_supported(response);
+  gboolean main_resource = webkit_response_policy_decision_is_main_frame_main_resource(response);
+
+  g_debug("[response-policy]   uri=%s request_uri=%s mime=%s status=%u mime_supported=%d main_resource=%d",
+          response_uri ? response_uri : "(null)", uri_request ? webkit_uri_request_get_uri(uri_request) : "(null)",
+          mime_type ? mime_type : "(null)", status_code, mime_supported, main_resource);
+
+  if (mime_supported) {
+    webkit_policy_decision_use(decision);
+    return TRUE;
+  }
+
+  if (main_resource && mime_type && *mime_type) {
+    webkit_policy_decision_download(decision);
+    return TRUE;
+  }
+
+  webkit_policy_decision_ignore(decision);
+  return TRUE;
+}
+
 WebKitWebView *wig_application_create_web_view(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
@@ -486,7 +568,9 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app)
   WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(
       WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context, "network-session",
       app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
+  g_signal_connect(web_view, "decide-policy", G_CALLBACK(on_web_view_decide_policy), app);
   g_signal_connect(web_view, "load-changed", G_CALLBACK(on_history_load_changed), app);
+  g_signal_connect(web_view, "load-failed", G_CALLBACK(on_load_failed), app);
   g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
   g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
 
@@ -504,6 +588,9 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
 {
   g_return_if_fail(WIG_IS_APPLICATION(app));
   g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
+
+  g_debug("[mark-typed-navigation] web_view=%p uri=%s recordable=%d", (void *)web_view, uri ? uri : "(null)",
+          uri_should_be_recorded(uri));
 
   if (!uri_should_be_recorded(uri))
     return;
