@@ -416,6 +416,14 @@ static void wig_application_open(GApplication *application, GFile **files, gint 
 
   for (int i = 0; i < n_files; i++) {
     g_autofree char *uri = g_file_get_uri(files[i]);
+    const char *scheme = g_uri_peek_scheme(uri);
+    if (g_strcmp0(scheme, "wig") == 0) {
+      char *query = strchr(uri, '?');
+      if (query) {
+        g_debug("open: stripping query from wig: URI '%s'", uri);
+        *query = '\0';
+      }
+    }
     wig_application_add_new_tab_with_uri(app, win, uri);
   }
 
