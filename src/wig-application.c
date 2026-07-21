@@ -209,6 +209,17 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
 
   g_debug("wig: scheme handler called for '%s'", uri);
 
+  WebKitWebView *web_view = webkit_uri_scheme_request_get_web_view(request);
+  const char *current_uri = webkit_web_view_get_uri(web_view);
+  const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
+  if (g_strcmp0(current_scheme, "wig") != 0) {
+    g_warning("wig: rejecting cross-origin request for '%s' from '%s'", uri, current_uri);
+    webkit_uri_scheme_request_finish_error(request,
+                                           g_error_new_literal(G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                                                               "Cross-origin access to wig: URIs is not allowed"));
+    return;
+  }
+
   if (g_str_has_prefix(uri, "wig:resources/")) {
     const char *name = uri + strlen("wig:resources/");
     g_autofree char *res_path = g_strconcat("/com/igalia/wig/internal-pages/", name, NULL);

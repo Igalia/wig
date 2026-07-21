@@ -1036,6 +1036,20 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
 
   WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(
       WEBKIT_NAVIGATION_POLICY_DECISION(decision));
+
+  const char *target_uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(action));
+  const char *target_scheme = g_uri_peek_scheme(target_uri);
+  if (g_strcmp0(target_scheme, "wig") == 0) {
+    const char *current_uri = webkit_web_view_get_uri(win->current_web_view);
+    const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
+    if (g_strcmp0(current_scheme, "wig") != 0) {
+      g_warning("wig: rejecting cross-origin navigation to '%s' from '%s'", target_uri,
+                current_uri ? current_uri : "(null)");
+      webkit_policy_decision_ignore(decision);
+      return TRUE;
+    }
+  }
+
   if (webkit_navigation_action_get_navigation_type(action) != WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
       || webkit_navigation_action_get_mouse_button(action) != WPE_BUTTON_MIDDLE)
     return FALSE;
@@ -1056,6 +1070,18 @@ static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web
 
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation)
 {
+  const char *target_uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(navigation));
+  const char *target_scheme = g_uri_peek_scheme(target_uri);
+  if (g_strcmp0(target_scheme, "wig") == 0) {
+    const char *current_uri = webkit_web_view_get_uri(win->current_web_view);
+    const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
+    if (g_strcmp0(current_scheme, "wig") != 0) {
+      g_warning("wig: rejecting cross-origin popup to '%s' from '%s'", target_uri,
+                current_uri ? current_uri : "(null)");
+      return NULL;
+    }
+  }
+
   g_autoptr(WebKitWebView) web_view = WEBKIT_WEB_VIEW(
       g_object_new(WEBKIT_TYPE_WEB_VIEW, "related-view", win->current_web_view, "settings",
                    webkit_web_view_get_settings(win->current_web_view), NULL));

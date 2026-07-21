@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>wig: Scheme Origin Isolation Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.95em;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-bottom: 6px;
+    }
+    button:hover { background: #1c71d8; }
+    .status {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      word-break: break-all;
+    }
+    .blocked  { color: #26a269; }
+    .leaked   { color: #c01c28; }
+    iframe {
+      width: 100%;
+      height: 80px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>wig: Scheme Origin Isolation Tests</h1>
+<p class="subtitle">
+  This page is loaded from a non-<code>wig:</code> origin. Every attempt to access
+  a <code>wig:</code> URI below should be <strong>blocked</strong>.
+</p>
+
+<section>
+  <h2>1. iframe Embedding</h2>
+  <p class="desc">Tries to load <code>wig:about</code> in an iframe. The frame should remain empty/error.</p>
+  <button onclick="testIframe()">Load iframe</button>
+  <div class="status" id="iframe-status">Not attempted yet.</div>
+  <iframe id="test-iframe"></iframe>
+</section>
+
+<section>
+  <h2>2. fetch() API</h2>
+  <p class="desc">Attempts to <code>fetch("wig:about")</code>. Should be rejected with a network error.</p>
+  <button onclick="testFetch()">fetch wig:about</button>
+  <div class="status" id="fetch-status">Not attempted yet.</div>
+</section>
+
+<section>
+  <h2>3. XMLHttpRequest</h2>
+  <p class="desc">Attempts an XHR to <code>wig:about</code>. Should fail with a network error.</p>
+  <button onclick="testXHR()">Send XHR</button>
+  <div class="status" id="xhr-status">Not attempted yet.</div>
+</section>
+
+<section>
+  <h2>4. Stylesheet Load</h2>
+  <p class="desc">Injects <code>&lt;link rel="stylesheet" href="wig:resources/style.css"&gt;</code>. The stylesheet should not load.</p>
+  <button onclick="testStylesheet()">Inject link</button>
+  <div class="status" id="link-status">Not attempted yet.</div>
+</section>
+
+<section>
+  <h2>5. window.open() Navigation</h2>
+  <p class="desc">Tries to open <code>wig:about</code> in a new window. The popup should be blocked or error.</p>
+  <button onclick="testWindowOpen()">Open wig:about</button>
+  <div class="status" id="open-status">Not attempted yet.</div>
+</section>
+
+<section>
+  <h2>6. Script Source</h2>
+  <p class="desc">Injects <code>&lt;script src="wig:resources/..."&gt;</code>. The script should not execute.</p>
+  <button onclick="testScript()">Inject script</button>
+  <div class="status" id="script-status">Not attempted yet.</div>
+</section>
+
+<script>
+  function setStatus(id, msg, ok) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status ' + (ok ? 'blocked' : 'leaked');
+  }
+
+  function testIframe() {
+    const frame = document.getElementById('test-iframe');
+    const status = document.getElementById('iframe-status');
+    status.textContent = 'Loading…';
+    status.className = 'status';
+    frame.onload = () => {
+      try {
+        const text = frame.contentDocument.body.innerText;
+        if (text && text.length > 0) {
+          setStatus('iframe-status', `LEAK: iframe loaded content (${text.length} chars)`, false);
+        } else {
+          setStatus('iframe-status', 'Blocked: iframe loaded but is empty.', true);
+        }
+      } catch (e) {
+        setStatus('iframe-status', `Blocked: cannot access frame content (${e.name}).`, true);
+      }
+    };
+    frame.onerror = () => setStatus('iframe-status', 'Blocked: frame error event fired.', true);
+    frame.src = 'wig:about';
+    setTimeout(() => {
+      if (status.textContent === 'Loading…')
+        setStatus('iframe-status', 'Blocked: frame did not load wig: content.', true);
+    }, 2000);
+  }
+
+  function testFetch() {
+    const status = document.getElementById('fetch-status');
+    status.textContent = 'Fetching…';
+    status.className = 'status';
+    fetch('wig:about')
+      .then(r => r.text())
+      .then(text => setStatus('fetch-status', `LEAK: fetch succeeded (${text.length} chars)`, false))
+      .catch(e => setStatus('fetch-status', `Blocked: ${e.name}: ${e.message}`, true));
+  }
+
+  function testXHR() {
+    const status = document.getElementById('xhr-status');
+    status.textContent = 'Sending…';
+    status.className = 'status';
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', 'wig:about');
+    xhr.onload = () => {
+      if (xhr.responseText && xhr.responseText.length > 0)
+        setStatus('xhr-status', `LEAK: XHR succeeded (${xhr.responseText.length} chars)`, false);
+      else
+        setStatus('xhr-status', `Blocked: XHR returned empty (status ${xhr.status}).`, true);
+    };
+    xhr.onerror = () => setStatus('xhr-status', 'Blocked: XHR network error.', true);
+    xhr.send();
+  }
+
+  function testStylesheet() {
+    const status = document.getElementById('link-status');
+    status.textContent = 'Injecting…';
+    status.className = 'status';
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'wig:resources/style.css';
+    link.onload = () => setStatus('link-status', 'LEAK: stylesheet loaded.', false);
+    link.onerror = () => setStatus('link-status', 'Blocked: stylesheet error event.', true);
+    document.head.appendChild(link);
+    setTimeout(() => {
+      if (status.textContent === 'Injecting…')
+        setStatus('link-status', 'Blocked: stylesheet did not load.', true);
+    }, 2000);
+  }
+
+  function testWindowOpen() {
+    const status = document.getElementById('open-status');
+    status.textContent = 'Opening…';
+    status.className = 'status';
+    const popup = window.open('wig:about');
+    if (!popup) {
+      setStatus('open-status', 'Blocked: popup blocked by browser.', true);
+      return;
+    }
+    setTimeout(() => {
+      try {
+        const text = popup.document.body.innerText;
+        if (text && text.length > 0)
+          setStatus('open-status', `LEAK: popup loaded wig: content (${text.length} chars)`, false);
+        else
+          setStatus('open-status', 'Blocked: popup opened but empty.', true);
+      } catch (e) {
+        setStatus('open-status', `Blocked: cannot access popup (${e.name}).`, true);
+      }
+      popup.close();
+    }, 2000);
+  }
+
+  function testScript() {
+    const status = document.getElementById('script-status');
+    status.textContent = 'Injecting…';
+    status.className = 'status';
+    window.__wigScriptLeaked = false;
+    const s = document.createElement('script');
+    s.src = 'wig:resources/style.css';
+    s.onload = () => setStatus('script-status',
+      window.__wigScriptLeaked ? 'LEAK: script executed.' : 'Blocked: script loaded but did not execute as JS.', 
+      !window.__wigScriptLeaked);
+    s.onerror = () => setStatus('script-status', 'Blocked: script error event.', true);
+    document.body.appendChild(s);
+    setTimeout(() => {
+      if (status.textContent === 'Injecting…')
+        setStatus('script-status', 'Blocked: script did not load.', true);
+    }, 2000);
+  }
+</script>
+</body>
+</html>
