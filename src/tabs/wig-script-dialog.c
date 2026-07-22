@@ -22,7 +22,7 @@
 
 #include "wig-script-dialog.h"
 
-#include <gdk/gdkkeysyms.h>
+#include "wig-modal-dialog.h"
 
 typedef struct {
   WebKitScriptDialog *script_dialog;
@@ -55,7 +55,7 @@ static void wig_script_dialog_respond(gboolean confirmed, ScriptDialogData *data
   }
 
   webkit_script_dialog_close(data->script_dialog);
-  gtk_overlay_remove_overlay(data->overlay, data->backdrop);
+  wig_modal_dialog_dismiss(data->overlay, data->backdrop);
 }
 
 static void wig_script_dialog_confirm_clicked(GtkButton *button, ScriptDialogData *data)
@@ -73,14 +73,9 @@ static void wig_script_dialog_entry_activated(GtkEntry *entry, ScriptDialogData 
   wig_script_dialog_respond(TRUE, data);
 }
 
-static gboolean wig_script_dialog_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode,
-                                              GdkModifierType state, ScriptDialogData *data)
+static void wig_script_dialog_cancel(gpointer user_data)
 {
-  if (keyval == GDK_KEY_Escape) {
-    wig_script_dialog_respond(FALSE, data);
-    return TRUE;
-  }
-  return FALSE;
+  wig_script_dialog_respond(FALSE, user_data);
 }
 
 void wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog)
@@ -96,34 +91,9 @@ void wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog)
   data->script_dialog = dialog;
   data->overlay = overlay;
 
-  /* Backdrop: a full-size overlay child that dims the web view and blocks input. */
-  GtkWidget *backdrop = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  data->backdrop = backdrop;
-  gtk_widget_set_halign(backdrop, GTK_ALIGN_FILL);
-  gtk_widget_set_valign(backdrop, GTK_ALIGN_FILL);
-  gtk_widget_add_css_class(backdrop, "script-dialog-backdrop");
-  gtk_widget_set_focusable(backdrop, TRUE);
-  g_signal_connect_swapped(backdrop, "destroy", G_CALLBACK(script_dialog_data_free), data);
-
-  GtkEventController *key_ctrl = gtk_event_controller_key_new();
-  g_signal_connect(key_ctrl, "key-pressed", G_CALLBACK(wig_script_dialog_key_pressed), data);
-  gtk_widget_add_controller(backdrop, key_ctrl);
-
-  /* Expanding spacers to center the card vertically. */
-  GtkWidget *spacer_top = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  gtk_widget_set_vexpand(spacer_top, TRUE);
-  gtk_box_append(GTK_BOX(backdrop), spacer_top);
-
-  /* Card: the visible dialog box, centered horizontally. */
-  GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-  gtk_widget_add_css_class(card, "card");
-  gtk_widget_add_css_class(card, "script-dialog-card");
-  gtk_widget_set_halign(card, GTK_ALIGN_CENTER);
-  gtk_box_append(GTK_BOX(backdrop), card);
-
-  GtkWidget *spacer_bottom = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  gtk_widget_set_vexpand(spacer_bottom, TRUE);
-  gtk_box_append(GTK_BOX(backdrop), spacer_bottom);
+  GtkWidget *card = NULL;
+  data->backdrop = wig_modal_dialog_present(overlay, &card, wig_script_dialog_cancel, data);
+  g_signal_connect_swapped(data->backdrop, "destroy", G_CALLBACK(script_dialog_data_free), data);
 
   /* Message label. */
   GtkWidget *label = gtk_label_new(message);
@@ -175,6 +145,5 @@ void wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog)
     focus_widget = (type == WEBKIT_SCRIPT_DIALOG_PROMPT) ? data->entry : ok_btn;
   }
 
-  gtk_overlay_add_overlay(overlay, backdrop);
   gtk_widget_grab_focus(focus_widget);
 }

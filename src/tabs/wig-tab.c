@@ -22,6 +22,7 @@
 
 #include "wig-tab.h"
 
+#include "wig-auth-dialog.h"
 #include "wig-script-dialog.h"
 #include "wig-utils.h"
 #include "wpe-view-gtk.h"
@@ -49,6 +50,12 @@ struct _WigTab {
 static gboolean wig_tab_on_script_dialog(WigTab *self, WebKitScriptDialog *dialog)
 {
   wig_script_dialog_show(GTK_OVERLAY(self->view_overlay), dialog);
+  return TRUE;
+}
+
+static gboolean wig_tab_on_authenticate(WigTab *self, WebKitAuthenticationRequest *request)
+{
+  wig_auth_dialog_show(GTK_OVERLAY(self->view_overlay), request);
   return TRUE;
 }
 
@@ -298,6 +305,7 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
 #endif
   g_signal_connect_object(web_view, "load-changed", G_CALLBACK(wig_tab_on_load_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "script-dialog", G_CALLBACK(wig_tab_on_script_dialog), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "authenticate", G_CALLBACK(wig_tab_on_authenticate), self, G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
 
   /* Pick up a title and icons the view may already have (e.g. a related view). */

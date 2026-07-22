@@ -14,11 +14,11 @@
   border-radius: 4px 0 0 0;
 }
 
-.script-dialog-backdrop {
+.modal-backdrop {
   background-color: alpha(@window_bg_color, 0.65);
 }
 
-.script-dialog-card {
+.modal-card {
   background-color: @window_bg_color;
   padding: 24px;
   min-width: 300px;
