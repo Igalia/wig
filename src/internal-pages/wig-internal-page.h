@@ -27,6 +27,8 @@
 
 char *wig_internal_page_render(const char *resource_path, TmplScope *scope);
 
+char *wig_internal_page_html_escape(const char *text);
+
 /**
  * WigFormBodyReadyFunc:
  * @request: the request whose body was read

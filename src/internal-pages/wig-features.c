@@ -21,6 +21,7 @@
  */
 
 #include "wig-features.h"
+#include "wig-internal-page.h"
 
 static const char *feature_status_string(WebKitFeatureStatus status)
 {
@@ -106,15 +107,17 @@ TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *
 
     for (guint j = 0; j < feat_list->len; j++) {
       WebKitFeature *feature = feat_list->pdata[j];
-      const char *details = webkit_feature_get_details(feature);
       GVariantBuilder feat_builder;
       g_variant_builder_init(&feat_builder, G_VARIANT_TYPE("a{sv}"));
       g_variant_builder_add(&feat_builder, "{sv}", "identifier",
                             g_variant_new_string(webkit_feature_get_identifier(feature)));
-      g_variant_builder_add(&feat_builder, "{sv}", "name", g_variant_new_string(webkit_feature_get_name(feature)));
+      g_variant_builder_add(&feat_builder, "{sv}", "name",
+                            g_variant_new_take_string(wig_internal_page_html_escape(webkit_feature_get_name(feature))));
       g_variant_builder_add(&feat_builder, "{sv}", "status",
                             g_variant_new_string(feature_status_string(webkit_feature_get_status(feature))));
-      g_variant_builder_add(&feat_builder, "{sv}", "details", g_variant_new_string(details ? details : ""));
+      g_variant_builder_add(
+          &feat_builder, "{sv}", "details",
+          g_variant_new_take_string(wig_internal_page_html_escape(webkit_feature_get_details(feature))));
       g_variant_builder_add(&feat_builder, "{sv}", "default",
                             g_variant_new_boolean(webkit_feature_get_default_value(feature)));
       g_variant_builder_add(&feat_builder, "{sv}", "enabled",
@@ -124,7 +127,8 @@ TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *
 
     GVariantBuilder cat_builder;
     g_variant_builder_init(&cat_builder, G_VARIANT_TYPE("a{sv}"));
-    g_variant_builder_add(&cat_builder, "{sv}", "name", g_variant_new_string(cat_name));
+    g_variant_builder_add(&cat_builder, "{sv}", "name",
+                          g_variant_new_take_string(wig_internal_page_html_escape(cat_name)));
     g_variant_builder_add(&cat_builder, "{sv}", "features", g_variant_builder_end(&feats_builder));
     g_variant_builder_add_value(&cats_builder, g_variant_builder_end(&cat_builder));
   }

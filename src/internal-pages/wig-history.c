@@ -21,6 +21,7 @@
  */
 
 #include "wig-history.h"
+#include "wig-internal-page.h"
 
 static gint64 parse_int64_param(GHashTable *params, const char *name, gint64 fallback)
 {
@@ -42,11 +43,6 @@ static char *format_visit_time(gint64 visit_time)
 {
   g_autoptr(GDateTime) date_time = g_date_time_new_from_unix_local(visit_time / 1000);
   return date_time ? g_date_time_format(date_time, "%x %X") : g_strdup("");
-}
-
-static char *html_escape_string(const char *text)
-{
-  return g_markup_escape_text(text ? text : "", -1);
 }
 
 static char *build_history_url(const char *query, gint64 before_time, guint limit)
@@ -107,14 +103,13 @@ TmplScope *handle_history_uri(WebKitURISchemeRequest *request, WigHistoryStore *
     g_autofree char *typed_count_str = g_strdup_printf("%u", wig_history_item_get_typed_count(item));
     g_autofree char *formatted_time = format_visit_time(visit_time);
 
-    g_autofree char *escaped_url = html_escape_string(wig_history_item_get_url(item));
-    g_autofree char *escaped_title = html_escape_string(wig_history_item_get_title(item));
-
     GVariantBuilder item_builder;
     g_variant_builder_init(&item_builder, G_VARIANT_TYPE("a{sv}"));
     g_variant_builder_add(&item_builder, "{sv}", "id", g_variant_new_string(wig_history_item_get_id(item)));
-    g_variant_builder_add(&item_builder, "{sv}", "url", g_variant_new_string(escaped_url));
-    g_variant_builder_add(&item_builder, "{sv}", "title", g_variant_new_string(escaped_title));
+    g_variant_builder_add(&item_builder, "{sv}", "url",
+                          g_variant_new_take_string(wig_internal_page_html_escape(wig_history_item_get_url(item))));
+    g_variant_builder_add(&item_builder, "{sv}", "title",
+                          g_variant_new_take_string(wig_internal_page_html_escape(wig_history_item_get_title(item))));
     g_variant_builder_add(&item_builder, "{sv}", "last_visit_time", g_variant_new_string(visit_time_str));
     g_variant_builder_add(&item_builder, "{sv}", "formatted_time", g_variant_new_string(formatted_time));
     g_variant_builder_add(&item_builder, "{sv}", "visit_count", g_variant_new_string(visit_count_str));

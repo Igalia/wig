@@ -51,6 +51,19 @@ char *wig_internal_page_render(const char *resource_path, TmplScope *scope)
   return html;
 }
 
+/**
+ * wig_internal_page_html_escape:
+ * @text: (nullable): the text to escape
+ *
+ * Escapes @text for interpolation into an internal page's HTML.
+ *
+ * Returns: (transfer full): the escaped text, empty if @text was %NULL
+ */
+char *wig_internal_page_html_escape(const char *text)
+{
+  return g_markup_escape_text(text ? text : "", -1);
+}
+
 typedef struct {
   WebKitURISchemeRequest *request;
   GInputStream *body;
