@@ -203,6 +203,7 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
 
   const char *lookup_scheme = g_uri_get_scheme(lookup);
   const char *lookup_host = g_uri_get_host(lookup);
+  const char *lookup_path = g_uri_get_path(lookup);
 
   guint n = wig_tab_list_get_n_tabs(win->tab_list);
   for (guint i = 0; i < n; i++) {
@@ -223,7 +224,7 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
     if (lookup_host && *lookup_host)
       match = g_str_equal(lookup_scheme, tab_scheme) && tab_host && g_ascii_strcasecmp(lookup_host, tab_host) == 0;
     else
-      match = g_str_equal(lookup_scheme, tab_scheme);
+      match = g_str_equal(lookup_scheme, tab_scheme) && g_strcmp0(lookup_path, g_uri_get_path(parsed)) == 0;
 
     if (match) {
       wig_tab_list_set_active(win->tab_list, tab);
