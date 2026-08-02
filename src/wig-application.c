@@ -46,6 +46,7 @@ struct _WigApplication {
   WebKitMemoryPressureSettings *memory_pressure_settings;
   WigHistoryStore *history_store;
   GHashTable *typed_navigations; /* WebKitWebView* -> char* pending URI */
+  GHashTable *internal_navigations; /* WebKitWebView* -> char* pending wig: URI */
   GPtrArray *downloads;
   WebKitUserContentManager *user_content_manager;
   GPtrArray *user_scripts;
@@ -68,6 +69,7 @@ static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow 
 {
   g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
   wig_window_add_web_view(win, web_view);
+  wig_application_mark_internal_navigation(app, web_view, uri);
   webkit_web_view_load_uri(web_view, uri);
 }
 
@@ -87,6 +89,7 @@ static void history_web_view_finalized(gpointer data, GObject *web_view)
 {
   WigApplication *app = WIG_APPLICATION(data);
   g_hash_table_remove(app->typed_navigations, web_view);
+  g_hash_table_remove(app->internal_navigations, web_view);
 }
 
 static void record_history_visit(WigApplication *app, WebKitWebView *web_view, gboolean typed)
@@ -330,6 +333,7 @@ static void wig_application_init(WigApplication *app)
 {
   app->closed_tab_history = g_queue_new();
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
+  app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
@@ -440,6 +444,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->memory_pressure_settings, webkit_memory_pressure_settings_free);
   g_clear_object(&app->history_store);
   g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
+  g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
   g_clear_pointer(&app->downloads, g_ptr_array_unref);
   g_clear_object(&app->user_content_manager);
   g_clear_pointer(&app->user_scripts, g_ptr_array_unref);
@@ -582,6 +587,31 @@ WigHistoryStore *wig_application_get_history_store(WigApplication *app)
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->history_store;
+}
+
+void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
+{
+  g_return_if_fail(WIG_IS_APPLICATION(app));
+  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
+
+  if (g_strcmp0(g_uri_peek_scheme(uri), "wig") != 0)
+    return;
+
+  g_debug("[mark-internal-navigation] web_view=%p uri=%s", (void *)web_view, uri);
+  g_hash_table_insert(app->internal_navigations, web_view, g_strdup(uri));
+}
+
+gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), FALSE);
+  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), FALSE);
+
+  const char *pending = g_hash_table_lookup(app->internal_navigations, web_view);
+  if (g_strcmp0(pending, uri) != 0)
+    return FALSE;
+
+  g_hash_table_remove(app->internal_navigations, web_view);
+  return TRUE;
 }
 
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)

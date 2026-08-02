@@ -376,8 +376,9 @@ static gboolean wig_window_on_run_file_chooser(WigWindow *win, WebKitFileChooser
 }
 
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
-                                         WebKitPolicyDecisionType decision_type);
-static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation);
+                                         WebKitPolicyDecisionType decision_type, WebKitWebView *web_view);
+static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation,
+                                                 WebKitWebView *opener);
 static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
                                                  WebKitHitTestResult *hit_test_result);
 
@@ -873,8 +874,9 @@ static void wig_window_load_uri(WigWindow *win, const char *uri)
   if (!win->current_web_view)
     return;
 
-  wig_application_mark_typed_navigation(WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))),
-                                        win->current_web_view, uri);
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+  wig_application_mark_typed_navigation(app, win->current_web_view, uri);
+  wig_application_mark_internal_navigation(app, win->current_web_view, uri);
   webkit_web_view_load_uri(win->current_web_view, uri);
   WigTab *selected = wig_tab_list_get_active(win->tab_list);
   if (selected)
@@ -1069,7 +1071,7 @@ static const char *wig_navigation_type_name(WebKitNavigationType type)
 }
 
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
-                                         WebKitPolicyDecisionType decision_type)
+                                         WebKitPolicyDecisionType decision_type, WebKitWebView *web_view)
 {
   g_debug("[decide-policy] win=%p decision=%p type=%s (%d)", (void *)win, (void *)decision,
           wig_decision_type_name(decision_type), decision_type);
@@ -1089,12 +1091,12 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
           request_uri ? request_uri : "(null)", webkit_navigation_action_get_mouse_button(action));
 
   const char *target_scheme = request_uri ? g_uri_peek_scheme(request_uri) : NULL;
-  if (g_strcmp0(target_scheme, "wig") == 0) {
-    const char *current_uri = webkit_web_view_get_uri(win->current_web_view);
+  if (g_strcmp0(target_scheme, "wig") == 0
+      && !wig_application_take_internal_navigation(wig_application_get(), web_view, request_uri)) {
+    const char *current_uri = webkit_web_view_get_uri(web_view);
     const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
     if (g_strcmp0(current_scheme, "wig") != 0) {
-      g_warning("wig: rejecting cross-origin navigation to '%s' from '%s'", request_uri,
-                current_uri ? current_uri : "(null)");
+      g_warning("wig: rejecting navigation to '%s' from '%s'", request_uri, current_uri ? current_uri : "(null)");
       webkit_policy_decision_ignore(decision);
       return TRUE;
     }
@@ -1103,9 +1105,9 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   // Middle-clicking a link opens it in a new tab.
   if (nav_type == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
       && webkit_navigation_action_get_mouse_button(action) == WPE_BUTTON_MIDDLE) {
-    g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(wig_application_get());
-    wig_window_add_tab_for_view(win, web_view);
-    webkit_web_view_load_request(web_view, webkit_navigation_action_get_request(action));
+    g_autoptr(WebKitWebView) new_view = wig_application_create_web_view(wig_application_get());
+    wig_window_add_tab_for_view(win, new_view);
+    webkit_web_view_load_request(new_view, webkit_navigation_action_get_request(action));
     webkit_policy_decision_ignore(decision);
     return TRUE;
   }
@@ -1120,16 +1122,16 @@ static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web
   gtk_window_present(GTK_WINDOW(win));
 }
 
-static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation)
+static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation,
+                                                 WebKitWebView *opener)
 {
   const char *target_uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(navigation));
   const char *target_scheme = g_uri_peek_scheme(target_uri);
   if (g_strcmp0(target_scheme, "wig") == 0) {
-    const char *current_uri = webkit_web_view_get_uri(win->current_web_view);
+    const char *current_uri = webkit_web_view_get_uri(opener);
     const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
     if (g_strcmp0(current_scheme, "wig") != 0) {
-      g_warning("wig: rejecting cross-origin popup to '%s' from '%s'", target_uri,
-                current_uri ? current_uri : "(null)");
+      g_warning("wig: rejecting popup to '%s' from '%s'", target_uri, current_uri ? current_uri : "(null)");
       return NULL;
     }
   }

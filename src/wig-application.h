@@ -77,6 +77,8 @@ WebKitNetworkSession *wig_application_get_network_session(WigApplication *app);
 WebKitWebView *wig_application_create_web_view(WigApplication *app);
 WigHistoryStore *wig_application_get_history_store(WigApplication *app);
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
+void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
+gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 
 void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group);
 WigClosedGroup *wig_application_pop_closed_group(WigApplication *app);
