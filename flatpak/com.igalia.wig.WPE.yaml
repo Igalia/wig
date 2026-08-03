@@ -1,0 +1,72 @@
+id: com.igalia.wig.WPE
+branch: master
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+separate-locales: false
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm22
+build-options:
+  append-path: /usr/lib/sdk/llvm22/bin
+  prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
+  strip: true
+  no-debuginfo: true
+command: /app/libexec/wpe-webkit-2.0/MiniBrowser
+
+modules:
+  - name: unifdef
+    no-autogen: true
+    build-options:
+      cflags: -std=gnu17
+    make-install-args: [prefix=/app]
+    cleanup:
+      - '*'
+    sources:
+      - type: archive
+        url: https://dotat.at/prog/unifdef/unifdef-2.12.tar.gz
+        sha256: fba564a24db7b97ebe9329713ac970627b902e5e9e8b14e19e024eb6e278d10b
+
+  - name: libevent
+    config-opts:
+      - --disable-static
+    cleanup:
+      - /bin
+      - /lib/pkgconfig
+      - /lib/*.la
+      - /include
+    sources:
+      - type: archive
+        url: https://github.com/libevent/libevent/releases/download/release-2.1.13-stable/libevent-2.1.13-stable.tar.gz
+        sha256: f7e9383b8c0baa81b687e5b5eecc01beefaf1b19b64151d95ed61647fe7a315c
+
+  - name: webkitwpe
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_C_COMPILER=clang
+      - -DCMAKE_CXX_COMPILER=clang++
+      - -DCMAKE_LINKER_TYPE=LLD
+      - -DPORT=WPE
+
+      - -DENABLE_WPE_LEGACY_API=OFF
+      - -DENABLE_WPE_PLATFORM=ON
+      - -DENABLE_WPE_PLATFORM_DRM=OFF
+      - -DENABLE_WPE_PLATFORM_HEADLESS=OFF
+
+      # These are marked experimental but we want to test them.
+      - -DENABLE_WEB_RTC=ON
+      - -DENABLE_WK_WEB_EXTENSIONS=ON
+
+      # Unbuilt dependencies.
+      - -DENABLE_SPEECH_SYNTHESIS=OFF
+      - -DUSE_LIBBACKTRACE=OFF
+
+      - -DENABLE_INTROSPECTION=OFF
+
+      - -DENABLE_MINIBROWSER=ON
+    sources:
+      - type: git
+        url: https://github.com/WebKit/WebKit.git
+        commit: 2f66f5ed23f9a3ce154e7b5745861f76eeda67f0
+      - type: patch
+        path: webkit-empty-linked-into.patch

@@ -23,7 +23,7 @@ The user interface is implemented using GTK and Libadwaita and includes common w
 - wpe-webkit-2.0 (>= 2.51.3)
 - libadwaita-1 (>= 1.6)
 
-## Building and Installation
+## Building
 
 This project uses the [Meson](https://mesonbuild.com) build system and follows standard workflow:
 
@@ -31,6 +31,12 @@ This project uses the [Meson](https://mesonbuild.com) build system and follows s
 meson setup builddir
 meson compile -C builddir
 meson install -C builddir
+```
+
+## Installing the Flatpak
+
+```sh
+flatpak install --user https://igalia.github.io/wig/refs/com.igalia.wig-master.flatpakref
 ```
 
 ## Usage
