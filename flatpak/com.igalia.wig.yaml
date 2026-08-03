@@ -1,0 +1,61 @@
+id: com.igalia.wig
+branch: master
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+base: com.igalia.wig.WPE
+base-version: master
+command: wig
+
+finish-args:
+  - --device=dri
+  - --filesystem=xdg-download
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --socket=wayland
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+
+modules:
+  - name: template-glib
+    buildsystem: meson
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    config-opts:
+      - --buildtype=release
+      - -Dintrospection=disabled
+      - -Dvapi=false
+    sources:
+      - type: archive
+        url: https://github.com/GNOME/template-glib/archive/d853e3fcf16838993d2de4ce5fc213edfe63818d.tar.gz
+        sha256: 91a4670a2039f4db735f2b2218debf680d41a9d5001efa3e25f146f23edb2f7d
+
+  - name: wpe-platform-gtk
+    buildsystem: meson
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    config-opts:
+      - --buildtype=release
+    sources:
+      - type: git
+        url: https://github.com/Igalia/wpe-platform-gtk.git
+        branch: main
+        commit: be2f50845a1bb4d55b4a2e20142b84a32974d585
+
+  - name: wig
+    buildsystem: meson
+    config-opts:
+      - --buildtype=release
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - subprojects/template-glib
+          - subprojects/wpe-platform-gtk
+

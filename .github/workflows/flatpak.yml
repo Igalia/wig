@@ -1,0 +1,200 @@
+name: Flatpak
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check-wpe-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      oci-repository: ${{ steps.repository.outputs.oci-repository }}
+      pages-url: ${{ steps.repository.outputs.pages-url }}
+      wpe: ${{ steps.filter.outputs.wpe }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            wpe:
+              - 'flatpak/com.igalia.wig.WPE.yaml'
+              - 'flatpak/webkit-empty-linked-into.patch'
+
+      - name: Resolve repository names
+        id: repository
+        shell: bash
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "oci-repository=$owner/wig-flatpak" >> "$GITHUB_OUTPUT"
+          echo "pages-url=https://$owner.github.io/${repository#*/}" >> "$GITHUB_OUTPUT"
+
+  build-wpe-flatpak:
+    runs-on: [self-hosted, x64]
+    needs: check-wpe-inputs
+    # Never run a fork's pull request on the self-hosted runner. Skipping this
+    # is handled by build-wig-flatpak, which then builds against the published
+    # base app instead of one built here.
+    if: >-
+      needs.check-wpe-inputs.outputs.wpe == 'true' &&
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --user --install-deps-from=flathub --install-deps-only \
+            _flatpak-build flatpak/com.igalia.wig.WPE.yaml
+
+      - name: Build WPE
+        run: |
+          flatpak-builder --user --force-clean --repo=_flatpak-repo \
+            _flatpak-build flatpak/com.igalia.wig.WPE.yaml
+
+      - name: Create bundle
+        run: |
+          flatpak build-bundle _flatpak-repo wpe-base.flatpak \
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
+            com.igalia.wig.WPE master
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: wpe-base-x86_64.flatpak
+          path: wpe-base.flatpak
+          if-no-files-found: error
+
+  build-wig-flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+      volumes:
+        # Workaround cross-device hardlinks
+        - /var/lib/flatpak
+    needs:
+      - check-wpe-inputs
+      - build-wpe-flatpak
+    if: >-
+      always() &&
+      needs.check-wpe-inputs.result == 'success' &&
+      (needs.build-wpe-flatpak.result == 'success' || needs.build-wpe-flatpak.result == 'skipped')
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download WPE bundle
+        if: needs.build-wpe-flatpak.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: wpe-base-x86_64.flatpak
+
+      - name: Install WPE base app
+        if: needs.build-wpe-flatpak.result == 'success'
+        run: flatpak install --system --noninteractive --assumeyes --bundle wpe-base.flatpak
+
+      - name: Install published WPE base app
+        if: needs.build-wpe-flatpak.result == 'skipped'
+        env:
+          PAGES_URL: ${{ needs.check-wpe-inputs.outputs.pages-url }}
+        run: |
+          flatpak remote-add --system --if-not-exists --from wig "$PAGES_URL/wig.flatpakrepo"
+          flatpak install --system --noninteractive --assumeyes wig com.igalia.wig.WPE//50
+
+      - name: Build Wig
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: flatpak/com.igalia.wig.yaml
+          bundle: wig.flatpak
+          cache: false
+
+  publish-flatpaks:
+    runs-on: ubuntu-latest
+    needs:
+      - check-wpe-inputs
+      - build-wig-flatpak
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+      pages: write
+      id-token: write
+    concurrency:
+      group: aetherpak-publish-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      # FIXME: This should be picked up already.
+      AETHERPAK_GPG_KEY_PASSPHRASE: ${{ secrets.GPG_KEY_PASSPHRASE }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download Flatpak bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*.flatpak'
+          path: bundles
+          merge-multiple: true
+
+      # FIXME: aetherpak/actions/publish wrapper references its sub-actions with
+      # relative paths, which a composite action can only resolve inside its own
+      # checkout, so call publish-oci and publish-site directly instead.
+      - name: Push Flatpaks to the OCI registry
+        uses: aetherpak/actions/publish-oci@v3.11.2
+        with:
+          bundle-path: bundles/*.flatpak
+          oci-repository: ${{ needs.check-wpe-inputs.outputs.oci-repository }}
+          records-dir: _records
+          signing: gpg
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-private-key-passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
+
+      - name: Build the Flatpak repository site
+        uses: aetherpak/actions/publish-site@v3.11.2
+        with:
+          records-dir: _records
+          oci-repository: ${{ needs.check-wpe-inputs.outputs.oci-repository }}
+          pages-url: ${{ needs.check-wpe-inputs.outputs.pages-url }}
+          site-dir: _site
+          landing-page: false
+          remote-name: wig
+          signing: gpg
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-private-key-passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
+          # Upload the site ourselves, once the refs below are corrected.
+          upload-pages-artifact: false
+
+      # FIXME: aetherpak points each .flatpakref at the registry (oci+https://ghcr.io/…),
+      # but flatpak enumerates an OCI remote through an index endpoint that only
+      # Pages serves, so installing a ref fails with "No such ref". The generated
+      # .flatpakrepo already uses the Pages URL; make the refs agree.
+      - name: Point the flatpakrefs at the Pages index
+        env:
+          PAGES_URL: ${{ needs.check-wpe-inputs.outputs.pages-url }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for ref in _site/refs/*.flatpakref; do
+            sed -i "s|^Url=oci+.*|Url=oci+$PAGES_URL|" "$ref"
+            echo "--- $ref"
+            grep '^Url=' "$ref"
+          done
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - name: Deploy GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v5
