@@ -1015,6 +1015,13 @@ static gboolean point_is_inside_widget(GtkWidget *root, GtkWidget *widget, doubl
 
 static void wig_window_click_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
 {
+  guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+  /* Handle typical back/forward mouse buttons. */
+  if (button == 8)
+    g_action_group_activate_action(G_ACTION_GROUP(win), "go-back", NULL);
+  else if (button == 9)
+    g_action_group_activate_action(G_ACTION_GROUP(win), "go-forward", NULL);
+
   if (!GTK_IS_POPOVER(win->entry_completion_popover) || !gtk_widget_get_visible(win->entry_completion_popover))
     return;
 
