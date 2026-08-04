@@ -190,7 +190,7 @@ static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *w
 
 static void wig_window_close_tab(WigWindow *win, WebKitWebView *web_view)
 {
-  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
+  WigTab *tab = wig_window_get_tab_for_web_view(win, web_view);
   if (tab)
     wig_tab_list_close(win->tab_list, tab);
 }
