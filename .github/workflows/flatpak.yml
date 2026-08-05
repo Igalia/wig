@@ -99,15 +99,15 @@ jobs:
 
       - name: Install WPE base app
         if: needs.build-wpe-flatpak.result == 'success'
-        run: flatpak install --user --noninteractive --assumeyes --bundle wpe-base.flatpak
+        run: flatpak install --system --noninteractive --assumeyes --bundle wpe-base.flatpak
 
       - name: Install published WPE base app
         if: needs.build-wpe-flatpak.result == 'skipped'
         env:
           PAGES_URL: ${{ needs.check-wpe-inputs.outputs.pages-url }}
         run: |
-          flatpak remote-add --user --if-not-exists --from wig "$PAGES_URL/wig.flatpakrepo"
-          dbus-run-session flatpak install --user --noninteractive --assumeyes wig com.igalia.wig.WPE
+          flatpak remote-add --system --if-not-exists --from wig "$PAGES_URL/wig.flatpakrepo"
+          dbus-run-session flatpak install --system --noninteractive --assumeyes wig com.igalia.wig.WPE
 
       - name: Build Wig
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
