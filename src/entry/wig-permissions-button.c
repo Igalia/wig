@@ -33,6 +33,14 @@ static const char *state_labels[] = { "Prompt", "Granted", "Denied", NULL };
 #define DROPDOWN_INDEX_GRANTED 1
 #define DROPDOWN_INDEX_DENIED 2
 
+/* One in-flight WebKitPermissionRequest, shared by every row it prompts for. */
+typedef struct {
+  WebKitPermissionRequest *request;
+  WigPermissionKind undecided;
+  gboolean denied;
+} PendingRequest;
+
+/* Per-kind arrays are indexed by wig_permission_kind_index(). */
 struct _WigPermissionsButton {
   GtkWidget parent;
 
@@ -43,7 +51,7 @@ struct _WigPermissionsButton {
   WigPermissions *permissions;
   gulong permissions_notify_id;
 
-  WebKitPermissionRequest *requests[WIG_PERMISSION_N_KINDS];
+  PendingRequest *pending[WIG_PERMISSION_N_KINDS]; /* entries may be shared between kinds */
 };
 
 G_DEFINE_FINAL_TYPE(WigPermissionsButton, wig_permissions_button, GTK_TYPE_WIDGET)
@@ -76,11 +84,11 @@ static WebKitPermissionState state_for_dropdown_index(guint index)
 
 static void on_dropdown_selected(GtkDropDown *dropdown, GParamSpec *pspec, WigPermissionsButton *self);
 
-static void set_dropdown_blocked(WigPermissionsButton *self, WigPermissionKind kind, guint index)
+static void set_dropdown_blocked(WigPermissionsButton *self, WigPermissionKind kind, guint selected)
 {
-  GtkDropDown *dropdown = GTK_DROP_DOWN(self->dropdowns[kind]);
+  GtkDropDown *dropdown = GTK_DROP_DOWN(self->dropdowns[wig_permission_kind_index(kind)]);
   g_signal_handlers_block_by_func(dropdown, on_dropdown_selected, self);
-  gtk_drop_down_set_selected(dropdown, index);
+  gtk_drop_down_set_selected(dropdown, selected);
   g_signal_handlers_unblock_by_func(dropdown, on_dropdown_selected, self);
 }
 
@@ -88,15 +96,22 @@ static void update_row_visibility(WigPermissionsButton *self, WigPermissionKind 
 {
   WebKitPermissionState state = self->permissions ? wig_permissions_get_state(self->permissions, kind)
                                                   : WEBKIT_PERMISSION_STATE_PROMPT;
+  guint index = wig_permission_kind_index(kind);
 
   /* PROMPT rows are hidden unless we are actively prompting for them. */
-  gboolean visible = (state != WEBKIT_PERMISSION_STATE_PROMPT) || (self->requests[kind] != NULL);
-  gtk_widget_set_visible(self->rows[kind], visible);
+  gboolean visible = (state != WEBKIT_PERMISSION_STATE_PROMPT) || (self->pending[index] != NULL);
+  gtk_widget_set_visible(self->rows[index], visible);
+}
+
+static void update_all_row_visibility(WigPermissionsButton *self)
+{
+  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1)
+    update_row_visibility(self, kind);
 }
 
 static void sync_from_permissions(WigPermissionsButton *self)
 {
-  for (WigPermissionKind kind = 0; kind < WIG_PERMISSION_N_KINDS; kind++) {
+  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
     WebKitPermissionState state = self->permissions ? wig_permissions_get_state(self->permissions, kind)
                                                     : WEBKIT_PERMISSION_STATE_PROMPT;
     set_dropdown_blocked(self, kind, dropdown_index_for_state(state));
@@ -106,7 +121,7 @@ static void sync_from_permissions(WigPermissionsButton *self)
 
 static void on_permissions_notify(WigPermissions *permissions, GParamSpec *pspec, WigPermissionsButton *self)
 {
-  for (WigPermissionKind kind = 0; kind < WIG_PERMISSION_N_KINDS; kind++) {
+  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
     if (g_strcmp0(g_param_spec_get_name(pspec), wig_permission_kind_get_property_name(kind)) != 0)
       continue;
 
@@ -116,42 +131,85 @@ static void on_permissions_notify(WigPermissions *permissions, GParamSpec *pspec
   }
 }
 
+/* Detaches @pending from every kind it was prompting for and frees it. */
+static void drop_pending_request(WigPermissionsButton *self, PendingRequest *pending)
+{
+  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
+    if (self->pending[i] == pending)
+      self->pending[i] = NULL;
+  }
+
+  g_clear_object(&pending->request);
+  g_free(pending);
+}
+
+static void clear_pending_requests(WigPermissionsButton *self)
+{
+  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
+    if (self->pending[i])
+      drop_pending_request(self, self->pending[i]);
+  }
+}
+
+static gboolean has_pending_request(WigPermissionsButton *self)
+{
+  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
+    if (self->pending[i])
+      return TRUE;
+  }
+  return FALSE;
+}
+
+/* A getUserMedia request naming both camera and microphone can only be answered
+ * as a whole, so it waits until every row it prompts for has been decided. A
+ * single denial is enough to answer it immediately. */
+static void apply_decision_to_pending(WigPermissionsButton *self, WigPermissionKind kind, WebKitPermissionState state)
+{
+  PendingRequest *pending = self->pending[wig_permission_kind_index(kind)];
+  if (!pending || state == WEBKIT_PERMISSION_STATE_PROMPT)
+    return;
+
+  pending->undecided &= ~kind;
+  if (state == WEBKIT_PERMISSION_STATE_DENIED)
+    pending->denied = TRUE;
+
+  if (!pending->denied && pending->undecided != 0) {
+    g_debug("%s decided, still awaiting kinds 0x%x", wig_permission_kind_get_label(kind), pending->undecided);
+    return;
+  }
+
+  g_debug("answering %s: %s", G_OBJECT_TYPE_NAME(pending->request), pending->denied ? "deny" : "allow");
+
+  if (pending->denied)
+    webkit_permission_request_deny(pending->request);
+  else
+    webkit_permission_request_allow(pending->request);
+
+  drop_pending_request(self, pending);
+}
+
 static void on_dropdown_selected(GtkDropDown *dropdown, GParamSpec *pspec, WigPermissionsButton *self)
 {
-  WigPermissionKind kind = WIG_PERMISSION_N_KINDS;
-  for (WigPermissionKind i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
+  WigPermissionKind kind = 0;
+  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
     if (GTK_WIDGET(dropdown) == self->dropdowns[i]) {
-      kind = i;
+      kind = (WigPermissionKind)(1 << i);
       break;
     }
   }
-  if (kind == WIG_PERMISSION_N_KINDS || !self->permissions)
+  if (kind == 0 || !self->permissions)
     return;
 
   WebKitPermissionState state = state_for_dropdown_index(gtk_drop_down_get_selected(dropdown));
 
   wig_permissions_set_state(self->permissions, kind, state);
+  apply_decision_to_pending(self, kind, state);
 
-  if (self->requests[kind]) {
-    if (state == WEBKIT_PERMISSION_STATE_GRANTED)
-      webkit_permission_request_allow(self->requests[kind]);
-    else if (state == WEBKIT_PERMISSION_STATE_DENIED)
-      webkit_permission_request_deny(self->requests[kind]);
+  /* Answering a request can retire rows other than this one. */
+  update_all_row_visibility(self);
 
-    if (state != WEBKIT_PERMISSION_STATE_PROMPT)
-      g_clear_object(&self->requests[kind]);
-  }
-
-  update_row_visibility(self, kind);
-
-  if (state != WEBKIT_PERMISSION_STATE_PROMPT)
+  if (state != WEBKIT_PERMISSION_STATE_PROMPT && !has_pending_request(self))
     gtk_menu_button_popdown(GTK_MENU_BUTTON(self->menu_button));
-}
-
-static void clear_pending_requests(WigPermissionsButton *self)
-{
-  for (WigPermissionKind kind = 0; kind < WIG_PERMISSION_N_KINDS; kind++)
-    g_clear_object(&self->requests[kind]);
 }
 
 static GtkWidget *build_permission_row(WigPermissionsButton *self, WigPermissionKind kind)
@@ -172,7 +230,7 @@ static GtkWidget *build_permission_row(WigPermissionsButton *self, WigPermission
 
   GtkWidget *dropdown = gtk_drop_down_new_from_strings(state_labels);
   gtk_drop_down_set_selected(GTK_DROP_DOWN(dropdown), DROPDOWN_INDEX_PROMPT);
-  self->dropdowns[kind] = dropdown;
+  self->dropdowns[wig_permission_kind_index(kind)] = dropdown;
   g_signal_connect_object(dropdown, "notify::selected", G_CALLBACK(on_dropdown_selected), self, G_CONNECT_DEFAULT);
   gtk_box_append(GTK_BOX(row), dropdown);
 
@@ -211,9 +269,9 @@ static void wig_permissions_button_init(WigPermissionsButton *self)
   gtk_widget_set_margin_top(box, 6);
   gtk_widget_set_margin_bottom(box, 6);
 
-  for (WigPermissionKind kind = 0; kind < WIG_PERMISSION_N_KINDS; kind++) {
-    self->rows[kind] = build_permission_row(self, kind);
-    gtk_box_append(GTK_BOX(box), self->rows[kind]);
+  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
+    self->rows[i] = build_permission_row(self, (WigPermissionKind)(1 << i));
+    gtk_box_append(GTK_BOX(box), self->rows[i]);
   }
 
   GtkWidget *popover = gtk_popover_new();
@@ -258,18 +316,34 @@ void wig_permissions_button_set_permissions(WigPermissionsButton *self, WigPermi
   gtk_widget_set_visible(GTK_WIDGET(self), self->permissions != NULL);
 }
 
-void wig_permissions_button_prompt(WigPermissionsButton *self, WigPermissions *permissions, WigPermissionKind kind,
+void wig_permissions_button_prompt(WigPermissionsButton *self, WigPermissions *permissions, WigPermissionKind kinds,
                                    WebKitPermissionRequest *request)
 {
   g_return_if_fail(WIG_IS_PERMISSIONS_BUTTON(self));
   g_return_if_fail(WIG_IS_PERMISSIONS(permissions));
-  g_return_if_fail(kind < WIG_PERMISSION_N_KINDS);
+  g_return_if_fail(kinds > 0 && kinds <= WIG_PERMISSION_ALL_KINDS);
   g_return_if_fail(WEBKIT_IS_PERMISSION_REQUEST(request));
 
+  /* Binding a different origin drops anything still pending for the old one. */
   wig_permissions_button_set_permissions(self, permissions);
-  g_set_object(&self->requests[kind], request);
-  set_dropdown_blocked(self, kind, DROPDOWN_INDEX_PROMPT);
-  update_row_visibility(self, kind);
+
+  PendingRequest *pending = g_new0(PendingRequest, 1);
+  pending->request = g_object_ref(request);
+  pending->undecided = kinds;
+
+  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
+    if (!(kinds & kind))
+      continue;
+
+    guint index = wig_permission_kind_index(kind);
+    if (self->pending[index])
+      drop_pending_request(self, self->pending[index]);
+
+    self->pending[index] = pending;
+    set_dropdown_blocked(self, kind, DROPDOWN_INDEX_PROMPT);
+  }
+
+  update_all_row_visibility(self);
 
   gtk_menu_button_popup(GTK_MENU_BUTTON(self->menu_button));
 }

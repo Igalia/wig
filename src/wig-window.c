@@ -307,7 +307,7 @@ static void wig_window_on_permissions_changed(WigWindow *win, const char *origin
 static gboolean wig_window_on_permission_request(WebKitWebView *web_view, WebKitPermissionRequest *request,
                                                  WigWindow *win)
 {
-  if (!WEBKIT_IS_DEVICE_INFO_PERMISSION_REQUEST(request) && !WEBKIT_IS_NOTIFICATION_PERMISSION_REQUEST(request))
+  if (wig_permission_kinds_for_request(request) == 0)
     return FALSE;
 
   const char *uri = webkit_web_view_get_uri(web_view);

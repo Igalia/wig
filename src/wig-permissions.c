@@ -28,34 +28,60 @@ typedef struct {
   const char *label;
 } WigPermissionInfo;
 
+/* Indexed by wig_permission_kind_index(), so ordered as WigPermissionKind is. */
 static const WigPermissionInfo permission_infos[WIG_PERMISSION_N_KINDS] = {
-  [WIG_PERMISSION_DEVICE_INFO] = { "device-info", "camera-small-symbolic", "Device Info" },
-  [WIG_PERMISSION_NOTIFICATION] = { "notification", "preferences-system-notifications-symbolic", "Notifications" },
+  { "camera", "camera-web-symbolic", "Camera" },
+  { "microphone", "audio-input-microphone-symbolic", "Microphone" },
+  { "device-info", "camera-small-symbolic", "Device Info" },
+  { "notification", "preferences-system-notifications-symbolic", "Notifications" },
 };
 
-WigPermissionKind wig_permission_kind_for_request(WebKitPermissionRequest *request)
+guint wig_permission_kind_index(WigPermissionKind kind)
 {
+  return (guint)g_bit_nth_lsf(kind, -1);
+}
+
+static WigPermissionKind user_media_kinds(WebKitUserMediaPermissionRequest *request)
+{
+  /* Screen sharing shares the WebKitUserMediaPermissionRequest type but picks
+   * its surface through the platform rather than this prompt. Note that
+   * is_for_video_device is already FALSE for those. */
+  if (webkit_user_media_permission_is_for_display_device(request))
+    return 0;
+
+  WigPermissionKind kinds = 0;
+  if (webkit_user_media_permission_is_for_video_device(request))
+    kinds |= WIG_PERMISSION_CAMERA;
+  if (webkit_user_media_permission_is_for_audio_device(request))
+    kinds |= WIG_PERMISSION_MICROPHONE;
+
+  return kinds;
+}
+
+WigPermissionKind wig_permission_kinds_for_request(WebKitPermissionRequest *request)
+{
+  if (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(request))
+    return user_media_kinds(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request));
   if (WEBKIT_IS_DEVICE_INFO_PERMISSION_REQUEST(request))
     return WIG_PERMISSION_DEVICE_INFO;
-  return WIG_PERMISSION_NOTIFICATION;
+  if (WEBKIT_IS_NOTIFICATION_PERMISSION_REQUEST(request))
+    return WIG_PERMISSION_NOTIFICATION;
+  return 0;
 }
 
 const char *wig_permission_kind_get_icon_name(WigPermissionKind kind)
 {
-  g_return_val_if_fail(kind < WIG_PERMISSION_N_KINDS, NULL);
-  return permission_infos[kind].icon_name;
+  return permission_infos[wig_permission_kind_index(kind)].icon_name;
 }
 
 const char *wig_permission_kind_get_label(WigPermissionKind kind)
 {
-  g_return_val_if_fail(kind < WIG_PERMISSION_N_KINDS, NULL);
-  return permission_infos[kind].label;
+  return permission_infos[wig_permission_kind_index(kind)].label;
 }
 
 const char *wig_permission_kind_get_property_name(WigPermissionKind kind)
 {
-  g_return_val_if_fail(kind < WIG_PERMISSION_N_KINDS, NULL);
-  return permission_infos[kind].property_name;
+  return permission_infos[wig_permission_kind_index(kind)].property_name;
 }
 
 struct _WigPermissions {
@@ -66,7 +92,8 @@ struct _WigPermissions {
 
 G_DEFINE_FINAL_TYPE(WigPermissions, wig_permissions, G_TYPE_OBJECT)
 
-/* Property ids map to kinds as PROP_<kind> = kind + 1 (PROP_0 is reserved). */
+/* Property ids map to kinds as PROP_<kind> = wig_permission_kind_index() + 1
+ * (PROP_0 is reserved). */
 static GParamSpec *properties[WIG_PERMISSION_N_KINDS + 1];
 
 static void wig_permissions_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
@@ -84,7 +111,8 @@ static void wig_permissions_set_property(GObject *object, guint prop_id, const G
   WigPermissions *self = WIG_PERMISSIONS(object);
 
   if (prop_id >= 1 && prop_id <= WIG_PERMISSION_N_KINDS)
-    wig_permissions_set_state(self, prop_id - 1, (WebKitPermissionState)g_value_get_enum(value));
+    wig_permissions_set_state(self, (WigPermissionKind)(1 << (prop_id - 1)),
+                              (WebKitPermissionState)g_value_get_enum(value));
   else
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
 }
@@ -95,10 +123,9 @@ static void wig_permissions_class_init(WigPermissionsClass *klass)
   object_class->get_property = wig_permissions_get_property;
   object_class->set_property = wig_permissions_set_property;
 
-  for (WigPermissionKind kind = 0; kind < WIG_PERMISSION_N_KINDS; kind++) {
-    properties[kind + 1] = g_param_spec_enum(permission_infos[kind].property_name, NULL, NULL,
-                                             WEBKIT_TYPE_PERMISSION_STATE, WEBKIT_PERMISSION_STATE_PROMPT,
-                                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
+    properties[i + 1] = g_param_spec_enum(permission_infos[i].property_name, NULL, NULL, WEBKIT_TYPE_PERMISSION_STATE,
+                                          WEBKIT_PERMISSION_STATE_PROMPT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
   }
 
   g_object_class_install_properties(object_class, WIG_PERMISSION_N_KINDS + 1, properties);
@@ -106,8 +133,8 @@ static void wig_permissions_class_init(WigPermissionsClass *klass)
 
 static void wig_permissions_init(WigPermissions *self)
 {
-  for (WigPermissionKind kind = 0; kind < WIG_PERMISSION_N_KINDS; kind++)
-    self->states[kind] = WEBKIT_PERMISSION_STATE_PROMPT;
+  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++)
+    self->states[i] = WEBKIT_PERMISSION_STATE_PROMPT;
 }
 
 WigPermissions *wig_permissions_new(void)
@@ -118,19 +145,18 @@ WigPermissions *wig_permissions_new(void)
 WebKitPermissionState wig_permissions_get_state(WigPermissions *self, WigPermissionKind kind)
 {
   g_return_val_if_fail(WIG_IS_PERMISSIONS(self), WEBKIT_PERMISSION_STATE_PROMPT);
-  g_return_val_if_fail(kind < WIG_PERMISSION_N_KINDS, WEBKIT_PERMISSION_STATE_PROMPT);
 
-  return self->states[kind];
+  return self->states[wig_permission_kind_index(kind)];
 }
 
 void wig_permissions_set_state(WigPermissions *self, WigPermissionKind kind, WebKitPermissionState state)
 {
   g_return_if_fail(WIG_IS_PERMISSIONS(self));
-  g_return_if_fail(kind < WIG_PERMISSION_N_KINDS);
 
-  if (self->states[kind] == state)
+  guint index = wig_permission_kind_index(kind);
+  if (self->states[index] == state)
     return;
 
-  self->states[kind] = state;
-  g_object_notify_by_pspec(G_OBJECT(self), properties[kind + 1]);
+  self->states[index] = state;
+  g_object_notify_by_pspec(G_OBJECT(self), properties[index + 1]);
 }

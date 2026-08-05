@@ -98,25 +98,42 @@ void wig_permissions_manager_handle_request(WigPermissionsManager *self, const c
   g_return_if_fail(WEBKIT_IS_PERMISSION_REQUEST(request));
   g_return_if_fail(WIG_IS_PERMISSIONS_BUTTON(button));
 
-  WigPermissionKind kind = wig_permission_kind_for_request(request);
+  WigPermissionKind undecided = wig_permission_kinds_for_request(request);
+  g_assert(undecided != 0);
+
+  g_debug("permission request %s for %s: kinds 0x%x", G_OBJECT_TYPE_NAME(request), origin, undecided);
+
   WigPermissions *permissions = wig_permissions_manager_lookup(self, origin);
 
+  /* A request covering several devices is answered as a whole, so any one of
+   * them being denied denies all of it, and it can only be allowed outright
+   * once every one of them is granted. */
   if (permissions) {
-    switch (wig_permissions_get_state(permissions, kind)) {
-    case WEBKIT_PERMISSION_STATE_GRANTED:
+    for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
+      if (!(undecided & kind))
+        continue;
+
+      switch (wig_permissions_get_state(permissions, kind)) {
+      case WEBKIT_PERMISSION_STATE_DENIED:
+        webkit_permission_request_deny(request);
+        return;
+      case WEBKIT_PERMISSION_STATE_GRANTED:
+        undecided &= ~kind;
+        break;
+      case WEBKIT_PERMISSION_STATE_PROMPT:
+      default:
+        break;
+      }
+    }
+
+    if (undecided == 0) {
       webkit_permission_request_allow(request);
       return;
-    case WEBKIT_PERMISSION_STATE_DENIED:
-      webkit_permission_request_deny(request);
-      return;
-    case WEBKIT_PERMISSION_STATE_PROMPT:
-    default:
-      break;
     }
   }
 
-  /* No stored decision: remember the origin (making the button visible) and
-   * prompt the user for this specific permission. */
+  /* Remember the origin (making the button visible) and prompt the user for
+   * whichever permissions are still undecided. */
   permissions = wig_permissions_manager_ensure(self, origin);
-  wig_permissions_button_prompt(button, permissions, kind, request);
+  wig_permissions_button_prompt(button, permissions, undecided, request);
 }
