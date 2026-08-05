@@ -107,7 +107,7 @@ jobs:
           PAGES_URL: ${{ needs.check-wpe-inputs.outputs.pages-url }}
         run: |
           flatpak remote-add --user --if-not-exists --from wig "$PAGES_URL/wig.flatpakrepo"
-          flatpak install --user --noninteractive --assumeyes wig com.igalia.wig.WPE
+          dbus-run-session flatpak install --user --noninteractive --assumeyes wig com.igalia.wig.WPE
 
       - name: Build Wig
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
