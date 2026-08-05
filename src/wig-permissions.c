@@ -43,9 +43,8 @@ guint wig_permission_kind_index(WigPermissionKind kind)
 
 static WigPermissionKind user_media_kinds(WebKitUserMediaPermissionRequest *request)
 {
-  /* Screen sharing shares the WebKitUserMediaPermissionRequest type but picks
-   * its surface through the platform rather than this prompt. Note that
-   * is_for_video_device is already FALSE for those. */
+  /* Screen sharing is not a per-origin permission of ours; the portal gates it
+   * instead, so it never reaches the permissions popover. */
   if (webkit_user_media_permission_is_for_display_device(request))
     return 0;
 
@@ -56,6 +55,12 @@ static WigPermissionKind user_media_kinds(WebKitUserMediaPermissionRequest *requ
     kinds |= WIG_PERMISSION_MICROPHONE;
 
   return kinds;
+}
+
+gboolean wig_permission_request_is_display_capture(WebKitPermissionRequest *request)
+{
+  return WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(request)
+      && webkit_user_media_permission_is_for_display_device(WEBKIT_USER_MEDIA_PERMISSION_REQUEST(request));
 }
 
 WigPermissionKind wig_permission_kinds_for_request(WebKitPermissionRequest *request)

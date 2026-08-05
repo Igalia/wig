@@ -38,6 +38,7 @@ typedef enum {
 #define WIG_PERMISSION_ALL_KINDS ((WigPermissionKind)((1 << WIG_PERMISSION_N_KINDS) - 1))
 
 WigPermissionKind wig_permission_kinds_for_request(WebKitPermissionRequest *request);
+gboolean wig_permission_request_is_display_capture(WebKitPermissionRequest *request);
 guint wig_permission_kind_index(WigPermissionKind kind);
 const char *wig_permission_kind_get_icon_name(WigPermissionKind kind);
 const char *wig_permission_kind_get_label(WigPermissionKind kind);

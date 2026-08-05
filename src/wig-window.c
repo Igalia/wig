@@ -307,6 +307,17 @@ static void wig_window_on_permissions_changed(WigWindow *win, const char *origin
 static gboolean wig_window_on_permission_request(WebKitWebView *web_view, WebKitPermissionRequest *request,
                                                  WigWindow *win)
 {
+  /* WebKit runs the whole desktop portal handshake while it validates the
+   * constraints, so by the time a screen sharing request reaches us the user has
+   * already picked what to share in the portal's own picker. Prompting again
+   * would only ask about capture that is set up already, so take the portal as
+   * the answer. Capture still cannot start without the PipeWire fd it holds. */
+  if (wig_permission_request_is_display_capture(request)) {
+    g_debug("allowing screen sharing request, already arranged by the portal");
+    webkit_permission_request_allow(request);
+    return TRUE;
+  }
+
   if (wig_permission_kinds_for_request(request) == 0)
     return FALSE;
 

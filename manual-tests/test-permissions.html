@@ -223,10 +223,15 @@
 </section>
 
 <section>
-  <h2>Screen Capture <span class="badge unsupported">WPE: no prompt</span></h2>
+  <h2>Screen Capture <span class="badge supported">WPE: supported</span></h2>
   <p class="desc">
-    <code>navigator.mediaDevices.getDisplayMedia()</code>. Surface selection is
-    handled by the platform rather than a WebKit permission request.
+    <code>navigator.mediaDevices.getDisplayMedia()</code> →
+    <code>WebKitUserMediaPermissionRequest</code> with
+    <code>is_for_display_device</code> set. WebKit runs the desktop portal
+    handshake while validating constraints, so the portal's picker appears
+    <em>before</em> the permission request; wig takes that as the answer instead
+    of prompting again. Needs <code>pipewiresrc</code>
+    (<code>gst-plugin-pipewire</code>) to actually produce a stream.
   </p>
   <button onclick="testDisplayMedia()">Capture Screen</button>
   <div class="status" id="display-status">Not requested yet.</div>
