@@ -1095,8 +1095,8 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
           wig_decision_type_name(decision_type), decision_type);
 
   // RESPONSE decisions are handled at the application level (on_web_view_decide_policy).
-  // FIXME: Handle WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION
-  if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
+  if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION
+      && decision_type != WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION)
     return FALSE;
 
   WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(
@@ -1104,9 +1104,11 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   WebKitNavigationType nav_type = webkit_navigation_action_get_navigation_type(action);
   WebKitURIRequest *request = webkit_navigation_action_get_request(action);
   const char *request_uri = request ? webkit_uri_request_get_uri(request) : NULL;
+  const char *frame_name = webkit_navigation_action_get_frame_name(action);
 
-  g_debug("[decide-policy]   nav_type=%s (%d) uri=%s button=%u", wig_navigation_type_name(nav_type), nav_type,
-          request_uri ? request_uri : "(null)", webkit_navigation_action_get_mouse_button(action));
+  g_debug("[decide-policy]   nav_type=%s (%d) uri=%s button=%u frame_name=%s", wig_navigation_type_name(nav_type),
+          nav_type, request_uri ? request_uri : "(null)", webkit_navigation_action_get_mouse_button(action),
+          frame_name ? frame_name : "(null)");
 
   const char *target_scheme = request_uri ? g_uri_peek_scheme(request_uri) : NULL;
   if (g_strcmp0(target_scheme, "wig") == 0
@@ -1120,12 +1122,18 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
     }
   }
 
-  // Middle-clicking a link opens it in a new tab.
-  if (nav_type == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
-      && webkit_navigation_action_get_mouse_button(action) == WPE_BUTTON_MIDDLE) {
+  gboolean middle_click = nav_type == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
+      && webkit_navigation_action_get_mouse_button(action) == WPE_BUTTON_MIDDLE;
+
+  /* Middle-clicking a link opens it in a background tab. A link aimed at another
+   * frame (target="_blank") opens a foreground tab; letting the decision through
+   * would make WebKit ask for a whole new window instead. */
+  if (middle_click || decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
     g_autoptr(WebKitWebView) new_view = wig_application_create_web_view(wig_application_get());
-    wig_window_add_tab_for_view(win, new_view);
-    webkit_web_view_load_request(new_view, webkit_navigation_action_get_request(action));
+    WigTab *tab = wig_window_add_tab_for_view(win, new_view);
+    webkit_web_view_load_request(new_view, request);
+    if (!middle_click)
+      wig_tab_list_set_active(win->tab_list, tab);
     webkit_policy_decision_ignore(decision);
     return TRUE;
   }
