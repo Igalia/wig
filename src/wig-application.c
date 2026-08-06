@@ -156,6 +156,8 @@ static void on_history_load_changed(WebKitWebView *web_view, WebKitLoadEvent loa
 
   gboolean typed = g_hash_table_remove(app->typed_navigations, web_view);
   record_history_visit(app, web_view, typed);
+
+  wig_session_queue_save(app->session);
 }
 
 static gboolean on_load_failed(WebKitWebView *web_view, WebKitLoadEvent load_event, const char *failing_uri,
@@ -347,7 +349,6 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
 
 static void wig_application_init(WigApplication *app)
 {
-  app->session = wig_session_new();
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
@@ -364,6 +365,25 @@ static void on_notification_clicked_action(GSimpleAction *action, GVariant *para
   WebKitNotification *notif = g_hash_table_lookup(app->notifications, id);
   if (notif)
     webkit_notification_clicked(notif);
+}
+
+static GSList *wig_application_collect_session_windows(gpointer user_data)
+{
+  WigApplication *app = WIG_APPLICATION(user_data);
+  GSList *windows = NULL;
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (!WIG_IS_WINDOW(l->data))
+      continue;
+
+    WigSessionWindow *captured = wig_window_capture_session(WIG_WINDOW(l->data));
+    if (captured->tabs)
+      windows = g_slist_prepend(windows, captured);
+    else
+      wig_session_window_free(captured);
+  }
+
+  return windows;
 }
 
 static void wig_application_startup(GApplication *application)
@@ -402,6 +422,10 @@ static void wig_application_startup(GApplication *application)
   app->history_store = wig_history_store_new(state_dir, &history_error);
   if (!app->history_store)
     g_warning("history: disabled: %s", history_error->message);
+
+  app->session = wig_session_new(state_dir);
+  wig_session_set_collect_func(app->session, wig_application_collect_session_windows, app);
+  wig_session_load(app->session);
   webkit_network_session_set_itp_enabled(app->network_session, TRUE);
 
   g_autofree char *cookies_path = g_build_filename(data_dir, "cookies.sqlite", NULL);
@@ -455,7 +479,11 @@ static void wig_application_shutdown(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
 
+  /* Quitting leaves the windows standing, so this is the last chance to record
+   * what was open. */
+  wig_session_save(app->session);
   g_clear_object(&app->session);
+
   g_clear_object(&app->display);
   g_clear_object(&app->network_session);
   g_clear_object(&app->web_context);
@@ -475,24 +503,50 @@ static void wig_application_shutdown(GApplication *application)
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
 
+/* Returns the window to present, or NULL when there was nothing to restore. */
+static WigWindow *wig_application_restore_session(WigApplication *app)
+{
+  GSList *saved = wig_session_take_restored_windows(app->session);
+  WigWindow *last = NULL;
+
+  for (GSList *l = saved; l; l = l->next) {
+    WigWindow *win = wig_window_restore(app, l->data);
+    if (win != last && last)
+      gtk_window_present(GTK_WINDOW(last));
+    last = win;
+  }
+
+  g_slist_free_full(saved, (GDestroyNotify)wig_session_window_free);
+  return last;
+}
+
 static void wig_application_activate(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
   WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
+  gboolean fresh = FALSE;
+
+  if (!win)
+    win = wig_application_restore_session(app);
 
   if (!win) {
     win = wig_window_new(app);
     wig_application_add_new_tab_with_uri(app, win, "https://wpewebkit.org");
+    fresh = TRUE;
   }
 
   gtk_window_present(GTK_WINDOW(win));
-  g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
+  if (fresh)
+    g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
 }
 
 static void wig_application_open(GApplication *application, GFile **files, gint n_files, const gchar *hint)
 {
   WigApplication *app = WIG_APPLICATION(application);
   WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
+
+  if (!win)
+    win = wig_application_restore_session(app);
 
   if (!win)
     win = wig_window_new(app);

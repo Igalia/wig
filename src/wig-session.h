@@ -32,21 +32,32 @@ G_DECLARE_FINAL_TYPE(WigSession, wig_session, WIG, SESSION, GObject)
 typedef struct {
   WebKitWebViewSessionState *state;
   gboolean was_focused;
-} WigClosedTab;
+} WigSessionTab;
 
 typedef struct {
   guint window_id;
-  GSList *tabs; /* owned GSList of WigClosedTab* */
-} WigClosedGroup;
+  GSList *tabs; /* owned GSList of WigSessionTab* */
+} WigSessionWindow;
 
-WigClosedGroup *wig_closed_group_new(guint window_id);
-void wig_closed_group_add_tab(WigClosedGroup *group, WebKitWebViewSessionState *state, gboolean was_focused);
-void wig_closed_group_free(WigClosedGroup *group);
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigClosedGroup, wig_closed_group_free)
+WigSessionWindow *wig_session_window_new(guint window_id);
+void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionState *state, gboolean was_focused);
+void wig_session_window_free(WigSessionWindow *self);
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigSessionWindow, wig_session_window_free)
 
-WigSession *wig_session_new(void);
+/* Returns a newly allocated GSList of WigSessionWindow* describing every open
+ * window, in the order they should be restored. */
+typedef GSList *(*WigSessionCollectFunc)(gpointer user_data);
 
-void wig_session_push_closed_group(WigSession *self, WigClosedGroup *group);
-WigClosedGroup *wig_session_pop_closed_group(WigSession *self);
+WigSession *wig_session_new(const char *state_dir);
+void wig_session_set_collect_func(WigSession *self, WigSessionCollectFunc func, gpointer user_data);
+
+void wig_session_load(WigSession *self);
+GSList *wig_session_take_restored_windows(WigSession *self);
+
+void wig_session_queue_save(WigSession *self);
+void wig_session_save(WigSession *self);
+
+void wig_session_push_closed_window(WigSession *self, WigSessionWindow *window);
+WigSessionWindow *wig_session_pop_closed_window(WigSession *self);
 
 G_END_DECLS

@@ -33,4 +33,7 @@ WigWindow *wig_window_new(WigApplication *application);
 void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
 gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri);
 
+WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved);
+WigSessionWindow *wig_window_capture_session(WigWindow *win);
+
 G_END_DECLS

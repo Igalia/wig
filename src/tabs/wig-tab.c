@@ -36,6 +36,7 @@ struct _WigTab {
   GtkWidget *status_label;
   GIcon *icon;
   char *title;
+  gboolean discarded;
   gboolean pinned;
   gboolean loading;
   gboolean selected;
@@ -351,6 +352,54 @@ void wig_tab_set_icon(WigTab *self, GIcon *icon)
 const char *wig_tab_get_title(WigTab *self)
 {
   return self->title;
+}
+
+gboolean wig_tab_get_discarded(WigTab *self)
+{
+  return self->discarded;
+}
+
+/* A restored view holds a back/forward list but no page: nothing is loaded until
+ * the tab is looked at. Take the label from the list so the tab is recognisable
+ * in the meantime, as no title or icon will arrive from the web process. */
+void wig_tab_mark_discarded(WigTab *self)
+{
+  g_assert(WIG_IS_TAB(self));
+
+  WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(self->web_view);
+  WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
+  if (!item)
+    return;
+
+  self->discarded = TRUE;
+
+  const char *title = webkit_back_forward_list_item_get_title(item);
+  if (title && *title) {
+    wig_tab_set_title(self, title);
+    return;
+  }
+
+  g_autofree char *host = wig_tab_uri_host(webkit_back_forward_list_item_get_uri(item));
+  if (host)
+    wig_tab_set_title(self, host);
+}
+
+void wig_tab_load_discarded(WigTab *self)
+{
+  g_assert(WIG_IS_TAB(self));
+
+  if (!self->discarded)
+    return;
+
+  self->discarded = FALSE;
+
+  WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(self->web_view);
+  WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
+  if (!item)
+    return;
+
+  g_debug("tab: loading discarded tab %u (%s)", self->id, webkit_back_forward_list_item_get_uri(item));
+  webkit_web_view_go_to_back_forward_list_item(self->web_view, item);
 }
 
 gboolean wig_tab_get_pinned(WigTab *self)
