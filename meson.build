@@ -110,6 +110,13 @@ config_h.set10(
         dependencies: wpe_webkit_dep,
     ),
 )
+config_h.set10(
+    'HAVE_CLIPBOARD_PERMISSION_SUPPORT',
+    cc.has_function(
+        'webkit_clipboard_permission_request_get_type',
+        dependencies: wpe_webkit_dep,
+    ),
+)
 configure_file(output: 'config.h', configuration: config_h)
 add_project_arguments(
     '-include',

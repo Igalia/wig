@@ -171,14 +171,27 @@
 </section>
 
 <section>
-  <h2>Clipboard Read <span class="badge unsupported">WPE: not supported</span></h2>
+  <h2>Clipboard Read <span class="badge supported">WPE: supported</span></h2>
   <p class="desc">
     <code>navigator.clipboard.readText()</code> →
-    <code>WebKitClipboardPermissionRequest</code> (GTK port only; not built in
-    WPE WebKit).
+    <code>WebKitClipboardPermissionRequest</code>. Copy something in another
+    application first: this origin does not own those contents, so wig prompts.
   </p>
   <button onclick="testClipboard()">Read Clipboard</button>
   <div class="status" id="clipboard-status">Not requested yet.</div>
+</section>
+
+<section>
+  <h2>Clipboard Write then Read <span class="badge supported">WPE: no prompt</span></h2>
+  <p class="desc">
+    Writes with <code>navigator.clipboard.writeText()</code> and reads it straight
+    back. WebKit stores the writing origin alongside the contents, so an origin
+    reading back its own text takes the same-origin fast path: this should be
+    granted <em>without</em> a prompt, even while the Clipboard permission is
+    still set to Ask. A prompt appearing here means that fast path is not working.
+  </p>
+  <button onclick="testClipboardRoundTrip()">Write then Read</button>
+  <div class="status" id="clipboard-roundtrip-status">Not requested yet.</div>
 </section>
 
 <section>
@@ -436,6 +449,26 @@
       set('clipboard-status', `Granted. Clipboard text: ${JSON.stringify(text)}.`, 'granted');
     } catch (e) {
       set('clipboard-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
+    }
+  }
+
+  async function testClipboardRoundTrip() {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      set('clipboard-roundtrip-status', 'navigator.clipboard.writeText is not available.', 'err');
+      return;
+    }
+    const written = `wig round trip ${Date.now()}`;
+    set('clipboard-roundtrip-status', 'Writing then reading back…');
+    try {
+      await navigator.clipboard.writeText(written);
+      const text = await navigator.clipboard.readText();
+      if (text === written)
+        set('clipboard-roundtrip-status', `Read back own text without prompting: ${JSON.stringify(text)}.`, 'granted');
+      else
+        set('clipboard-roundtrip-status',
+          `Mismatch. Wrote ${JSON.stringify(written)} but read ${JSON.stringify(text)}.`, 'err');
+    } catch (e) {
+      set('clipboard-roundtrip-status', `Denied or failed: ${e.name} — ${e.message}.`, 'denied');
     }
   }
 
