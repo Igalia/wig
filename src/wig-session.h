@@ -42,6 +42,7 @@ typedef struct {
   gboolean minimized;
   int width;
   int height;
+  char *monitor; /* owned connector name, NULL when unknown */
   GSList *tabs; /* owned GSList of WigSessionTab* */
 } WigSessionWindow;
 

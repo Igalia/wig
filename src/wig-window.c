@@ -542,6 +542,36 @@ static gboolean wig_window_is_minimized(WigWindow *win)
   return (gdk_toplevel_get_state(GDK_TOPLEVEL(surface)) & GDK_TOPLEVEL_STATE_MINIMIZED) != 0;
 }
 
+/* Connectors are how a monitor is recognised across restarts; it is the closest
+ * thing to a stable name, and NULL when the backend does not name its outputs. */
+static const char *wig_window_monitor_connector(WigWindow *win)
+{
+  GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(win));
+  if (!surface)
+    return NULL;
+
+  GdkMonitor *monitor = gdk_display_get_monitor_at_surface(gtk_widget_get_display(GTK_WIDGET(win)), surface);
+  return monitor ? gdk_monitor_get_connector(monitor) : NULL;
+}
+
+static GdkMonitor *wig_window_find_monitor(GdkDisplay *display, const char *connector)
+{
+  if (!connector || !*connector)
+    return NULL;
+
+  GListModel *monitors = gdk_display_get_monitors(display);
+  guint n = g_list_model_get_n_items(monitors);
+
+  for (guint i = 0; i < n; i++) {
+    g_autoptr(GdkMonitor) monitor = g_list_model_get_item(monitors, i);
+    if (g_strcmp0(gdk_monitor_get_connector(monitor), connector) == 0)
+      return g_steal_pointer(&monitor);
+  }
+
+  g_debug("session: monitor '%s' is not connected", connector);
+  return NULL;
+}
+
 WigSessionWindow *wig_window_capture_session(WigWindow *win)
 {
   g_return_val_if_fail(WIG_IS_WINDOW(win), NULL);
@@ -551,6 +581,7 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
   captured->maximized = gtk_window_is_maximized(GTK_WINDOW(win));
   captured->fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
   captured->minimized = wig_window_is_minimized(win);
+  captured->monitor = g_strdup(wig_window_monitor_connector(win));
 
   /* The default size is the size to come back at: it holds the size the window
    * had before it was maximised or fullscreened, which is the one to restore. */
@@ -573,9 +604,10 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
   g_return_val_if_fail(saved != NULL, NULL);
 
-  g_debug("session: restoring window %u with %d tab(s), %dx%d maximized=%d fullscreen=%d minimized=%d focused=%d",
-          saved->window_id, g_slist_length(saved->tabs), saved->width, saved->height, saved->maximized,
-          saved->fullscreen, saved->minimized, saved->focused);
+  g_debug("session: restoring window %u with %d tab(s), %dx%d on '%s' maximized=%d fullscreen=%d minimized=%d "
+          "focused=%d",
+          saved->window_id, g_slist_length(saved->tabs), saved->width, saved->height,
+          saved->monitor ? saved->monitor : "", saved->maximized, saved->fullscreen, saved->minimized, saved->focused);
 
   WigWindow *win = get_window_by_id(app, saved->window_id);
   gboolean created = win == NULL;
@@ -585,8 +617,17 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
       gtk_window_set_default_size(GTK_WINDOW(win), saved->width, saved->height);
     if (saved->maximized)
       gtk_window_maximize(GTK_WINDOW(win));
-    if (saved->fullscreen)
-      gtk_window_fullscreen(GTK_WINDOW(win));
+
+    if (saved->fullscreen) {
+      /* Fullscreen is the only state that can be aimed at a monitor: a window
+       * cannot be placed, so anything else comes back where the compositor
+       * decides to put it. */
+      g_autoptr(GdkMonitor) monitor = wig_window_find_monitor(gtk_widget_get_display(GTK_WIDGET(win)), saved->monitor);
+      if (monitor)
+        gtk_window_fullscreen_on_monitor(GTK_WINDOW(win), monitor);
+      else
+        gtk_window_fullscreen(GTK_WINDOW(win));
+    }
   }
 
   WigTab *focused_tab = NULL;
