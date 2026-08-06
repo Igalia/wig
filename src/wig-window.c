@@ -1738,6 +1738,22 @@ static void wig_window_constructed(GObject *object)
   adw_clamp_set_child(ADW_CLAMP(clamp), entry_box);
   gtk_header_bar_set_title_widget(GTK_HEADER_BAR(win->header_bar), clamp);
 
+  g_autoptr(GMenu) menu = g_menu_new();
+
+  g_autoptr(GMenu) pages_section = g_menu_new();
+  g_menu_append(pages_section, "Downloads", "win.show-downloads");
+  g_menu_append(pages_section, "History", "win.show-history");
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(pages_section));
+
+  g_autoptr(GMenu) application_section = g_menu_new();
+  g_menu_append(application_section, "Quit", "app.quit");
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(application_section));
+
+  GtkWidget *menu_button = gtk_menu_button_new();
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu_button), "open-menu-symbolic");
+  gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), G_MENU_MODEL(menu));
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(win->header_bar), menu_button);
+
   win->tab_list = wig_tab_list_new();
   gtk_widget_insert_action_group(GTK_WIDGET(win), "tabs", G_ACTION_GROUP(wig_tab_list_get_action_group(win->tab_list)));
   g_signal_connect_object(win->tab_list, "close-tab", G_CALLBACK(wig_window_tab_close), win, G_CONNECT_DEFAULT);
