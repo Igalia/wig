@@ -74,6 +74,7 @@ void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView
 gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 
 WigSession *wig_application_get_session(WigApplication *app);
+gboolean wig_application_is_quitting(WigApplication *app);
 
 void wig_application_track_notification(WigApplication *app, const char *id, WebKitNotification *notif);
 void wig_application_untrack_notification(WigApplication *app, const char *id);

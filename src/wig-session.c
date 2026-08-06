@@ -38,11 +38,11 @@ struct _WigSession {
   char *path;
   GQueue *closed_windows; /* owned WigSessionWindow*, oldest first */
   GSList *restored_windows; /* owned WigSessionWindow*, from the last load */
-  GVariant *open_variant; /* a(ua(ayb)), the open windows as last written */
 
   WigSessionCollectFunc collect_func;
   gpointer collect_data;
   guint save_timeout_id;
+  gboolean quitting;
 };
 
 G_DEFINE_FINAL_TYPE(WigSession, wig_session, G_TYPE_OBJECT)
@@ -171,6 +171,8 @@ static GVariant *wig_session_window_list_to_variant(GSList *windows)
 
 static void wig_session_write(WigSession *self, GVariant *open_windows)
 {
+  g_assert(g_variant_n_children(open_windows) > 0);
+
   g_autofree char *dir = g_path_get_dirname(self->path);
   if (g_mkdir_with_parents(dir, 0700) != 0) {
     g_warning("session: cannot create '%s': %s", dir, g_strerror(errno));
@@ -208,7 +210,6 @@ static void wig_session_dispose(GObject *object)
   }
 
   g_clear_pointer(&self->restored_windows, wig_session_window_list_free);
-  g_clear_pointer(&self->open_variant, g_variant_unref);
 
   G_OBJECT_CLASS(wig_session_parent_class)->dispose(object);
 }
@@ -284,9 +285,6 @@ void wig_session_load(WigSession *self)
   g_clear_pointer(&self->restored_windows, wig_session_window_list_free);
   self->restored_windows = wig_session_window_list_from_variant(open_windows);
 
-  g_clear_pointer(&self->open_variant, g_variant_unref);
-  self->open_variant = g_variant_ref(open_windows);
-
   GSList *closed = wig_session_window_list_from_variant(closed_windows);
   for (GSList *l = closed; l; l = l->next)
     g_queue_push_tail(self->closed_windows, l->data);
@@ -303,9 +301,24 @@ GSList *wig_session_take_restored_windows(WigSession *self)
   return g_steal_pointer(&self->restored_windows);
 }
 
+/* Nothing may touch the session once the application is on its way out: the
+ * windows are being torn down, and what they look like while that happens is
+ * not what should come back on the next launch. */
+void wig_session_set_quitting(WigSession *self)
+{
+  g_return_if_fail(WIG_IS_SESSION(self));
+
+  g_debug("session: quitting, the saved state is now final");
+  self->quitting = TRUE;
+  g_clear_handle_id(&self->save_timeout_id, g_source_remove);
+}
+
 void wig_session_save(WigSession *self)
 {
   g_return_if_fail(WIG_IS_SESSION(self));
+
+  if (self->quitting)
+    return;
 
   g_clear_handle_id(&self->save_timeout_id, g_source_remove);
 
@@ -313,26 +326,15 @@ void wig_session_save(WigSession *self)
     return;
 
   GSList *open_windows = self->collect_func(self->collect_data);
-
-  /* Windows only ever all disappear as the application is going away, so the
-   * windows to restore are the ones from just before that, not none at all.
-   * The closed tab history is still worth writing out. */
   if (!open_windows) {
-    if (!self->open_variant) {
-      g_debug("session: nothing open and nothing saved before, skipping the save");
-      return;
-    }
-
-    g_debug("session: nothing open, keeping the windows already saved");
-    wig_session_write(self, self->open_variant);
+    g_debug("session: no window holds anything worth restoring, skipping the save");
     return;
   }
 
-  g_clear_pointer(&self->open_variant, g_variant_unref);
-  self->open_variant = g_variant_ref_sink(wig_session_window_list_to_variant(open_windows));
+  g_autoptr(GVariant) open_variant = g_variant_ref_sink(wig_session_window_list_to_variant(open_windows));
   wig_session_window_list_free(open_windows);
 
-  wig_session_write(self, self->open_variant);
+  wig_session_write(self, open_variant);
 }
 
 static gboolean wig_session_on_save_timeout(gpointer user_data)
@@ -349,7 +351,7 @@ void wig_session_queue_save(WigSession *self)
 {
   g_return_if_fail(WIG_IS_SESSION(self));
 
-  if (self->save_timeout_id)
+  if (self->quitting || self->save_timeout_id)
     return;
 
   self->save_timeout_id = g_timeout_add_seconds(WIG_SESSION_SAVE_DELAY_SECONDS, wig_session_on_save_timeout, self);
@@ -360,7 +362,7 @@ void wig_session_push_closed_window(WigSession *self, WigSessionWindow *window)
   g_return_if_fail(WIG_IS_SESSION(self));
   g_return_if_fail(window != NULL);
 
-  if (!window->tabs) {
+  if (self->quitting || !window->tabs) {
     wig_session_window_free(window);
     return;
   }
@@ -377,6 +379,9 @@ void wig_session_push_closed_window(WigSession *self, WigSessionWindow *window)
 WigSessionWindow *wig_session_pop_closed_window(WigSession *self)
 {
   g_return_val_if_fail(WIG_IS_SESSION(self), NULL);
+
+  if (self->quitting)
+    return NULL;
 
   WigSessionWindow *window = g_queue_pop_tail(self->closed_windows);
   if (window) {

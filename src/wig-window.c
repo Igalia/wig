@@ -1725,13 +1725,12 @@ static void wig_window_dispose(GObject *object)
   win->search_bar = NULL;
 
   if (win->tab_list) {
-    WigSession *session = wig_application_get_session(wig_application_get());
+    WigApplication *app = wig_application_get();
 
-    /* The window is already out of the application's window list, so this writes
-     * out the ones that remain. When it was the last one the application is on
-     * its way out and the session keeps the windows it saved earlier. */
-    wig_session_save(session);
-    wig_session_push_closed_window(session, wig_window_capture_session(win));
+    /* Tabs going away with the application are not tabs the user closed. */
+    if (!wig_application_is_quitting(app))
+      wig_session_push_closed_window(wig_application_get_session(app), wig_window_capture_session(win));
+
     g_clear_object(&win->tab_list);
   }
 

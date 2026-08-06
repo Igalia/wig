@@ -54,6 +54,7 @@ struct _WigApplication {
   WebKitUserContentFilterStore *content_filter_store;
 
   WigSession *session;
+  gboolean quitting;
   GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
   WigPermissionsManager *permissions_manager;
 };
@@ -367,6 +368,43 @@ static void on_notification_clicked_action(GSimpleAction *action, GVariant *para
     webkit_notification_clicked(notif);
 }
 
+gboolean wig_application_is_quitting(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), FALSE);
+
+  return app->quitting;
+}
+
+static void wig_application_begin_quit(WigApplication *app)
+{
+  if (app->quitting)
+    return;
+
+  g_debug("application: quitting");
+  app->quitting = TRUE;
+  wig_session_set_quitting(app->session);
+}
+
+/* The application runs until its last window goes away, so that window leaving
+ * is the point where the session stops changing. Saving before chaining up
+ * keeps it in the window list, and so in the state that gets written. */
+static void wig_application_window_removed(GtkApplication *application, GtkWindow *window)
+{
+  WigApplication *app = WIG_APPLICATION(application);
+  GList *windows = gtk_application_get_windows(application);
+  gboolean last = windows && !windows->next && windows->data == window;
+
+  if (last)
+    wig_session_save(app->session);
+
+  GTK_APPLICATION_CLASS(wig_application_parent_class)->window_removed(application, window);
+
+  if (last)
+    wig_application_begin_quit(app);
+  else
+    wig_session_save(app->session);
+}
+
 static GSList *wig_application_collect_session_windows(gpointer user_data)
 {
   WigApplication *app = WIG_APPLICATION(user_data);
@@ -479,9 +517,10 @@ static void wig_application_shutdown(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
 
-  /* Quitting leaves the windows standing, so this is the last chance to record
-   * what was open. */
+  /* Quitting while windows are still up (app.quit, a signal) reaches here with
+   * everything to save still in place. */
   wig_session_save(app->session);
+  wig_application_begin_quit(app);
   g_clear_object(&app->session);
 
   g_clear_object(&app->display);
@@ -575,6 +614,9 @@ static void wig_application_class_init(WigApplicationClass *klass)
   gapplication_class->activate = wig_application_activate;
   gapplication_class->open = wig_application_open;
   gapplication_class->shutdown = wig_application_shutdown;
+
+  GtkApplicationClass *gtkapplication_class = GTK_APPLICATION_CLASS(klass);
+  gtkapplication_class->window_removed = wig_application_window_removed;
 }
 
 WigApplication *wig_application_new(void)
