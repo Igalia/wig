@@ -26,11 +26,18 @@
 
 #define WIG_SESSION_MAX_CLOSED_WINDOWS 20
 #define WIG_SESSION_SAVE_DELAY_SECONDS 5
-#define WIG_SESSION_FORMAT_VERSION 1
+#define WIG_SESSION_FORMAT_VERSION 2
 
-/* (version, open windows, closed windows), a window being (id, (tab state, was focused)*). */
-#define WIG_SESSION_FORMAT "(ua(ua(ayb))a(ua(ayb)))"
-#define WIG_SESSION_WINDOW_FORMAT "(u@a(ayb))"
+/* A window is its id, whether it was focused, maximised, fullscreen and
+ * minimised, the size to come back at, and its tabs; a tab is its serialized
+ * state and whether it was the one on screen. */
+#define WIG_SESSION_WINDOW_TYPE "(ubbbbiia(ayb))"
+#define WIG_SESSION_WINDOWS_TYPE "a" WIG_SESSION_WINDOW_TYPE
+#define WIG_SESSION_WINDOW_FORMAT "(ubbbbii@a(ayb))"
+
+/* (version, open windows, closed windows) */
+#define WIG_SESSION_FORMAT "(u" WIG_SESSION_WINDOWS_TYPE WIG_SESSION_WINDOWS_TYPE ")"
+#define WIG_SESSION_FILE_FORMAT "(u@" WIG_SESSION_WINDOWS_TYPE "@" WIG_SESSION_WINDOWS_TYPE ")"
 
 struct _WigSession {
   GObject parent;
@@ -106,16 +113,27 @@ static GVariant *wig_session_window_to_variant(const WigSessionWindow *window)
                           tab->was_focused);
   }
 
-  return g_variant_new(WIG_SESSION_WINDOW_FORMAT, window->window_id, g_variant_builder_end(&tabs));
+  return g_variant_new(WIG_SESSION_WINDOW_FORMAT, window->window_id, window->focused, window->maximized,
+                       window->fullscreen, window->minimized, window->width, window->height,
+                       g_variant_builder_end(&tabs));
 }
 
 static WigSessionWindow *wig_session_window_from_variant(GVariant *variant)
 {
   guint window_id;
+  gboolean focused, maximized, fullscreen, minimized;
+  int width, height;
   g_autoptr(GVariant) tabs = NULL;
-  g_variant_get(variant, WIG_SESSION_WINDOW_FORMAT, &window_id, &tabs);
+  g_variant_get(variant, WIG_SESSION_WINDOW_FORMAT, &window_id, &focused, &maximized, &fullscreen, &minimized, &width,
+                &height, &tabs);
 
   WigSessionWindow *window = wig_session_window_new(window_id);
+  window->focused = focused;
+  window->maximized = maximized;
+  window->fullscreen = fullscreen;
+  window->minimized = minimized;
+  window->width = width;
+  window->height = height;
 
   GVariantIter iter;
   GVariant *blob;
@@ -147,7 +165,7 @@ static GSList *wig_session_window_list_from_variant(GVariant *variant)
   GVariant *child;
 
   g_variant_iter_init(&iter, variant);
-  while (g_variant_iter_loop(&iter, "@(ua(ayb))", &child)) {
+  while (g_variant_iter_loop(&iter, "@" WIG_SESSION_WINDOW_TYPE, &child)) {
     WigSessionWindow *window = wig_session_window_from_variant(child);
     if (window->tabs)
       windows = g_slist_prepend(windows, window);
@@ -161,7 +179,7 @@ static GSList *wig_session_window_list_from_variant(GVariant *variant)
 static GVariant *wig_session_window_list_to_variant(GSList *windows)
 {
   GVariantBuilder builder;
-  g_variant_builder_init(&builder, G_VARIANT_TYPE("a(ua(ayb))"));
+  g_variant_builder_init(&builder, G_VARIANT_TYPE(WIG_SESSION_WINDOWS_TYPE));
 
   for (GSList *l = windows; l; l = l->next)
     g_variant_builder_add_value(&builder, wig_session_window_to_variant(l->data));
@@ -180,12 +198,12 @@ static void wig_session_write(WigSession *self, GVariant *open_windows)
   }
 
   GVariantBuilder closed_builder;
-  g_variant_builder_init(&closed_builder, G_VARIANT_TYPE("a(ua(ayb))"));
+  g_variant_builder_init(&closed_builder, G_VARIANT_TYPE(WIG_SESSION_WINDOWS_TYPE));
   for (GList *l = self->closed_windows->head; l; l = l->next)
     g_variant_builder_add_value(&closed_builder, wig_session_window_to_variant(l->data));
 
-  g_autoptr(GVariant) variant = g_variant_ref_sink(g_variant_new(
-      "(u@a(ua(ayb))@a(ua(ayb)))", WIG_SESSION_FORMAT_VERSION, open_windows, g_variant_builder_end(&closed_builder)));
+  g_autoptr(GVariant) variant = g_variant_ref_sink(g_variant_new(WIG_SESSION_FILE_FORMAT, WIG_SESSION_FORMAT_VERSION,
+                                                                 open_windows, g_variant_builder_end(&closed_builder)));
 
   g_autoptr(GError) error = NULL;
   if (!g_file_set_contents_full(self->path, g_variant_get_data(variant), (gssize)g_variant_get_size(variant),
@@ -275,7 +293,7 @@ void wig_session_load(WigSession *self)
   guint version;
   g_autoptr(GVariant) open_windows = NULL;
   g_autoptr(GVariant) closed_windows = NULL;
-  g_variant_get(variant, "(u@a(ua(ayb))@a(ua(ayb)))", &version, &open_windows, &closed_windows);
+  g_variant_get(variant, WIG_SESSION_FILE_FORMAT, &version, &open_windows, &closed_windows);
 
   if (version != WIG_SESSION_FORMAT_VERSION) {
     g_message("session: ignoring '%s' written in format version %u", self->path, version);

@@ -36,6 +36,12 @@ typedef struct {
 
 typedef struct {
   guint window_id;
+  gboolean focused;
+  gboolean maximized;
+  gboolean fullscreen;
+  gboolean minimized;
+  int width;
+  int height;
   GSList *tabs; /* owned GSList of WigSessionTab* */
 } WigSessionWindow;
 

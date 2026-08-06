@@ -531,11 +531,31 @@ static WigWindow *get_window_by_id(WigApplication *app, guint id)
   return NULL;
 }
 
+/* Nothing on GtkWindow reports this, and on Wayland the compositor may never
+ * tell us either, in which case the toplevel simply never carries the state. */
+static gboolean wig_window_is_minimized(WigWindow *win)
+{
+  GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(win));
+  if (!GDK_IS_TOPLEVEL(surface))
+    return FALSE;
+
+  return (gdk_toplevel_get_state(GDK_TOPLEVEL(surface)) & GDK_TOPLEVEL_STATE_MINIMIZED) != 0;
+}
+
 WigSessionWindow *wig_window_capture_session(WigWindow *win)
 {
   g_return_val_if_fail(WIG_IS_WINDOW(win), NULL);
 
   WigSessionWindow *captured = wig_session_window_new(win->id);
+  captured->focused = gtk_window_is_active(GTK_WINDOW(win));
+  captured->maximized = gtk_window_is_maximized(GTK_WINDOW(win));
+  captured->fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
+  captured->minimized = wig_window_is_minimized(win);
+
+  /* The default size is the size to come back at: it holds the size the window
+   * had before it was maximised or fullscreened, which is the one to restore. */
+  gtk_window_get_default_size(GTK_WINDOW(win), &captured->width, &captured->height);
+
   guint n_tabs = win->tab_list ? wig_tab_list_get_n_tabs(win->tab_list) : 0;
 
   for (guint i = 0; i < n_tabs; i++) {
@@ -553,9 +573,21 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
   g_return_val_if_fail(saved != NULL, NULL);
 
+  g_debug("session: restoring window %u with %d tab(s), %dx%d maximized=%d fullscreen=%d minimized=%d focused=%d",
+          saved->window_id, g_slist_length(saved->tabs), saved->width, saved->height, saved->maximized,
+          saved->fullscreen, saved->minimized, saved->focused);
+
   WigWindow *win = get_window_by_id(app, saved->window_id);
-  if (!win)
+  gboolean created = win == NULL;
+  if (created) {
     win = g_object_new(WIG_TYPE_WINDOW, "id", saved->window_id, "application", app, NULL);
+    if (saved->width > 0 && saved->height > 0)
+      gtk_window_set_default_size(GTK_WINDOW(win), saved->width, saved->height);
+    if (saved->maximized)
+      gtk_window_maximize(GTK_WINDOW(win));
+    if (saved->fullscreen)
+      gtk_window_fullscreen(GTK_WINDOW(win));
+  }
 
   WigTab *focused_tab = NULL;
   for (const GSList *l = saved->tabs; l; l = l->next) {
@@ -574,6 +606,14 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
   if (focused_tab) {
     wig_tab_list_set_active(win->tab_list, focused_tab);
     wig_tab_load_discarded(focused_tab);
+  }
+
+  /* Minimising only sticks once the window has been shown, and presenting it
+   * afterwards would undo it. */
+  if (created) {
+    gtk_window_present(GTK_WINDOW(win));
+    if (saved->minimized)
+      gtk_window_minimize(GTK_WINDOW(win));
   }
 
   return win;

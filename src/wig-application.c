@@ -405,21 +405,35 @@ static void wig_application_window_removed(GtkApplication *application, GtkWindo
     wig_session_save(app->session);
 }
 
+/* The window list runs most recently focused first, so prepending leaves the
+ * windows in the order they should be brought back in. */
 static GSList *wig_application_collect_session_windows(gpointer user_data)
 {
   WigApplication *app = WIG_APPLICATION(user_data);
   GSList *windows = NULL;
+  WigSessionWindow *most_recent = NULL;
+  gboolean any_focused = FALSE;
 
   for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
     if (!WIG_IS_WINDOW(l->data))
       continue;
 
     WigSessionWindow *captured = wig_window_capture_session(WIG_WINDOW(l->data));
-    if (captured->tabs)
-      windows = g_slist_prepend(windows, captured);
-    else
+    if (!captured->tabs) {
       wig_session_window_free(captured);
+      continue;
+    }
+
+    if (!most_recent)
+      most_recent = captured;
+    any_focused |= captured->focused;
+    windows = g_slist_prepend(windows, captured);
   }
+
+  /* No window is active while the browser sits in the background, which is a
+   * likely moment for a save; the most recently focused one still stands in. */
+  if (!any_focused && most_recent)
+    most_recent->focused = TRUE;
 
   return windows;
 }
@@ -542,21 +556,23 @@ static void wig_application_shutdown(GApplication *application)
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
 
-/* Returns the window to present, or NULL when there was nothing to restore. */
+/* Returns the window that was focused when the session was saved, or NULL when
+ * there was nothing to restore. */
 static WigWindow *wig_application_restore_session(WigApplication *app)
 {
   GSList *saved = wig_session_take_restored_windows(app->session);
+  WigWindow *focused = NULL;
   WigWindow *last = NULL;
 
   for (GSList *l = saved; l; l = l->next) {
-    WigWindow *win = wig_window_restore(app, l->data);
-    if (win != last && last)
-      gtk_window_present(GTK_WINDOW(last));
-    last = win;
+    const WigSessionWindow *saved_window = l->data;
+    last = wig_window_restore(app, saved_window);
+    if (saved_window->focused)
+      focused = last;
   }
 
   g_slist_free_full(saved, (GDestroyNotify)wig_session_window_free);
-  return last;
+  return focused ? focused : last;
 }
 
 static void wig_application_activate(GApplication *application)
