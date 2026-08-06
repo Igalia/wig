@@ -103,6 +103,13 @@ config_h.set10(
         dependencies: wpe_webkit_dep,
     ),
 )
+config_h.set10(
+    'HAVE_COLOR_CHOOSER_SUPPORT',
+    cc.has_function(
+        'webkit_color_chooser_request_get_color',
+        dependencies: wpe_webkit_dep,
+    ),
+)
 configure_file(output: 'config.h', configuration: config_h)
 add_project_arguments(
     '-include',

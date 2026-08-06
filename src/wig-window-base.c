@@ -515,6 +515,53 @@ static gboolean wig_window_base_on_run_file_chooser(WigWindowBase *self, WebKitF
   return TRUE;
 }
 
+#if HAVE_COLOR_CHOOSER_SUPPORT
+static void wig_window_base_color_chooser_done(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WebKitColorChooserRequest) request = user_data;
+  g_autoptr(GError) error = NULL;
+
+  g_autoptr(GdkRGBA) rgba = gtk_color_dialog_choose_rgba_finish(GTK_COLOR_DIALOG(source), result, &error);
+  if (!rgba) {
+    g_debug("color-chooser failed: %s", error->message);
+    webkit_color_chooser_request_cancel(request);
+    return;
+  }
+
+  WebKitColor color = {
+    .red = rgba->red,
+    .green = rgba->green,
+    .blue = rgba->blue,
+    .alpha = rgba->alpha,
+  };
+  webkit_color_chooser_request_set_color(request, &color);
+  webkit_color_chooser_request_finish(request);
+}
+
+static gboolean wig_window_base_on_run_color_chooser(WigWindowBase *self, WebKitColorChooserRequest *request,
+                                                     WebKitWebView *web_view)
+{
+  g_autoptr(GtkColorDialog) dialog = gtk_color_dialog_new();
+  gtk_color_dialog_set_title(dialog, "Select Color");
+  /* WPE has no API to report whether the element accepts alpha, and it never does today, so any
+   * alpha the user picked would be silently discarded. */
+  gtk_color_dialog_set_with_alpha(dialog, FALSE);
+
+  WebKitColor color;
+  webkit_color_chooser_request_get_color(request, &color);
+  GdkRGBA rgba = {
+    .red = (float)color.red,
+    .green = (float)color.green,
+    .blue = (float)color.blue,
+    .alpha = (float)color.alpha,
+  };
+
+  gtk_color_dialog_choose_rgba(dialog, GTK_WINDOW(self), &rgba, NULL, wig_window_base_color_chooser_done,
+                               g_object_ref(request));
+  return TRUE;
+}
+#endif
+
 static void wig_window_base_constructed(GObject *object)
 {
   G_OBJECT_CLASS(wig_window_base_parent_class)->constructed(object);
@@ -654,6 +701,9 @@ void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_vie
 
   GSignalGroup *signals = g_signal_group_new(WEBKIT_TYPE_WEB_VIEW);
   g_signal_group_connect_swapped(signals, "run-file-chooser", G_CALLBACK(wig_window_base_on_run_file_chooser), self);
+#if HAVE_COLOR_CHOOSER_SUPPORT
+  g_signal_group_connect_swapped(signals, "run-color-chooser", G_CALLBACK(wig_window_base_on_run_color_chooser), self);
+#endif
   g_signal_group_connect(signals, "show-notification", G_CALLBACK(show_notification), self);
   g_signal_group_connect(signals, "permission-request", G_CALLBACK(permission_requested), self);
   g_signal_group_set_target(signals, web_view);
