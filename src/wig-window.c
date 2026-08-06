@@ -1651,21 +1651,25 @@ static void wig_window_constructed(GObject *object)
   gtk_box_append(GTK_BOX(content_box), win->tab_separator);
 
   win->tab_stack = gtk_stack_new();
+  gtk_widget_set_vexpand(win->tab_stack, TRUE);
+
+  win->search_bar = wig_search_bar_new();
+  g_signal_connect_object(win->search_bar, "closed", G_CALLBACK(wig_window_search_bar_closed), win, G_CONNECT_DEFAULT);
+
+  GtkWidget *view_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_box_append(GTK_BOX(view_box), win->tab_stack);
+  gtk_box_append(GTK_BOX(view_box), win->search_bar);
 
   win->paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
   GtkWidget *paned = win->paned;
   gtk_widget_set_vexpand(paned, TRUE);
   gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
   gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
-  gtk_paned_set_end_child(GTK_PANED(paned), win->tab_stack);
+  gtk_paned_set_end_child(GTK_PANED(paned), view_box);
   gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
   gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
   gtk_paned_set_position(GTK_PANED(paned), 200);
   gtk_box_append(GTK_BOX(content_box), paned);
-
-  win->search_bar = wig_search_bar_new();
-  g_signal_connect_object(win->search_bar, "closed", G_CALLBACK(wig_window_search_bar_closed), win, G_CONNECT_DEFAULT);
-  gtk_box_append(GTK_BOX(content_box), win->search_bar);
 
   gtk_window_set_child(GTK_WINDOW(win), content_box);
   gtk_window_set_titlebar(GTK_WINDOW(win), win->header_bar);
