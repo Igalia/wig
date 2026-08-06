@@ -28,16 +28,12 @@
 
 #include "wig-history-store.h"
 #include "wig-permissions-manager.h"
+#include "wig-session.h"
 
 G_BEGIN_DECLS
 
 #define WIG_TYPE_APPLICATION (wig_application_get_type())
 G_DECLARE_FINAL_TYPE(WigApplication, wig_application, WIG, APPLICATION, AdwApplication)
-
-typedef struct {
-  WebKitWebViewSessionState *state;
-  gboolean was_focused;
-} WigClosedTab;
 
 typedef enum {
   WIG_DOWNLOAD_ACTIVE,
@@ -50,11 +46,6 @@ typedef struct {
   WebKitDownload *download;
   WigDownloadState state;
 } WigDownloadRecord;
-
-typedef struct {
-  guint window_id;
-  GSList *tabs; /* owned GSList of WigClosedTab* */
-} WigClosedGroup;
 
 typedef struct {
   char *source;
@@ -82,10 +73,7 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
 void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 
-void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group);
-WigClosedGroup *wig_application_pop_closed_group(WigApplication *app);
-void wig_closed_group_free(WigClosedGroup *group);
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigClosedGroup, wig_closed_group_free)
+WigSession *wig_application_get_session(WigApplication *app);
 
 void wig_application_track_notification(WigApplication *app, const char *id, WebKitNotification *notif);
 void wig_application_untrack_notification(WigApplication *app, const char *id);

@@ -16,6 +16,7 @@ wig_sources = files(
     'wig-permissions-manager.c',
     'wig-permissions.c',
     'wig-search-bar.c',
+    'wig-session.c',
     'wig-utils.c',
     'wig-window.c',
 ) + internal_pages_sources + wig_tab_sources + wig_entry_sources + wig_resources + wig_icon_resources

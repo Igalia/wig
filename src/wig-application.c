@@ -53,7 +53,7 @@ struct _WigApplication {
   GPtrArray *user_style_sheets;
   WebKitUserContentFilterStore *content_filter_store;
 
-  GQueue *closed_tab_history;
+  WigSession *session;
   GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
   WigPermissionsManager *permissions_manager;
 };
@@ -347,7 +347,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
 
 static void wig_application_init(WigApplication *app)
 {
-  app->closed_tab_history = g_queue_new();
+  app->session = wig_session_new();
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
@@ -455,9 +455,7 @@ static void wig_application_shutdown(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
 
-  g_queue_free_full(app->closed_tab_history, (GDestroyNotify)wig_closed_group_free);
-  app->closed_tab_history = NULL;
-
+  g_clear_object(&app->session);
   g_clear_object(&app->display);
   g_clear_object(&app->network_session);
   g_clear_object(&app->web_context);
@@ -649,40 +647,11 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
   g_hash_table_insert(app->typed_navigations, web_view, GINT_TO_POINTER(1));
 }
 
-static void wig_closed_tab_free(WigClosedTab *tab)
-{
-  webkit_web_view_session_state_unref(tab->state);
-  g_free(tab);
-}
-
-void wig_closed_group_free(WigClosedGroup *group)
-{
-  if (!group)
-    return;
-  g_slist_free_full(group->tabs, (GDestroyNotify)wig_closed_tab_free);
-  g_free(group);
-}
-
-void wig_application_push_closed_group(WigApplication *app, WigClosedGroup *group)
-{
-  g_return_if_fail(WIG_IS_APPLICATION(app));
-  g_return_if_fail(group != NULL);
-
-  g_debug("Pushing closed group of size %d for window %d", g_slist_length(group->tabs), group->window_id);
-  g_queue_push_tail(app->closed_tab_history, group);
-
-  if (g_queue_get_length(app->closed_tab_history) > 20)
-    wig_closed_group_free(g_queue_pop_head(app->closed_tab_history));
-}
-
-WigClosedGroup *wig_application_pop_closed_group(WigApplication *app)
+WigSession *wig_application_get_session(WigApplication *app)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
-  WigClosedGroup *group = g_queue_pop_tail(app->closed_tab_history);
-  if (group)
-    g_debug("Popping closed group of size %d for window %d", g_slist_length(group->tabs), group->window_id);
-  return group;
+  return app->session;
 }
 
 void wig_application_track_notification(WigApplication *app, const char *id, WebKitNotification *notif)

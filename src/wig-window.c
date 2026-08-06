@@ -164,18 +164,9 @@ static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *we
 
 static void wig_window_save_tab_to_history(WigWindow *win, WebKitWebView *web_view)
 {
-  WebKitWebViewSessionState *state = webkit_web_view_get_session_state(web_view);
-  if (!state)
-    return;
-
-  WigClosedTab *tab = g_new(WigClosedTab, 1);
-  tab->state = g_steal_pointer(&state);
-  tab->was_focused = (win->current_web_view == web_view);
-
-  WigClosedGroup *group = g_new(WigClosedGroup, 1);
-  group->window_id = win->id;
-  group->tabs = g_slist_prepend(NULL, tab);
-  wig_application_push_closed_group(WIG_APPLICATION(wig_application_get()), group);
+  WigClosedGroup *group = wig_closed_group_new(win->id);
+  wig_closed_group_add_tab(group, webkit_web_view_get_session_state(web_view), win->current_web_view == web_view);
+  wig_session_push_closed_group(wig_application_get_session(wig_application_get()), group);
 }
 
 static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *win)
@@ -545,7 +536,7 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
   WigWindow *win = WIG_WINDOW(user_data);
   WigApplication *app = wig_application_get();
 
-  WigClosedGroup *group = wig_application_pop_closed_group(app);
+  WigClosedGroup *group = wig_session_pop_closed_group(wig_application_get_session(app));
   if (!group)
     return;
 
@@ -1699,30 +1690,16 @@ static void wig_window_dispose(GObject *object)
   win->search_bar = NULL;
 
   if (win->tab_list) {
-    WigApplication *app = wig_application_get();
     guint n_tabs = wig_tab_list_get_n_tabs(win->tab_list);
-    if (n_tabs > 0) {
-      g_autoptr(WigClosedGroup) group = g_new(WigClosedGroup, 1);
-      group->window_id = win->id;
-      group->tabs = NULL;
+    WigClosedGroup *group = wig_closed_group_new(win->id);
 
-      for (guint i = 0; i < n_tabs; i++) {
-        WigTab *item = wig_tab_list_get_nth(win->tab_list, i);
-        WebKitWebView *wv = wig_tab_get_web_view(item);
-        WebKitWebViewSessionState *state = webkit_web_view_get_session_state(wv);
-
-        if (state) {
-          WigClosedTab *closed = g_new(WigClosedTab, 1);
-          closed->state = state;
-          closed->was_focused = (wv == win->current_web_view);
-          group->tabs = g_slist_prepend(group->tabs, closed);
-        }
-      }
-      group->tabs = g_slist_reverse(group->tabs);
-
-      if (group->tabs)
-        wig_application_push_closed_group(app, g_steal_pointer(&group));
+    for (guint i = 0; i < n_tabs; i++) {
+      WigTab *item = wig_tab_list_get_nth(win->tab_list, i);
+      WebKitWebView *wv = wig_tab_get_web_view(item);
+      wig_closed_group_add_tab(group, webkit_web_view_get_session_state(wv), wv == win->current_web_view);
     }
+
+    wig_session_push_closed_group(wig_application_get_session(wig_application_get()), group);
     g_clear_object(&win->tab_list);
   }
 
