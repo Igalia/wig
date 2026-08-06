@@ -51,6 +51,10 @@ void wig_tab_set_pinned(WigTab *self, gboolean pinned);
 gboolean wig_tab_get_loading(WigTab *self);
 gboolean wig_tab_get_selected(WigTab *self);
 void wig_tab_set_selected(WigTab *self, gboolean selected);
+gboolean wig_tab_get_search_active(WigTab *self);
+void wig_tab_set_search_active(WigTab *self, gboolean search_active);
+guint wig_tab_get_search_match_count(WigTab *self);
+void wig_tab_set_search_match_count(WigTab *self, guint match_count);
 void wig_tab_set_hovered_link(WigTab *self, const char *uri, const char *page_origin);
 
 G_END_DECLS

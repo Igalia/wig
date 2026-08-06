@@ -25,6 +25,7 @@
 #include "wig-application.h"
 #include "wig-entry-completion-popover.h"
 #include "wig-permissions-button.h"
+#include "wig-search-bar.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
 #include "wig-tab-sidebar.h"
@@ -57,6 +58,7 @@ struct _WigWindow {
   GtkWidget *tab_separator;
   GtkWidget *tab_sidebar;
   GtkWidget *tab_stack;
+  GtkWidget *search_bar;
   GtkWidget *overview_button;
   WebKitWebView *current_web_view;
   guint progress_timeout_id;
@@ -448,6 +450,39 @@ static void wig_window_focus_entry(GSimpleAction *action, GVariant *parameter, g
   gtk_editable_select_region(GTK_EDITABLE(win->url_entry), 0, -1);
 }
 
+static void wig_window_find(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->search_bar)
+    return;
+
+  WigTab *tab = win->tab_list ? wig_tab_list_get_active(win->tab_list) : NULL;
+  wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
+  wig_search_bar_open(WIG_SEARCH_BAR(win->search_bar));
+}
+
+static void wig_window_find_next(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (win->search_bar && wig_search_bar_is_open(WIG_SEARCH_BAR(win->search_bar)))
+    wig_search_bar_find_next(WIG_SEARCH_BAR(win->search_bar));
+}
+
+static void wig_window_find_previous(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (win->search_bar && wig_search_bar_is_open(WIG_SEARCH_BAR(win->search_bar)))
+    wig_search_bar_find_previous(WIG_SEARCH_BAR(win->search_bar));
+}
+
+/* The find bar took the keyboard away from the page; hand it back. */
+static void wig_window_search_bar_closed(WigSearchBar *search_bar, WigWindow *win)
+{
+  WigTab *tab = win->tab_list ? wig_tab_list_get_active(win->tab_list) : NULL;
+  if (tab)
+    gtk_widget_grab_focus(wig_tab_get_widget(tab));
+}
+
 static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -796,6 +831,9 @@ static const GActionEntry actions[] = {
   { "stop-reload", wig_window_stop_reload, NULL, "false", wig_window_change_stop_reload_state },
   { "new-tab", wig_window_new_tab },
   { "focus-entry", wig_window_focus_entry },
+  { "find", wig_window_find },
+  { "find-next", wig_window_find_next },
+  { "find-previous", wig_window_find_previous },
   { "close-tab", wig_window_close_tab_action },
   { "reload", wig_window_reload },
   { "reload-bypass-cache", wig_window_reload_bypass_cache },
@@ -1327,6 +1365,9 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
   if (tab)
     gtk_stack_set_visible_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
 
+  if (win->search_bar)
+    wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
+
   wig_window_update_url(win);
   wig_window_update_navigation_actions(win);
   wig_window_update_stop_reload_actions(win);
@@ -1609,6 +1650,11 @@ static void wig_window_constructed(GObject *object)
   gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
   gtk_paned_set_position(GTK_PANED(paned), 200);
   gtk_box_append(GTK_BOX(content_box), paned);
+
+  win->search_bar = wig_search_bar_new();
+  g_signal_connect_object(win->search_bar, "closed", G_CALLBACK(wig_window_search_bar_closed), win, G_CONNECT_DEFAULT);
+  gtk_box_append(GTK_BOX(content_box), win->search_bar);
+
   gtk_window_set_child(GTK_WINDOW(win), content_box);
   gtk_window_set_titlebar(GTK_WINDOW(win), win->header_bar);
 
@@ -1623,6 +1669,10 @@ static void wig_window_dispose(GObject *object)
 {
   WigWindow *win = WIG_WINDOW(object);
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
+
+  /* Tearing down the tabs below emits signals that would otherwise reach the bar
+   * while the window is already going away. */
+  win->search_bar = NULL;
 
   if (win->tab_list) {
     WigApplication *app = wig_application_get();

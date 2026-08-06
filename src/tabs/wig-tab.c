@@ -39,6 +39,8 @@ struct _WigTab {
   gboolean pinned;
   gboolean loading;
   gboolean selected;
+  gboolean search_active;
+  guint search_match_count;
 
   gboolean status_active;
   double cursor_x;
@@ -372,6 +374,36 @@ gboolean wig_tab_get_loading(WigTab *self)
 gboolean wig_tab_get_selected(WigTab *self)
 {
   return self->selected;
+}
+
+gboolean wig_tab_get_search_active(WigTab *self)
+{
+  g_return_val_if_fail(WIG_IS_TAB(self), FALSE);
+
+  return self->search_active;
+}
+
+void wig_tab_set_search_active(WigTab *self, gboolean search_active)
+{
+  g_return_if_fail(WIG_IS_TAB(self));
+
+  self->search_active = search_active;
+}
+
+/* Counting matches in WebKit clears the marks the search put in the page, so the
+ * last count is kept here rather than asked for again when the tab is shown. */
+guint wig_tab_get_search_match_count(WigTab *self)
+{
+  g_return_val_if_fail(WIG_IS_TAB(self), 0);
+
+  return self->search_match_count;
+}
+
+void wig_tab_set_search_match_count(WigTab *self, guint match_count)
+{
+  g_return_if_fail(WIG_IS_TAB(self));
+
+  self->search_match_count = match_count;
 }
 
 void wig_tab_set_selected(WigTab *self, gboolean selected)

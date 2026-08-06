@@ -423,6 +423,9 @@ static void wig_application_startup(GApplication *application)
     { "win.zoom-out", { "<Primary>minus", NULL } },
     { "win.zoom-reset", { "<Primary>0", NULL } },
     { "win.undo-close-tab", { "<Primary><Shift>t", NULL } },
+    { "win.find", { "<Primary>f", NULL } },
+    { "win.find-next", { "<Primary>g", "F3", NULL } },
+    { "win.find-previous", { "<Primary><Shift>g", "<Shift>F3", NULL } },
 
   };
 

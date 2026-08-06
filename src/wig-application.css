@@ -59,6 +59,12 @@
   font-size: 0.85em;
 }
 
+wig-search-bar .search-bar-box {
+  background-color: @window_bg_color;
+  border-top: 1px solid alpha(@borders, 0.5);
+  padding: 6px 8px;
+}
+
 /* Tab bar - horizontal padding here defines the collapsed (favicon-only)
  * width together with WIG_TAB_FAVICON_SIZE; keep them in sync. */
 wig-tab-bar wig-tab:first-child {
