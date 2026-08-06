@@ -373,8 +373,19 @@ static gboolean wig_window_on_run_file_chooser(WigWindow *win, WebKitFileChooser
   const char *const *mime_types = webkit_file_chooser_request_get_mime_types(request);
   if (mime_types && *mime_types) {
     g_autoptr(GtkFileFilter) filter = gtk_file_filter_new();
-    for (guint i = 0; mime_types[i]; i++)
+    gtk_file_filter_set_name(filter, "Supported Files");
+    for (guint i = 0; mime_types[i]; i++) {
       gtk_file_filter_add_mime_type(filter, mime_types[i]);
+    }
+
+    g_autoptr(GtkFileFilter) all_filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(all_filter, "All Files");
+    gtk_file_filter_add_pattern(all_filter, "*");
+
+    g_autoptr(GListStore) filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, filter);
+    g_list_store_append(filters, all_filter);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
     gtk_file_dialog_set_default_filter(dialog, filter);
   }
 

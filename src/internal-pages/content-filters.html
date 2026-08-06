@@ -37,13 +37,85 @@
     <label for='source'>Rules (JSON)</label>
     <textarea id='source' name='source' rows='10' placeholder='[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]'></textarea>
     <div class='add-form-footer'>
+      <button type='button' class='btn' id='open'>Open File…</button>
       <button type='submit'>Add Filter</button>
     </div>
+  </form>
+
+  <p class='filter-error' id='read-error' hidden></p>
+  <p class='filter-status' id='status' hidden></p>
+
+  <input type='file' id='file' accept='.json,application/json' hidden>
+  <form method='post' action='wig:content-filters' id='file-form' hidden>
+    <input type='hidden' name='identifier' id='file-identifier'>
+    <input type='hidden' name='source' id='file-source'>
   </form>
 
   <script>
     if (location.search)
       history.replaceState({}, '', location.href.split('?')[0]);
+
+    const file = document.getElementById('file');
+    const fileForm = document.getElementById('file-form');
+    const readError = document.getElementById('read-error');
+    const status = document.getElementById('status');
+
+    const installed = Array.from(document.querySelectorAll('.script-meta'), el => el.textContent.trim());
+
+    /* Saving under an existing identifier replaces it, so make that explicit. */
+    function confirmReplace(name) {
+      return !installed.includes(name)
+          || confirm('A filter named "' + name + '" is already installed. Replace it?');
+    }
+
+    function showCompiling(name) {
+      readError.hidden = true;
+      status.textContent = 'Compiling "' + name + '"…';
+      status.hidden = false;
+    }
+
+    document.getElementById('open').addEventListener('click', () => {
+      console.log('content-filters: opening file picker');
+      file.click();
+    });
+
+    file.addEventListener('change', async () => {
+      console.log('content-filters: change fired, ' + file.files.length + ' file(s)');
+      const chosen = file.files[0];
+      if (!chosen)
+        return;
+      console.log('content-filters: chosen ' + chosen.name + ' (' + chosen.size + ' bytes, type ' + chosen.type + ')');
+
+      let text;
+      try {
+        text = await chosen.text();
+      } catch (e) {
+        console.error('content-filters: read failed: ' + e);
+        readError.textContent = 'Could not read ' + chosen.name + ': ' + e.message;
+        readError.hidden = false;
+        return;
+      }
+      const name = chosen.name.replace(/\.json$/i, '');
+      if (!confirmReplace(name))
+        return;
+
+      console.log('content-filters: read ' + text.length + ' chars, compiling "' + name + '"');
+      document.getElementById('file-identifier').value = name;
+      document.getElementById('file-source').value = text;
+      showCompiling(name);
+      fileForm.requestSubmit();
+    });
+
+    document.querySelector('.add-form').addEventListener('submit', event => {
+      const name = document.getElementById('identifier').value.trim();
+      if (!name || !document.getElementById('source').value.trim())
+        return;
+      if (!confirmReplace(name)) {
+        event.preventDefault();
+        return;
+      }
+      showCompiling(name);
+    });
   </script>
 </body>
 

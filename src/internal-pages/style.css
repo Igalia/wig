@@ -663,6 +663,7 @@ tr.active td {
   grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .add-form input[type=text] {
@@ -692,5 +693,15 @@ tr.active td {
   font-size: 0.875em;
   font-family: monospace;
   white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.filter-status {
+  padding: 0.6rem 1rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 0.875em;
   word-break: break-word;
 }
