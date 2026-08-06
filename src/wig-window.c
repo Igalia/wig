@@ -24,7 +24,7 @@
 
 #include "wig-application.h"
 #include "wig-entry-completion-popover.h"
-#include "wig-permissions-button.h"
+#include "wig-permissions-popover.h"
 #include "wig-search-bar.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
@@ -49,6 +49,7 @@ struct _WigWindow {
   GtkWidget *url_entry;
   GtkWidget *entry_completion_popover;
   GtkWidget *permissions_button;
+  GtkWidget *permissions_popover;
   WigPermissionsManager *permissions_manager; /* borrowed from application */
   char *current_origin; /* origin string of current_web_view, or NULL */
   WigTabList *tab_list;
@@ -294,7 +295,7 @@ static void wig_window_update_permissions(WigWindow *win)
   if (win->current_origin)
     permissions = wig_permissions_manager_lookup(win->permissions_manager, win->current_origin);
 
-  wig_permissions_button_set_permissions(WIG_PERMISSIONS_BUTTON(win->permissions_button), permissions);
+  wig_permissions_popover_set_permissions(WIG_PERMISSIONS_POPOVER(win->permissions_popover), permissions);
 }
 
 static void wig_window_on_permissions_changed(WigWindow *win, const char *origin)
@@ -303,7 +304,7 @@ static void wig_window_on_permissions_changed(WigWindow *win, const char *origin
     return;
 
   WigPermissions *permissions = wig_permissions_manager_lookup(win->permissions_manager, origin);
-  wig_permissions_button_set_permissions(WIG_PERMISSIONS_BUTTON(win->permissions_button), permissions);
+  wig_permissions_popover_set_permissions(WIG_PERMISSIONS_POPOVER(win->permissions_popover), permissions);
 }
 
 static gboolean wig_window_on_permission_request(WebKitWebView *web_view, WebKitPermissionRequest *request,
@@ -333,7 +334,7 @@ static gboolean wig_window_on_permission_request(WebKitWebView *web_view, WebKit
     return FALSE;
 
   wig_permissions_manager_handle_request(win->permissions_manager, origin_str, request,
-                                         WIG_PERMISSIONS_BUTTON(win->permissions_button));
+                                         WIG_PERMISSIONS_POPOVER(win->permissions_popover));
   return TRUE;
 }
 
@@ -1610,7 +1611,14 @@ static void wig_window_constructed(GObject *object)
                           G_CONNECT_DEFAULT);
   gtk_widget_add_controller(win->url_entry, url_keys);
 
-  win->permissions_button = wig_permissions_button_new();
+  win->permissions_popover = wig_permissions_popover_new();
+
+  win->permissions_button = gtk_menu_button_new();
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(win->permissions_button), "sliders-horizontal-symbolic");
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(win->permissions_button), win->permissions_popover);
+  g_object_bind_property(win->permissions_popover, "has-permissions", win->permissions_button, "visible",
+                         G_BINDING_SYNC_CREATE);
+
   win->permissions_manager = wig_application_get_permissions_manager(wig_application_get());
   g_signal_connect_object(win->permissions_manager, "changed", G_CALLBACK(wig_window_on_permissions_changed), win,
                           G_CONNECT_SWAPPED);

@@ -91,12 +91,12 @@ WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, cons
 }
 
 void wig_permissions_manager_handle_request(WigPermissionsManager *self, const char *origin,
-                                            WebKitPermissionRequest *request, WigPermissionsButton *button)
+                                            WebKitPermissionRequest *request, WigPermissionsPopover *popover)
 {
   g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
   g_return_if_fail(origin != NULL);
   g_return_if_fail(WEBKIT_IS_PERMISSION_REQUEST(request));
-  g_return_if_fail(WIG_IS_PERMISSIONS_BUTTON(button));
+  g_return_if_fail(WIG_IS_PERMISSIONS_POPOVER(popover));
 
   WigPermissionKind undecided = wig_permission_kinds_for_request(request);
   g_assert(undecided != 0);
@@ -135,5 +135,5 @@ void wig_permissions_manager_handle_request(WigPermissionsManager *self, const c
   /* Remember the origin (making the button visible) and prompt the user for
    * whichever permissions are still undecided. */
   permissions = wig_permissions_manager_ensure(self, origin);
-  wig_permissions_button_prompt(button, permissions, undecided, request);
+  wig_permissions_popover_prompt(popover, permissions, undecided, request);
 }

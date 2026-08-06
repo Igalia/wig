@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "wig-permissions-button.h"
+#include "wig-permissions-popover.h"
 #include "wig-permissions.h"
 
 G_BEGIN_DECLS
@@ -34,6 +34,6 @@ WigPermissionsManager *wig_permissions_manager_new(void);
 WigPermissions *wig_permissions_manager_lookup(WigPermissionsManager *self, const char *origin);
 WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, const char *origin);
 void wig_permissions_manager_handle_request(WigPermissionsManager *self, const char *origin,
-                                            WebKitPermissionRequest *request, WigPermissionsButton *button);
+                                            WebKitPermissionRequest *request, WigPermissionsPopover *popover);
 
 G_END_DECLS

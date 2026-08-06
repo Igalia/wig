@@ -29,12 +29,12 @@
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_PERMISSIONS_BUTTON (wig_permissions_button_get_type())
-G_DECLARE_FINAL_TYPE(WigPermissionsButton, wig_permissions_button, WIG, PERMISSIONS_BUTTON, GtkWidget)
+#define WIG_TYPE_PERMISSIONS_POPOVER (wig_permissions_popover_get_type())
+G_DECLARE_FINAL_TYPE(WigPermissionsPopover, wig_permissions_popover, WIG, PERMISSIONS_POPOVER, GtkPopover)
 
-GtkWidget *wig_permissions_button_new(void);
-void wig_permissions_button_set_permissions(WigPermissionsButton *self, WigPermissions *permissions);
-void wig_permissions_button_prompt(WigPermissionsButton *self, WigPermissions *permissions, WigPermissionKind kinds,
-                                   WebKitPermissionRequest *request);
+GtkWidget *wig_permissions_popover_new(void);
+void wig_permissions_popover_set_permissions(WigPermissionsPopover *self, WigPermissions *permissions);
+void wig_permissions_popover_prompt(WigPermissionsPopover *self, WigPermissions *permissions, WigPermissionKind kinds,
+                                    WebKitPermissionRequest *request);
 
 G_END_DECLS
