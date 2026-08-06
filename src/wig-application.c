@@ -564,12 +564,16 @@ static WigWindow *wig_application_restore_session(WigApplication *app)
   WigWindow *focused = NULL;
   WigWindow *last = NULL;
 
+  wig_session_set_restoring(app->session, TRUE);
+
   for (GSList *l = saved; l; l = l->next) {
     const WigSessionWindow *saved_window = l->data;
     last = wig_window_restore(app, saved_window);
     if (saved_window->focused)
       focused = last;
   }
+
+  wig_session_set_restoring(app->session, FALSE);
 
   g_slist_free_full(saved, (GDestroyNotify)wig_session_window_free);
   return focused ? focused : last;

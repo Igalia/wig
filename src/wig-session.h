@@ -60,6 +60,7 @@ void wig_session_set_collect_func(WigSession *self, WigSessionCollectFunc func, 
 
 void wig_session_load(WigSession *self);
 GSList *wig_session_take_restored_windows(WigSession *self);
+void wig_session_set_restoring(WigSession *self, gboolean restoring);
 
 void wig_session_queue_save(WigSession *self);
 void wig_session_save(WigSession *self);

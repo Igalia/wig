@@ -50,6 +50,7 @@ struct _WigSession {
   gpointer collect_data;
   guint save_timeout_id;
   gboolean quitting;
+  gboolean restoring;
 };
 
 G_DEFINE_FINAL_TYPE(WigSession, wig_session, G_TYPE_OBJECT)
@@ -335,11 +336,28 @@ void wig_session_set_quitting(WigSession *self)
   g_clear_handle_id(&self->save_timeout_id, g_source_remove);
 }
 
+/* Windows and tabs appearing one at a time as a session is restored look exactly
+ * like a user opening them, so the session has to be told to ignore itself
+ * being put back together. */
+void wig_session_set_restoring(WigSession *self, gboolean restoring)
+{
+  g_return_if_fail(WIG_IS_SESSION(self));
+
+  if (self->restoring == restoring)
+    return;
+
+  g_debug("session: %s", restoring ? "restoring" : "restored");
+  self->restoring = restoring;
+
+  if (!restoring)
+    wig_session_queue_save(self);
+}
+
 void wig_session_save(WigSession *self)
 {
   g_return_if_fail(WIG_IS_SESSION(self));
 
-  if (self->quitting)
+  if (self->quitting || self->restoring)
     return;
 
   g_clear_handle_id(&self->save_timeout_id, g_source_remove);
@@ -373,7 +391,7 @@ void wig_session_queue_save(WigSession *self)
 {
   g_return_if_fail(WIG_IS_SESSION(self));
 
-  if (self->quitting || self->save_timeout_id)
+  if (self->quitting || self->restoring || self->save_timeout_id)
     return;
 
   self->save_timeout_id = g_timeout_add_seconds(WIG_SESSION_SAVE_DELAY_SECONDS, wig_session_on_save_timeout, self);
