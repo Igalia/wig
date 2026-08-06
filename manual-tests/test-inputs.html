@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Input Type Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 720px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 1.05em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .row > label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9em;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.85em;
+      color: #555;
+    }
+    input, select, textarea, button {
+      font-family: inherit;
+      font-size: 0.95em;
+    }
+    input[type="text"], input[type="password"], input[type="email"],
+    input[type="url"], input[type="tel"], input[type="search"],
+    input[type="number"], select, textarea {
+      padding: 5px 8px;
+      border: 1px solid #c0c0c0;
+      border-radius: 5px;
+      background: white;
+      color: #222;
+    }
+    input:invalid { border-color: #c01c28; }
+    textarea { min-height: 60px; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover { background: #1c71d8; }
+    .status {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ok   { color: #26a269; }
+    .err  { color: #c01c28; }
+    .info { color: #9141ac; }
+    .badge {
+      font-size: 0.68em;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge.native  { background: #d8f5e3; color: #1a7f4b; }
+    .badge.inline  { background: #dfe8fd; color: #1a5fb4; }
+    .badge.text    { background: #f0f0f0; color: #555; }
+    .swatch {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      border: 1px solid #aaa;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    code { font-family: monospace; }
+    fieldset {
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin: 0 0 10px;
+    }
+    legend { font-size: 0.85em; color: #555; padding: 0 4px; }
+  </style>
+</head>
+<body>
+
+<h1>Input Type Tests</h1>
+<p class="subtitle">
+  Exercises every HTML <code>&lt;input&gt;</code> type plus the other form controls that
+  render their own popup UI. Types badged <span class="badge native">native ui</span> open a
+  widget drawn by WebKit or the platform (color chooser, date picker, select popup) — those
+  are the interesting ones for wig, since the popup has to be positioned and sized against
+  the WPE view. File inputs are covered separately in
+  <a href="test-choosers.html">test-choosers.html</a>.
+</p>
+
+<section>
+  <h2>Color <span class="badge native">native ui</span></h2>
+  <p class="desc">
+    <code>&lt;input type="color"&gt;</code> should open a color chooser. The swatch and hex
+    value below update live on <code>input</code> and on commit via <code>change</code>.
+    Cancelling must leave the value untouched.
+  </p>
+  <div class="row">
+    <div class="field">
+      <span>Plain</span>
+      <input type="color" id="color-plain" value="#3584e4">
+    </div>
+    <div class="field">
+      <span>With <code>list</code> of suggestions</span>
+      <input type="color" id="color-list" value="#26a269" list="color-suggestions">
+      <datalist id="color-suggestions">
+        <option value="#c01c28">
+        <option value="#f5c211">
+        <option value="#26a269">
+        <option value="#3584e4">
+        <option value="#9141ac">
+      </datalist>
+    </div>
+    <div class="field">
+      <span>Alpha (<code>colorspace</code>/alpha support varies)</span>
+      <input type="color" id="color-alpha" value="#9141ac" alpha>
+    </div>
+    <div class="field">
+      <span>Disabled</span>
+      <input type="color" id="color-disabled" value="#777777" disabled>
+    </div>
+  </div>
+  <div class="status" id="color-status">No colour picked yet.</div>
+</section>
+
+<section>
+  <h2>Date &amp; Time <span class="badge native">native ui</span></h2>
+  <p class="desc">
+    Each of these should offer a picker in addition to keyboard entry.
+    <code>datetime-local</code>, <code>month</code> and <code>week</code> are the ones most
+    likely to fall back to a plain text field depending on the WebKit build.
+  </p>
+  <div class="row">
+    <div class="field"><span><code>date</code></span><input type="date" id="in-date"></div>
+    <div class="field"><span><code>time</code></span><input type="time" id="in-time"></div>
+    <div class="field"><span><code>datetime-local</code></span><input type="datetime-local" id="in-datetime-local"></div>
+    <div class="field"><span><code>month</code></span><input type="month" id="in-month"></div>
+    <div class="field"><span><code>week</code></span><input type="week" id="in-week"></div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <span><code>date</code> with <code>min</code>/<code>max</code>/<code>step</code> (2026, weekly)</span>
+      <input type="date" id="in-date-bounded" min="2026-01-01" max="2026-12-31" step="7">
+    </div>
+    <div class="field">
+      <span><code>time</code> with seconds (<code>step="1"</code>)</span>
+      <input type="time" id="in-time-seconds" step="1">
+    </div>
+  </div>
+  <div class="status" id="datetime-status">Nothing entered yet.</div>
+</section>
+
+<section>
+  <h2>Select &amp; Datalist <span class="badge native">native ui</span></h2>
+  <p class="desc">
+    Dropdowns render as a popup owned by WebKit. Check that the popup appears next to the
+    control (not at the origin), scrolls when long, closes on <kbd>Esc</kbd>, and stays
+    aligned after the page is scrolled.
+  </p>
+  <div class="row">
+    <div class="field">
+      <span>Short <code>&lt;select&gt;</code></span>
+      <select id="select-short">
+        <option>Red</option>
+        <option>Green</option>
+        <option selected>Blue</option>
+      </select>
+    </div>
+    <div class="field">
+      <span>Grouped with <code>&lt;optgroup&gt;</code></span>
+      <select id="select-grouped">
+        <optgroup label="Warm">
+          <option>Red</option>
+          <option>Orange</option>
+        </optgroup>
+        <optgroup label="Cool">
+          <option>Blue</option>
+          <option disabled>Indigo (disabled)</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="field">
+      <span>Long (100 options — should scroll)</span>
+      <select id="select-long"></select>
+    </div>
+    <div class="field">
+      <span>Multiple (list box, not a popup)</span>
+      <select id="select-multiple" multiple size="4">
+        <option>One</option>
+        <option>Two</option>
+        <option>Three</option>
+        <option>Four</option>
+        <option>Five</option>
+      </select>
+    </div>
+    <div class="field">
+      <span><code>text</code> + <code>list</code> (autocomplete popup)</span>
+      <input type="text" id="in-datalist" list="fruit" placeholder="Type “a”…">
+      <datalist id="fruit">
+        <option value="Apple">
+        <option value="Apricot">
+        <option value="Avocado">
+        <option value="Banana">
+        <option value="Blackberry">
+      </datalist>
+    </div>
+  </div>
+  <div class="status" id="select-status">Nothing selected yet.</div>
+</section>
+
+<section>
+  <h2>Range <span class="badge inline">inline widget</span></h2>
+  <p class="desc">
+    <code>&lt;input type="range"&gt;</code> is drawn by WebKit itself. Drag the thumb, click
+    the track, and use the arrow keys. The vertical one uses
+    <code>writing-mode: vertical-lr</code>.
+  </p>
+  <div class="row">
+    <div class="field">
+      <span>0–100, <code>step="1"</code></span>
+      <input type="range" id="range-plain" min="0" max="100" value="50">
+    </div>
+    <div class="field">
+      <span>Ticks via <code>list</code></span>
+      <input type="range" id="range-ticks" min="0" max="10" step="1" value="5" list="ticks">
+      <datalist id="ticks">
+        <option value="0"><option value="5"><option value="10">
+      </datalist>
+    </div>
+    <div class="field">
+      <span>Vertical</span>
+      <input type="range" id="range-vertical" min="0" max="100" value="30"
+             style="writing-mode: vertical-lr; height: 90px;">
+    </div>
+  </div>
+  <div class="status" id="range-status">Range values: —</div>
+</section>
+
+<section>
+  <h2>Checkbox &amp; Radio <span class="badge inline">inline widget</span></h2>
+  <p class="desc">
+    Includes an indeterminate checkbox (set from script — it has no HTML attribute) and a
+    radio group, to check the engine's rendering of all three checkbox states.
+  </p>
+  <fieldset>
+    <legend>Checkboxes</legend>
+    <div class="row">
+      <label><input type="checkbox" id="check-off"> Unchecked</label>
+      <label><input type="checkbox" id="check-on" checked> Checked</label>
+      <label><input type="checkbox" id="check-indeterminate"> Indeterminate</label>
+      <label><input type="checkbox" id="check-disabled" checked disabled> Disabled</label>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Radio group</legend>
+    <div class="row">
+      <label><input type="radio" name="radio-group" value="first" checked> First</label>
+      <label><input type="radio" name="radio-group" value="second"> Second</label>
+      <label><input type="radio" name="radio-group" value="third"> Third</label>
+      <label><input type="radio" name="radio-group" value="fourth" disabled> Disabled</label>
+    </div>
+  </fieldset>
+  <div class="status" id="toggle-status">No toggle changed yet.</div>
+</section>
+
+<section>
+  <h2>Text Entry <span class="badge text">text</span></h2>
+  <p class="desc">
+    Types that share the text-field code path. Check that <code>password</code> masks input,
+    <code>search</code> shows a clear button, <code>number</code> shows spin buttons, and
+    that the on-screen keyboard hint types (<code>email</code>, <code>tel</code>,
+    <code>url</code>) still accept arbitrary typing.
+  </p>
+  <div class="row">
+    <div class="field"><span><code>text</code></span><input type="text" id="in-text" placeholder="Plain text"></div>
+    <div class="field"><span><code>password</code></span><input type="password" id="in-password" placeholder="Secret"></div>
+    <div class="field"><span><code>email</code></span><input type="email" id="in-email" placeholder="you@example.com"></div>
+    <div class="field"><span><code>url</code></span><input type="url" id="in-url" placeholder="https://example.com"></div>
+    <div class="field"><span><code>tel</code></span><input type="tel" id="in-tel" placeholder="+1 555 0100"></div>
+    <div class="field"><span><code>search</code></span><input type="search" id="in-search" placeholder="Search…"></div>
+    <div class="field"><span><code>number</code></span><input type="number" id="in-number" min="0" max="10" step="0.5" placeholder="0–10"></div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <span><code>textarea</code> (resizable)</span>
+      <textarea id="in-textarea" placeholder="Multi-line…"></textarea>
+    </div>
+    <div class="field">
+      <span>Read-only</span>
+      <input type="text" id="in-readonly" value="Read-only value" readonly>
+    </div>
+    <div class="field">
+      <span>Required + pattern (3 digits)</span>
+      <input type="text" id="in-pattern" pattern="\d{3}" required placeholder="123">
+    </div>
+  </div>
+  <div class="status" id="text-status">Nothing typed yet.</div>
+</section>
+
+<section>
+  <h2>Buttons &amp; Form Submission <span class="badge text">buttons</span></h2>
+  <p class="desc">
+    <code>submit</code>, <code>reset</code>, <code>button</code> and <code>image</code>
+    inputs inside a real form. Submitting is intercepted so the page does not navigate;
+    the serialised form data is shown instead. Reset should restore every default above in
+    this section.
+  </p>
+  <form id="button-form">
+    <div class="row">
+      <div class="field">
+        <span>Field to submit</span>
+        <input type="text" name="sample" value="hello">
+      </div>
+      <input type="hidden" name="hidden-field" value="hidden-value">
+    </div>
+    <div class="row">
+      <input type="submit" value="Submit">
+      <input type="reset" value="Reset">
+      <input type="button" id="in-button" value="Plain button">
+      <button type="button" id="real-button">&lt;button&gt;</button>
+      <input type="image" id="in-image" alt="Image submit"
+             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='28'%3E%3Crect width='80' height='28' rx='6' fill='%239141ac'/%3E%3Ctext x='40' y='19' font-family='sans-serif' font-size='12' fill='white' text-anchor='middle'%3Eimage%3C/text%3E%3C/svg%3E">
+    </div>
+  </form>
+  <div class="status" id="button-status">No button pressed yet.</div>
+</section>
+
+<section>
+  <h2>Output &amp; Progress <span class="badge inline">inline widget</span></h2>
+  <p class="desc">
+    Not inputs, but engine-drawn form-associated widgets worth checking alongside them:
+    <code>&lt;progress&gt;</code>, an indeterminate <code>&lt;progress&gt;</code> (which
+    animates), <code>&lt;meter&gt;</code> in each of its three value ranges, and
+    <code>&lt;output&gt;</code> driven by the slider.
+  </p>
+  <div class="row">
+    <div class="field">
+      <span>Slider → <code>output</code></span>
+      <input type="range" id="output-range" min="0" max="100" value="40">
+    </div>
+    <div class="field"><span><code>output</code></span><output id="the-output">40</output></div>
+    <div class="field"><span><code>progress</code> (40%)</span><progress id="the-progress" max="100" value="40"></progress></div>
+    <div class="field"><span><code>progress</code> (indeterminate)</span><progress></progress></div>
+  </div>
+  <div class="row">
+    <div class="field"><span><code>meter</code> optimum</span><meter min="0" max="100" low="30" high="70" optimum="80" value="85"></meter></div>
+    <div class="field"><span><code>meter</code> suboptimal</span><meter min="0" max="100" low="30" high="70" optimum="80" value="50"></meter></div>
+    <div class="field"><span><code>meter</code> poor</span><meter min="0" max="100" low="30" high="70" optimum="80" value="10"></meter></div>
+  </div>
+</section>
+
+<section>
+  <h2>Type Support Report</h2>
+  <p class="desc">
+    Sets each type on a detached <code>&lt;input&gt;</code> and reads it back. A type the
+    engine does not implement falls back to <code>text</code>, which is how
+    <code>week</code> or <code>datetime-local</code> gaps show up.
+  </p>
+  <button onclick="reportSupport()">Check Type Support</button>
+  <div class="status" id="support-status">Not checked yet.</div>
+</section>
+
+<script>
+  function set(id, text, cls) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'status' + (cls ? ' ' + cls : '');
+  }
+
+  function watch(ids, statusId, format) {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      for (const evt of ['input', 'change']) {
+        el.addEventListener(evt, () => {
+          set(statusId, `${evt} on ${id}: ${format(el)}`, 'ok');
+        });
+      }
+    }
+  }
+
+  const COLOR_INPUTS = ['color-plain', 'color-list', 'color-alpha'];
+  for (const id of COLOR_INPUTS) {
+    const el = document.getElementById(id);
+    for (const evt of ['input', 'change']) {
+      el.addEventListener(evt, () => {
+        const status = document.getElementById('color-status');
+        status.className = 'status ok';
+        status.textContent = '';
+        const swatch = document.createElement('span');
+        swatch.className = 'swatch';
+        swatch.style.background = el.value;
+        status.appendChild(swatch);
+        status.appendChild(document.createTextNode(`${evt} on ${id}: ${el.value}`));
+      });
+    }
+  }
+
+  watch(
+    ['in-date', 'in-time', 'in-datetime-local', 'in-month', 'in-week',
+     'in-date-bounded', 'in-time-seconds'],
+    'datetime-status',
+    el => `value=${JSON.stringify(el.value)} valueAsNumber=${el.valueAsNumber}` +
+          (el.validity.valid ? '' : ' (fails validity)'),
+  );
+
+  const longSelect = document.getElementById('select-long');
+  for (let i = 1; i <= 100; i++) {
+    const option = document.createElement('option');
+    option.textContent = `Option ${i}`;
+    longSelect.appendChild(option);
+  }
+
+  watch(
+    ['select-short', 'select-grouped', 'select-long', 'in-datalist'],
+    'select-status',
+    el => JSON.stringify(el.value),
+  );
+  document.getElementById('select-multiple').addEventListener('change', function () {
+    const picked = Array.from(this.selectedOptions).map(o => o.textContent);
+    set('select-status', `select-multiple: ${picked.join(', ') || '(none)'}`, 'ok');
+  });
+
+  const RANGE_INPUTS = ['range-plain', 'range-ticks', 'range-vertical'];
+  function showRanges(evt, id) {
+    const values = RANGE_INPUTS
+      .map(r => `${r}=${document.getElementById(r).value}`)
+      .join('  ');
+    set('range-status', `${evt} on ${id}\n${values}`, 'ok');
+  }
+  for (const id of RANGE_INPUTS) {
+    const el = document.getElementById(id);
+    for (const evt of ['input', 'change'])
+      el.addEventListener(evt, () => showRanges(evt, id));
+  }
+
+  document.getElementById('check-indeterminate').indeterminate = true;
+  for (const el of document.querySelectorAll('input[type="checkbox"], input[type="radio"]')) {
+    el.addEventListener('change', function () {
+      const what = this.name ? `${this.name}=${this.value}` : this.id;
+      set('toggle-status',
+        `${what}: checked=${this.checked} indeterminate=${this.indeterminate}`, 'ok');
+    });
+  }
+
+  watch(
+    ['in-text', 'in-password', 'in-email', 'in-url', 'in-tel', 'in-search',
+     'in-number', 'in-textarea', 'in-pattern'],
+    'text-status',
+    el => {
+      const shown = el.type === 'password' ? `${el.value.length} char(s) masked`
+                                           : JSON.stringify(el.value);
+      return `${shown} — ${el.validity.valid ? 'valid' : 'invalid: ' + el.validationMessage}`;
+    },
+  );
+
+  const form = document.getElementById('button-form');
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const pairs = Array.from(new FormData(form).entries())
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
+    set('button-status', `submit intercepted. Form data:\n${pairs}`, 'ok');
+  });
+  form.addEventListener('reset', () =>
+    set('button-status', 'reset fired — defaults restored.', 'info'));
+  document.getElementById('in-button').addEventListener('click', () =>
+    set('button-status', 'input[type=button] clicked.', 'ok'));
+  document.getElementById('real-button').addEventListener('click', () =>
+    set('button-status', '<button> clicked.', 'ok'));
+  document.getElementById('in-image').addEventListener('click', e =>
+    set('button-status', `input[type=image] clicked at ${e.offsetX},${e.offsetY}.`, 'ok'));
+
+  const outputRange = document.getElementById('output-range');
+  outputRange.addEventListener('input', function () {
+    document.getElementById('the-output').textContent = this.value;
+    document.getElementById('the-progress').value = this.value;
+  });
+
+  const ALL_TYPES = [
+    'button', 'checkbox', 'color', 'date', 'datetime-local', 'email', 'file',
+    'hidden', 'image', 'month', 'number', 'password', 'radio', 'range',
+    'reset', 'search', 'submit', 'tel', 'text', 'time', 'url', 'week',
+  ];
+
+  function reportSupport() {
+    const status = document.getElementById('support-status');
+    status.className = 'status';
+    const probe = document.createElement('input');
+    const lines = ALL_TYPES.map(type => {
+      probe.setAttribute('type', type);
+      const effective = probe.type;
+      if (effective === type)
+        return `${type}: supported`;
+      return `${type}: FALLS BACK to ${effective}`;
+    });
+    status.textContent = lines.join('\n');
+  }
+</script>
+</body>
+</html>
