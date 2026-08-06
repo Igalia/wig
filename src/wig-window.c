@@ -649,10 +649,8 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
     wig_tab_load_discarded(focused_tab);
   }
 
-  /* Minimising only sticks once the window has been shown, and presenting it
-   * afterwards would undo it. */
   if (created) {
-    gtk_window_present(GTK_WINDOW(win));
+    gtk_widget_set_visible(GTK_WIDGET(win), TRUE);
     if (saved->minimized)
       gtk_window_minimize(GTK_WINDOW(win));
   }

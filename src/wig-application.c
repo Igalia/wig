@@ -556,27 +556,45 @@ static void wig_application_shutdown(GApplication *application)
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
 
-/* Returns the window that was focused when the session was saved, or NULL when
- * there was nothing to restore. */
+static WigSessionWindow *steal_focused_session_window(GSList **windows)
+{
+  GSList *found = NULL;
+
+  for (GSList *l = *windows; l && !found; l = l->next) {
+    WigSessionWindow *window = l->data;
+    if (window->focused)
+      found = l;
+  }
+
+  if (!found)
+    found = g_slist_last(*windows);
+
+  if (!found)
+    return NULL;
+
+  WigSessionWindow *window = found->data;
+  *windows = g_slist_delete_link(*windows, found);
+  return window;
+}
+
 static WigWindow *wig_application_restore_session(WigApplication *app)
 {
   GSList *saved = wig_session_take_restored_windows(app->session);
-  WigWindow *focused = NULL;
-  WigWindow *last = NULL;
+  g_autoptr(WigSessionWindow) focused_saved = steal_focused_session_window(&saved);
+  if (!focused_saved)
+    return NULL;
 
   wig_session_set_restoring(app->session, TRUE);
 
-  for (GSList *l = saved; l; l = l->next) {
-    const WigSessionWindow *saved_window = l->data;
-    last = wig_window_restore(app, saved_window);
-    if (saved_window->focused)
-      focused = last;
-  }
+  WigWindow *focused = wig_window_restore(app, focused_saved);
+
+  for (GSList *l = saved; l; l = l->next)
+    wig_window_restore(app, l->data);
 
   wig_session_set_restoring(app->session, FALSE);
 
   g_slist_free_full(saved, (GDestroyNotify)wig_session_window_free);
-  return focused ? focused : last;
+  return focused;
 }
 
 static void wig_application_activate(GApplication *application)
