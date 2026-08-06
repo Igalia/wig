@@ -73,6 +73,28 @@ static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow 
   webkit_web_view_load_uri(web_view, uri);
 }
 
+void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
+{
+  if (win && wig_window_focus_tab_by_site(WIG_WINDOW(win), uri))
+    return;
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (l->data == win)
+      continue;
+
+    if (wig_window_focus_tab_by_site(WIG_WINDOW(l->data), uri)) {
+      gtk_window_present(GTK_WINDOW(l->data));
+      return;
+    }
+  }
+
+  if (!win)
+    win = gtk_application_get_active_window(GTK_APPLICATION(app));
+
+  if (win)
+    wig_application_add_new_tab_with_uri(app, WIG_WINDOW(win), uri);
+}
+
 static gboolean uri_should_be_recorded(const char *uri)
 {
   if (!uri || !*uri)
@@ -230,13 +252,7 @@ static gboolean on_decide_destination(WebKitDownload *download, const char *sugg
   g_autofree char *path = g_build_filename(dir ? dir : fallback, suggested_filename, NULL);
   webkit_download_set_destination(download, path);
 
-  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
-    if (wig_window_focus_tab_by_site(WIG_WINDOW(l->data), "wig:downloads"))
-      return TRUE;
-  }
-
-  GtkWindow *active = gtk_application_get_active_window(GTK_APPLICATION(app));
-  wig_application_add_new_tab_with_uri(app, WIG_WINDOW(active), "wig:downloads");
+  wig_application_open_internal_page(app, NULL, "wig:downloads");
   return TRUE;
 }
 
@@ -426,6 +442,8 @@ static void wig_application_startup(GApplication *application)
     { "win.find", { "<Primary>f", NULL } },
     { "win.find-next", { "<Primary>g", "F3", NULL } },
     { "win.find-previous", { "<Primary><Shift>g", "<Shift>F3", NULL } },
+    { "win.show-downloads", { "<Primary>j", NULL } },
+    { "win.show-history", { "<Primary>h", NULL } },
 
   };
 

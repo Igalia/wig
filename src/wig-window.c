@@ -483,6 +483,16 @@ static void wig_window_search_bar_closed(WigSearchBar *search_bar, WigWindow *wi
     gtk_widget_grab_focus(wig_tab_get_widget(tab));
 }
 
+static void wig_window_show_downloads(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:downloads");
+}
+
+static void wig_window_show_history(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:history");
+}
+
 static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -834,6 +844,8 @@ static const GActionEntry actions[] = {
   { "find", wig_window_find },
   { "find-next", wig_window_find_next },
   { "find-previous", wig_window_find_previous },
+  { "show-downloads", wig_window_show_downloads },
+  { "show-history", wig_window_show_history },
   { "close-tab", wig_window_close_tab_action },
   { "reload", wig_window_reload },
   { "reload-bypass-cache", wig_window_reload_bypass_cache },
@@ -1753,5 +1765,6 @@ void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view)
   g_return_if_fail(WIG_IS_WINDOW(win));
   g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
 
-  wig_window_add_tab_for_view(win, web_view);
+  WigTab *tab = wig_window_add_tab_for_view(win, web_view);
+  wig_tab_list_set_active(win->tab_list, tab);
 }
