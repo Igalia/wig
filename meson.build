@@ -99,7 +99,7 @@ config_h = configuration_data()
 config_h.set10(
     'HAVE_FAVICON_SUPPORT',
     cc.has_function(
-        'webkit_website_data_manager_set_favicons_enabled',
+        'webkit_favicon_database_get_page_icons',
         dependencies: wpe_webkit_dep,
     ),
 )

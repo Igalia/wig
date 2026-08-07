@@ -25,6 +25,8 @@
 #include <gio/gio.h>
 #include <wpe/webkit.h>
 
+#if HAVE_FAVICON_SUPPORT
 void wig_favicon_get_async(WebKitFaviconDatabase *database, const char *page_uri, int size, GCancellable *cancellable,
                            GAsyncReadyCallback callback, gpointer user_data);
 GIcon *wig_favicon_get_finish(WebKitFaviconDatabase *database, GAsyncResult *result, GError **error);
+#endif

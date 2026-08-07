@@ -306,13 +306,16 @@ static void history_favicon_loaded(GObject *source, GAsyncResult *result, gpoint
 }
 #endif
 
-static GtkWidget *build_history_row(WebKitBackForwardListItem *item, WebKitFaviconDatabase *favicon_database)
+static GtkWidget *build_history_row(WebKitBackForwardListItem *item, WebKitWebView *web_view)
 {
   const char *title = webkit_back_forward_list_item_get_title(item);
   const char *uri = webkit_back_forward_list_item_get_uri(item);
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
 #if HAVE_FAVICON_SUPPORT
+  WebKitNetworkSession *session = webkit_web_view_get_network_session(web_view);
+  WebKitWebsiteDataManager *data_manager = webkit_network_session_get_website_data_manager(session);
+  WebKitFaviconDatabase *favicon_database = webkit_website_data_manager_get_favicon_database(data_manager);
   GtkWidget *image = gtk_image_new();
   gtk_image_set_icon_size(GTK_IMAGE(image), GTK_ICON_SIZE_NORMAL);
   gtk_box_append(GTK_BOX(box), image);
@@ -330,24 +333,16 @@ static GtkWidget *build_history_row(WebKitBackForwardListItem *item, WebKitFavic
 
 static GtkWidget *build_history_popover(WebKitWebView *web_view, WebKitBackForwardListItem *current, GList *items)
 {
-  WebKitFaviconDatabase *favicon_database = NULL;
-#if HAVE_FAVICON_SUPPORT
-  WebKitNetworkSession *session = webkit_web_view_get_network_session(web_view);
-  WebKitWebsiteDataManager *data_manager = webkit_network_session_get_website_data_manager(session);
-  favicon_database = webkit_website_data_manager_get_favicon_database(data_manager);
-#endif
-
   GtkWidget *list_box = gtk_list_box_new();
   gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
   gtk_widget_set_size_request(list_box, 240, -1);
 
-  gtk_list_box_append(GTK_LIST_BOX(list_box), build_history_row(current, favicon_database));
+  gtk_list_box_append(GTK_LIST_BOX(list_box), build_history_row(current, web_view));
   GtkListBoxRow *current_row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(list_box), 0);
   gtk_widget_add_css_class(GTK_WIDGET(current_row), "current-history-item");
 
   for (GList *l = items; l; l = l->next)
-    gtk_list_box_append(GTK_LIST_BOX(list_box),
-                        build_history_row(WEBKIT_BACK_FORWARD_LIST_ITEM(l->data), favicon_database));
+    gtk_list_box_append(GTK_LIST_BOX(list_box), build_history_row(WEBKIT_BACK_FORWARD_LIST_ITEM(l->data), web_view));
 
   GtkWidget *popover = gtk_popover_new();
   gtk_widget_add_css_class(popover, "back-history-popover");

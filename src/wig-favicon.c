@@ -22,6 +22,7 @@
 
 #include "wig-favicon.h"
 
+#if HAVE_FAVICON_SUPPORT
 #include "wig-utils.h"
 
 typedef struct {
@@ -79,3 +80,4 @@ GIcon *wig_favicon_get_finish(WebKitFaviconDatabase *database, GAsyncResult *res
 
   return g_task_propagate_pointer(G_TASK(result), error);
 }
+#endif
