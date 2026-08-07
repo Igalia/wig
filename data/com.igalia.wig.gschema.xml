@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+
+  <enum id="com.igalia.wig.TabLayout">
+    <value nick="horizontal" value="0"/>
+    <value nick="vertical" value="1"/>
+  </enum>
+
+  <schema id="com.igalia.wig" path="/com/igalia/wig/">
+    <key name="restore-tabs" type="b">
+      <default>true</default>
+      <summary>Restore Tabs on Startup</summary>
+      <description>Whether the windows and tabs that were open when wig was last closed are opened again.</description>
+    </key>
+
+    <key name="tab-layout" enum="com.igalia.wig.TabLayout">
+      <default>'horizontal'</default>
+      <summary>Tab Layout</summary>
+      <description>Whether tabs are listed in a bar above the page or in a sidebar beside it.</description>
+    </key>
+  </schema>
+
+</schemalist>

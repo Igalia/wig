@@ -110,6 +110,8 @@ add_project_arguments(
     language: 'c',
 )
 
+wig_gschema = files('data/com.igalia.wig.gschema.xml')
+
 subdir('icons')
 subdir('src')
 subdir('data')

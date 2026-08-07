@@ -2,6 +2,18 @@ subdir('internal-pages')
 subdir('tabs')
 subdir('entry')
 
+wig_compiled_schemas = custom_target(
+    'gschemas.compiled',
+    input: wig_gschema,
+    output: 'gschemas.compiled',
+    command: [
+        find_program('glib-compile-schemas'),
+        '--targetdir=@OUTDIR@',
+        meson.project_source_root() / 'data',
+    ],
+    build_by_default: true,
+)
+
 wig_resources = gnome.compile_resources(
     'wig-resources',
     'wig-application.gresource.xml',
@@ -17,6 +29,7 @@ wig_sources = files(
     'wig-permissions.c',
     'wig-search-bar.c',
     'wig-session.c',
+    'wig-settings.c',
     'wig-utils.c',
     'wig-window.c',
 ) + internal_pages_sources + wig_tab_sources + wig_entry_sources + wig_resources + wig_icon_resources
@@ -34,5 +47,6 @@ executable(
     ],
     include_directories: ['.', 'internal-pages', 'tabs', 'entry'],
     c_args: ['-DG_LOG_DOMAIN="wig"'],
+    link_depends: wig_compiled_schemas,
     install: true,
 )

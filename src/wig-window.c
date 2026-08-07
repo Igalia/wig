@@ -499,6 +499,11 @@ static void wig_window_show_history(GSimpleAction *action, GVariant *parameter, 
   wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:history");
 }
 
+static void wig_window_show_settings(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:settings");
+}
+
 static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -846,11 +851,9 @@ static void wig_window_forward_button_right_pressed(GtkGestureClick *gesture, in
 
 static void wig_window_tab_view_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
 {
-  gboolean is_sidebar = win->tab_sidebar != NULL;
-
   g_autoptr(GMenu) menu = g_menu_new();
-  g_menu_append(menu, is_sidebar ? "Switch to Tab Bar" : "Switch to Sidebar",
-                is_sidebar ? "win.switch-to-tabbar" : "win.switch-to-sidebar");
+  g_menu_append(menu, "Tab Bar", "app.tab-layout::horizontal");
+  g_menu_append(menu, "Sidebar", "app.tab-layout::vertical");
 
   GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
@@ -870,11 +873,6 @@ static void wig_window_add_tab_view_context_menu(WigWindow *win, GtkWidget *widg
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(g_steal_pointer(&gesture)));
 }
 
-static void wig_window_switch_to_sidebar(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  g_object_set(user_data, "tab-layout", WIG_TAB_LAYOUT_VERTICAL, NULL);
-}
-
 static void wig_window_show_tab_sidebar(WigWindow *win)
 {
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
@@ -885,11 +883,6 @@ static void wig_window_show_tab_sidebar(WigWindow *win)
   wig_window_add_tab_view_context_menu(win, win->tab_sidebar);
   gtk_paned_set_start_child(GTK_PANED(win->paned), win->tab_sidebar);
   gtk_widget_set_visible(win->tab_sidebar, !gtk_window_is_fullscreen(GTK_WINDOW(win)));
-}
-
-static void wig_window_switch_to_tabbar(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  g_object_set(user_data, "tab-layout", WIG_TAB_LAYOUT_HORIZONTAL, NULL);
 }
 
 static void wig_window_show_tab_bar(WigWindow *win)
@@ -980,6 +973,7 @@ static const GActionEntry actions[] = {
   { "find-previous", wig_window_find_previous },
   { "show-downloads", wig_window_show_downloads },
   { "show-history", wig_window_show_history },
+  { "show-settings", wig_window_show_settings },
   { "close-tab", wig_window_close_tab_action },
   { "reload", wig_window_reload },
   { "reload-bypass-cache", wig_window_reload_bypass_cache },
@@ -989,8 +983,6 @@ static const GActionEntry actions[] = {
   { "zoom-reset", wig_window_zoom_reset },
   { "undo-close-tab", wig_window_undo_close_tab },
   { "duplicate-active-tab", wig_window_duplicate_active_tab },
-  { "switch-to-sidebar", wig_window_switch_to_sidebar },
-  { "switch-to-tabbar", wig_window_switch_to_tabbar },
 };
 
 static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -1283,6 +1275,21 @@ static const char *wig_navigation_type_name(WebKitNavigationType type)
   }
 }
 
+static gboolean wig_uri_is_same_page(const char *first, const char *second)
+{
+  g_autoptr(GUri) first_uri = first ? g_uri_parse(first, G_URI_FLAGS_NONE, NULL) : NULL;
+  g_autoptr(GUri) second_uri = second ? g_uri_parse(second, G_URI_FLAGS_NONE, NULL) : NULL;
+  return first_uri && second_uri && g_strcmp0(g_uri_get_scheme(first_uri), "wig") == 0
+      && g_strcmp0(g_uri_get_scheme(second_uri), "wig") == 0
+      && g_strcmp0(g_uri_get_path(first_uri), g_uri_get_path(second_uri)) == 0;
+}
+
+static const char *wig_web_view_get_committed_uri(WebKitWebView *web_view)
+{
+  WebKitWebResource *resource = webkit_web_view_get_main_resource(web_view);
+  return resource ? webkit_web_resource_get_uri(resource) : NULL;
+}
+
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
                                          WebKitPolicyDecisionType decision_type, WebKitWebView *web_view)
 {
@@ -1318,6 +1325,7 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   }
 
   if (g_strcmp0(target_scheme, "wig") == 0
+      && !wig_uri_is_same_page(wig_web_view_get_committed_uri(web_view), request_uri)
       && wig_application_focus_internal_page(wig_application_get(), request_uri, web_view)) {
     g_debug("wig: focusing the page that is already open instead of '%s'", request_uri);
     webkit_policy_decision_ignore(decision);
@@ -1790,8 +1798,12 @@ static void wig_window_constructed(GObject *object)
   g_menu_append_section(menu, NULL, G_MENU_MODEL(pages_section));
 
   g_autoptr(GMenu) application_section = g_menu_new();
-  g_menu_append(application_section, "Quit", "app.quit");
+  g_menu_append(application_section, "Settings", "win.show-settings");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(application_section));
+
+  g_autoptr(GMenu) quit_section = g_menu_new();
+  g_menu_append(quit_section, "Quit", "app.quit");
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(quit_section));
 
   GtkWidget *menu_button = gtk_menu_button_new();
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu_button), "open-menu-symbolic");
@@ -1849,7 +1861,7 @@ static void wig_window_constructed(GObject *object)
   else if (win->id >= wig_window_next_id)
     wig_window_next_id = win->id + 1;
 
-  wig_window_set_tab_layout(win, WIG_TAB_LAYOUT_HORIZONTAL);
+  g_settings_bind(wig_application_get_settings(app), "tab-layout", win, "tab-layout", G_SETTINGS_BIND_DEFAULT);
 }
 
 static void wig_window_dispose(GObject *object)

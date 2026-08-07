@@ -74,6 +74,7 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
 void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 
+GSettings *wig_application_get_settings(WigApplication *app);
 WigSession *wig_application_get_session(WigApplication *app);
 gboolean wig_application_is_quitting(WigApplication *app);
 

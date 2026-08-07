@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset='utf-8'>
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
+  <title>Settings</title>
+  <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
+</head>
+
+<body>
+  <h1>Settings</h1>
+  <p class='desc'>Changes apply as soon as they are made, in every window.</p>
+
+  <div class='settings-list'>
+    <div class='setting-row'>
+      <div class='setting-text'>
+        <label class='setting-name' for='restore-tabs'>Restore Tabs on Startup</label>
+        <p class='setting-desc'>Open the windows and tabs that were open when wig was last closed.</p>
+      </div>
+      <label class='setting-control setting-switch'>
+        <input type='checkbox' id='restore-tabs' {{if (restore_tabs)}}checked{{end}}>
+        <span class='setting-switch-track' aria-hidden='true'></span>
+      </label>
+    </div>
+
+    <div class='setting-row'>
+      <div class='setting-text'>
+        <label class='setting-name' for='tab-layout'>Tab Layout</label>
+        <p class='setting-desc'>Show tabs in a bar above the page or in a sidebar beside it.</p>
+      </div>
+      <div class='setting-control setting-select'>
+        <select id='tab-layout'>
+          <option value='horizontal' {{if (tab_layout_horizontal)}}selected{{end}}>Tab Bar</option>
+          <option value='vertical' {{if (tab_layout_vertical)}}selected{{end}}>Sidebar</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <script nonce='{{nonce}}'>
+    const restoreTabs = document.querySelector('#restore-tabs');
+    const tabLayout = document.querySelector('#tab-layout');
+
+    window.wigSettings = {
+      update(restoreTabsValue, tabLayoutValue) {
+        restoreTabs.checked = restoreTabsValue !== 0;
+        tabLayout.value = tabLayoutValue;
+      }
+    };
+
+    document.addEventListener('change', function(e) {
+      let value;
+      if (e.target === restoreTabs)
+        value = String(restoreTabs.checked);
+      else if (e.target === tabLayout)
+        value = tabLayout.value;
+      else
+        return;
+
+      location.replace('wig:settings?key=' + encodeURIComponent(e.target.id)
+                       + '&value=' + encodeURIComponent(value));
+    });
+
+    if (location.search)
+      history.replaceState({}, '', 'wig:settings');
+  </script>
+</body>
+
+</html>

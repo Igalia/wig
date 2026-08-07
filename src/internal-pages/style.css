@@ -705,3 +705,203 @@ tr.active td {
   font-size: 0.875em;
   word-break: break-word;
 }
+
+/* === Settings page === */
+
+.settings-list {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 18px;
+}
+
+.setting-row + .setting-row {
+  border-top: 1px solid var(--border);
+}
+
+.setting-text {
+  min-width: 0;
+}
+
+.setting-name {
+  display: block;
+  font-weight: 600;
+}
+
+.setting-desc {
+  margin: 3px 0 0;
+  color: var(--text-dim);
+  font-size: 0.9em;
+  line-height: 1.35;
+}
+
+.setting-control {
+  flex: none;
+}
+
+.setting-switch {
+  position: relative;
+  display: inline-flex;
+  width: 42px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.setting-switch input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.setting-switch-track {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--btn-bg);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 12%);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.setting-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+  transition: transform 0.15s;
+}
+
+.setting-switch:hover .setting-switch-track {
+  background: var(--btn-hover);
+}
+
+.setting-switch input:checked + .setting-switch-track {
+  border-color: color-mix(in srgb, var(--accent) 75%, black);
+  background: var(--accent);
+}
+
+.setting-switch:hover input:checked + .setting-switch-track {
+  background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+.setting-switch input:checked + .setting-switch-track::after {
+  transform: translateX(18px);
+}
+
+.setting-switch input:focus-visible + .setting-switch-track {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.setting-select {
+  position: relative;
+}
+
+.setting-select select,
+.setting-select select::picker(select) {
+  appearance: base-select;
+}
+
+.setting-select select {
+  min-width: 9rem;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 7px 10px 7px 12px;
+  background: var(--view-bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.setting-select select:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--view-bg) 92%, var(--text));
+}
+
+.setting-select select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.setting-select select::picker-icon {
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+
+.setting-select select:open::picker-icon {
+  transform: rotate(180deg);
+}
+
+.setting-select select::picker(select) {
+  margin-block: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 4px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
+  color: var(--text);
+}
+
+.setting-select option {
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.setting-select option:hover,
+.setting-select option:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.setting-select option:checked {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.setting-select option::checkmark {
+  color: var(--accent);
+}
+
+@media (max-width: 520px) {
+  .setting-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .setting-select {
+    width: 100%;
+  }
+
+  .setting-select select {
+    width: 100%;
+  }
+
+  .setting-switch {
+    align-self: flex-start;
+  }
+}

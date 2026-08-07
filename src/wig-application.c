@@ -30,9 +30,11 @@
 #include "internal-pages/wig-history.h"
 #include "internal-pages/wig-internal-page.h"
 #include "internal-pages/wig-memory-pressure.h"
+#include "internal-pages/wig-settings-page.h"
 #include "internal-pages/wig-user-scripts.h"
 #include "internal-pages/wig-user-styles.h"
 #include "internal-pages/wig-website-data.h"
+#include "wig-settings.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 
@@ -52,6 +54,9 @@ struct _WigApplication {
   GPtrArray *user_scripts;
   GPtrArray *user_style_sheets;
   WebKitUserContentFilterStore *content_filter_store;
+
+  GSettings *settings;
+  WebKitWebView *settings_view; /* weak */
 
   WigSession *session;
   gboolean quitting;
@@ -168,10 +173,15 @@ static const char *wig_load_event_name(WebKitLoadEvent load_event)
   }
 }
 
-static void on_history_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, WigApplication *app)
+static void on_web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, WigApplication *app)
 {
   g_debug("[load-changed] web_view=%p event=%s (%d) uri=%s", (void *)web_view, wig_load_event_name(load_event),
           load_event, webkit_web_view_get_uri(web_view) ? webkit_web_view_get_uri(web_view) : "(null)");
+
+  if (load_event == WEBKIT_LOAD_FINISHED && uri_is_settings_page(webkit_web_view_get_uri(web_view))) {
+    g_set_weak_pointer(&app->settings_view, web_view);
+    update_settings_page(web_view, app->settings);
+  }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
@@ -348,6 +358,10 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   } else if (g_str_has_prefix(uri, "wig:downloads")) {
     scope = handle_downloads_uri(request, app->downloads);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/downloads.html", scope);
+  } else if (uri_is_settings_page(uri)) {
+    g_set_weak_pointer(&app->settings_view, web_view);
+    scope = handle_settings_uri(request, app->settings);
+    html = wig_internal_page_render("/com/igalia/wig/internal-pages/settings.html", scope);
   } else if (g_str_has_prefix(uri, "wig:history")) {
     scope = handle_history_uri(request, app->history_store);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/history.html", scope);
@@ -378,6 +392,15 @@ static void wig_application_init(WigApplication *app)
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
   app->notifications = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
   app->permissions_manager = wig_permissions_manager_new();
+}
+
+static void wig_application_settings_changed(GSettings *settings, const char *key, WigApplication *app)
+{
+  if (!app->settings_view || webkit_web_view_is_loading(app->settings_view)
+      || !uri_is_settings_page(webkit_web_view_get_uri(app->settings_view)))
+    return;
+
+  update_settings_page(app->settings_view, settings);
 }
 
 static void on_notification_clicked_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -471,6 +494,13 @@ static void wig_application_startup(GApplication *application)
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
   g_action_map_add_action_entries(G_ACTION_MAP(application), app_actions, G_N_ELEMENTS(app_actions), application);
+
+  app->settings = wig_settings_new();
+  g_signal_connect_object(app->settings, "changed", G_CALLBACK(wig_application_settings_changed), app,
+                          G_CONNECT_DEFAULT);
+
+  g_autoptr(GAction) tab_layout_action = g_settings_create_action(app->settings, "tab-layout");
+  g_action_map_add_action(G_ACTION_MAP(application), tab_layout_action);
 
   g_autoptr(GSimpleAction) notif_clicked_action = g_simple_action_new("notification-clicked", G_VARIANT_TYPE_STRING);
   g_signal_connect(notif_clicked_action, "activate", G_CALLBACK(on_notification_clicked_action), application);
@@ -567,6 +597,8 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
   g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
   g_clear_pointer(&app->downloads, g_ptr_array_unref);
+  g_clear_weak_pointer(&app->settings_view);
+  g_clear_object(&app->settings);
   g_clear_object(&app->user_content_manager);
   g_clear_pointer(&app->user_scripts, g_ptr_array_unref);
   g_clear_pointer(&app->user_style_sheets, g_ptr_array_unref);
@@ -624,7 +656,7 @@ static void wig_application_activate(GApplication *application)
   WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
   gboolean fresh = FALSE;
 
-  if (!win)
+  if (!win && g_settings_get_boolean(app->settings, "restore-tabs"))
     win = wig_application_restore_session(app);
 
   if (!win) {
@@ -643,7 +675,7 @@ static void wig_application_open(GApplication *application, GFile **files, gint 
   WigApplication *app = WIG_APPLICATION(application);
   WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
 
-  if (!win)
+  if (!win && g_settings_get_boolean(app->settings, "restore-tabs"))
     win = wig_application_restore_session(app);
 
   if (!win)
@@ -750,7 +782,7 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app)
       WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context, "network-session",
       app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
   g_signal_connect(web_view, "decide-policy", G_CALLBACK(on_web_view_decide_policy), app);
-  g_signal_connect(web_view, "load-changed", G_CALLBACK(on_history_load_changed), app);
+  g_signal_connect(web_view, "load-changed", G_CALLBACK(on_web_view_load_changed), app);
   g_signal_connect(web_view, "load-failed", G_CALLBACK(on_load_failed), app);
   g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
   g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
@@ -802,6 +834,13 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
     return;
 
   g_hash_table_insert(app->typed_navigations, web_view, GINT_TO_POINTER(1));
+}
+
+GSettings *wig_application_get_settings(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  return app->settings;
 }
 
 WigSession *wig_application_get_session(WigApplication *app)
