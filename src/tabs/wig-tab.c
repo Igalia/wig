@@ -23,6 +23,7 @@
 #include "wig-tab.h"
 
 #include "wig-auth-dialog.h"
+#include "wig-favicon.h"
 #include "wig-script-dialog.h"
 #include "wig-utils.h"
 #include "wpe-view-gtk.h"
@@ -228,6 +229,33 @@ static void wig_tab_on_page_icons_changed(WigTab *self)
   // This allows for DPI changes working automatically?
   wig_tab_set_icon(self, wig_util_best_page_icon(webkit_web_view_get_page_icons(self->web_view), WIG_TAB_FAVICON_SIZE));
 }
+
+static void discarded_favicon_loaded(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WigTab) self = WIG_TAB(user_data);
+  g_autoptr(GError) error = NULL;
+  GIcon *result_icon = wig_favicon_get_finish(WEBKIT_FAVICON_DATABASE(source), result, &error);
+  g_autoptr(GObject) icon = result_icon ? G_OBJECT(result_icon) : NULL;
+  if (!icon) {
+    if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
+      g_debug("tab: failed to restore favicon: %s", error->message);
+    return;
+  }
+
+  if (self->discarded)
+    wig_tab_set_icon(self, G_ICON(icon));
+}
+
+static void wig_tab_load_discarded_favicon(WigTab *self, const char *uri)
+{
+  WebKitNetworkSession *session = webkit_web_view_get_network_session(self->web_view);
+  WebKitWebsiteDataManager *data_manager = webkit_network_session_get_website_data_manager(session);
+  WebKitFaviconDatabase *database = webkit_website_data_manager_get_favicon_database(data_manager);
+  if (!database)
+    return;
+
+  wig_favicon_get_async(database, uri, WIG_TAB_FAVICON_SIZE, NULL, discarded_favicon_loaded, g_object_ref(self));
+}
 #endif
 
 static void wig_tab_update_label_position(WigTab *self, double cx, double cy);
@@ -384,6 +412,10 @@ void wig_tab_mark_discarded(WigTab *self)
     return;
 
   self->discarded = TRUE;
+
+#if HAVE_FAVICON_SUPPORT
+  wig_tab_load_discarded_favicon(self, webkit_back_forward_list_item_get_uri(item));
+#endif
 
   const char *title = webkit_back_forward_list_item_get_title(item);
   if (title && *title) {

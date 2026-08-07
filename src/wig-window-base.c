@@ -23,8 +23,8 @@
 #include "wig-window-base.h"
 
 #include "wig-application.h"
+#include "wig-favicon.h"
 #include "wig-permissions-popover.h"
-#include "wig-utils.h"
 
 typedef struct {
   guint id;
@@ -295,15 +295,14 @@ static void wig_window_base_on_back_forward_list_changed(WigWindowBase *self, We
 }
 
 #if HAVE_FAVICON_SUPPORT
-static void history_favicon_ready(GObject *source, GAsyncResult *result, gpointer user_data)
+static void history_favicon_loaded(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-  WebKitFaviconDatabase *database = WEBKIT_FAVICON_DATABASE(source);
   g_autoptr(GtkImage) image = GTK_IMAGE(user_data);
   g_autoptr(GError) error = NULL;
-  g_autoptr(WebKitImageList) image_list = webkit_favicon_database_get_page_icons_finish(database, result, &error);
-  GIcon *icon = wig_util_best_page_icon(image_list, 16);
+  GIcon *result_icon = wig_favicon_get_finish(WEBKIT_FAVICON_DATABASE(source), result, &error);
+  g_autoptr(GObject) icon = result_icon ? G_OBJECT(result_icon) : NULL;
   if (icon)
-    gtk_image_set_from_gicon(image, icon);
+    gtk_image_set_from_gicon(image, G_ICON(icon));
 }
 #endif
 
@@ -318,7 +317,7 @@ static GtkWidget *build_history_row(WebKitBackForwardListItem *item, WebKitFavic
   gtk_image_set_icon_size(GTK_IMAGE(image), GTK_ICON_SIZE_NORMAL);
   gtk_box_append(GTK_BOX(box), image);
   if (favicon_database && uri)
-    webkit_favicon_database_get_page_icons(favicon_database, uri, NULL, history_favicon_ready, g_object_ref(image));
+    wig_favicon_get_async(favicon_database, uri, 16, NULL, history_favicon_loaded, g_object_ref(image));
 #endif
 
   GtkWidget *label = gtk_label_new(title && *title ? title : uri);

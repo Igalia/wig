@@ -24,6 +24,7 @@ wig_sources = files(
     'main.c',
     'wig-application.c',
     'wig-context-menu.c',
+    'wig-favicon.c',
     'wig-history-item.c',
     'wig-history-store.c',
     'wig-permissions-manager.c',
