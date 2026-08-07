@@ -38,6 +38,7 @@ struct _WigWindow {
   GtkApplicationWindow parent;
 
   guint id;
+  WigTabLayout tab_layout;
 
   WPEToplevel *toplevel;
   GtkWidget *toolbar_view;
@@ -72,12 +73,17 @@ struct _WigWindow {
 };
 
 G_DEFINE_FINAL_TYPE(WigWindow, wig_window, GTK_TYPE_APPLICATION_WINDOW)
+G_DEFINE_ENUM_TYPE(WigTabLayout, wig_tab_layout, G_DEFINE_ENUM_VALUE(WIG_TAB_LAYOUT_HORIZONTAL, "horizontal"),
+                   G_DEFINE_ENUM_VALUE(WIG_TAB_LAYOUT_VERTICAL, "vertical"))
 
 typedef enum {
   PROP_ID = 1,
+  PROP_TAB_LAYOUT,
 } WigWindowProps;
 
-static GParamSpec *props[PROP_ID + 1];
+static GParamSpec *props[PROP_TAB_LAYOUT + 1];
+
+static void wig_window_set_tab_layout(WigWindow *win, WigTabLayout layout);
 
 static guint wig_window_next_id = 1;
 
@@ -87,6 +93,9 @@ static void wig_window_get_property(GObject *object, guint prop_id, GValue *valu
   switch ((WigWindowProps)prop_id) {
   case PROP_ID:
     g_value_set_uint(value, win->id);
+    break;
+  case PROP_TAB_LAYOUT:
+    g_value_set_enum(value, win->tab_layout);
     break;
   }
 }
@@ -99,6 +108,9 @@ static void wig_window_set_property(GObject *object, guint prop_id, const GValue
     win->id = g_value_get_uint(value);
     break;
   }
+  case PROP_TAB_LAYOUT:
+    wig_window_set_tab_layout(win, g_value_get_enum(value));
+    break;
   }
 }
 
@@ -860,8 +872,11 @@ static void wig_window_add_tab_view_context_menu(WigWindow *win, GtkWidget *widg
 
 static void wig_window_switch_to_sidebar(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  WigWindow *win = WIG_WINDOW(user_data);
+  g_object_set(user_data, "tab-layout", WIG_TAB_LAYOUT_VERTICAL, NULL);
+}
 
+static void wig_window_show_tab_sidebar(WigWindow *win)
+{
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
   g_clear_pointer(&win->tab_bar, gtk_widget_unparent);
   g_clear_pointer(&win->tab_separator, gtk_widget_unparent);
@@ -869,12 +884,16 @@ static void wig_window_switch_to_sidebar(GSimpleAction *action, GVariant *parame
   win->tab_sidebar = wig_tab_sidebar_new(win->tab_list);
   wig_window_add_tab_view_context_menu(win, win->tab_sidebar);
   gtk_paned_set_start_child(GTK_PANED(win->paned), win->tab_sidebar);
+  gtk_widget_set_visible(win->tab_sidebar, !gtk_window_is_fullscreen(GTK_WINDOW(win)));
 }
 
 static void wig_window_switch_to_tabbar(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  WigWindow *win = WIG_WINDOW(user_data);
+  g_object_set(user_data, "tab-layout", WIG_TAB_LAYOUT_HORIZONTAL, NULL);
+}
 
+static void wig_window_show_tab_bar(WigWindow *win)
+{
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
   // FIXME: Error finding last focus widget of GtkPaned 0x55daa38feb70, gtk_paned_set_focus_child was called on widget
   // (nil) which is not child of ...
@@ -887,6 +906,24 @@ static void wig_window_switch_to_tabbar(GSimpleAction *action, GVariant *paramet
 
   win->tab_separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
   gtk_box_insert_child_after(GTK_BOX(win->content_box), win->tab_separator, win->tab_bar);
+
+  gboolean visible = !gtk_window_is_fullscreen(GTK_WINDOW(win));
+  gtk_widget_set_visible(win->tab_bar, visible);
+  gtk_widget_set_visible(win->tab_separator, visible);
+}
+
+static void wig_window_set_tab_layout(WigWindow *win, WigTabLayout layout)
+{
+  win->tab_layout = layout;
+  if (!win->paned)
+    return;
+
+  if (layout == WIG_TAB_LAYOUT_VERTICAL) {
+    if (!win->tab_sidebar)
+      wig_window_show_tab_sidebar(win);
+  } else if (!win->tab_bar) {
+    wig_window_show_tab_bar(win);
+  }
 }
 
 static void wig_window_zoom_in(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -1776,13 +1813,7 @@ static void wig_window_constructed(GObject *object)
   win->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *content_box = win->content_box;
 
-  win->tab_bar = wig_tab_bar_new(win->tab_list);
   g_signal_connect_object(win->tab_list, "create-tab", G_CALLBACK(wig_window_create_tab), win, G_CONNECT_SWAPPED);
-  wig_window_add_tab_view_context_menu(win, win->tab_bar);
-  gtk_box_append(GTK_BOX(content_box), win->tab_bar);
-
-  win->tab_separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-  gtk_box_append(GTK_BOX(content_box), win->tab_separator);
 
   win->tab_stack = gtk_stack_new();
   gtk_widget_set_vexpand(win->tab_stack, TRUE);
@@ -1817,6 +1848,8 @@ static void wig_window_constructed(GObject *object)
     win->id = wig_window_next_id++;
   else if (win->id >= wig_window_next_id)
     wig_window_next_id = win->id + 1;
+
+  wig_window_set_tab_layout(win, WIG_TAB_LAYOUT_HORIZONTAL);
 }
 
 static void wig_window_dispose(GObject *object)
@@ -1871,6 +1904,9 @@ static void wig_window_class_init(WigWindowClass *klass)
 
   props[PROP_ID] = g_param_spec_uint("id", NULL, NULL, 0, G_MAXUINT, 0,
                                      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  props[PROP_TAB_LAYOUT] = g_param_spec_enum("tab-layout", NULL, NULL, WIG_TYPE_TAB_LAYOUT, WIG_TAB_LAYOUT_HORIZONTAL,
+                                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
 
