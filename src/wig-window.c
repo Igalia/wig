@@ -82,7 +82,7 @@ static void wig_window_get_property(GObject *object, guint prop_id, GValue *valu
   WigWindow *win = WIG_WINDOW(object);
   switch ((WigWindowProps)prop_id) {
   case PROP_TAB_LAYOUT:
-    g_value_set_enum(value, win->tab_layout);
+    g_value_set_enum(value, (gint)win->tab_layout);
     break;
   }
 }
@@ -92,7 +92,7 @@ static void wig_window_set_property(GObject *object, guint prop_id, const GValue
   WigWindow *win = WIG_WINDOW(object);
   switch ((WigWindowProps)prop_id) {
   case PROP_TAB_LAYOUT:
-    wig_window_set_tab_layout(win, g_value_get_enum(value));
+    wig_window_set_tab_layout(win, (WigTabLayout)g_value_get_enum(value));
     break;
   }
 }

@@ -447,16 +447,21 @@ static void wig_window_base_file_chooser_done(GObject *source, GAsyncResult *res
     if (files) {
       guint n = g_list_model_get_n_items(files);
       g_auto(GStrv) paths = g_new0(char *, n + 1);
+      gboolean valid = TRUE;
       for (guint i = 0; i < n; i++) {
         g_autoptr(GFile) file = g_list_model_get_item(files, i);
         paths[i] = g_file_get_path(file);
         if (!paths[i]) {
-          g_warning("file-chooser: selected file has no local path");
-          webkit_file_chooser_request_cancel(request);
-          return;
+          valid = FALSE;
+          break;
         }
       }
-      webkit_file_chooser_request_select_files(request, (const char *const *)paths);
+      if (valid)
+        webkit_file_chooser_request_select_files(request, (const char *const *)paths);
+      else {
+        g_warning("file-chooser: selected file has no local path");
+        webkit_file_chooser_request_cancel(request);
+      }
     } else {
       g_debug("file-chooser failed: %s", error->message);
       webkit_file_chooser_request_cancel(request);
@@ -468,10 +473,10 @@ static void wig_window_base_file_chooser_done(GObject *source, GAsyncResult *res
       if (!path) {
         g_warning("file-chooser: selected file has no local path");
         webkit_file_chooser_request_cancel(request);
-        return;
+      } else {
+        const char *paths[] = { path, NULL };
+        webkit_file_chooser_request_select_files(request, paths);
       }
-      const char *paths[] = { path, NULL };
-      webkit_file_chooser_request_select_files(request, paths);
     } else {
       g_debug("file-chooser failed: %s", error->message);
       webkit_file_chooser_request_cancel(request);
