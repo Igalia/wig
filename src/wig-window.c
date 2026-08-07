@@ -62,6 +62,7 @@ struct _WigWindow {
   GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
   GSignalGroup *active_web_view_signals;
+  GHashTable *web_view_signal_groups;
 };
 
 G_DEFINE_FINAL_TYPE(WigWindow, wig_window, WIG_TYPE_WINDOW_BASE)
@@ -197,16 +198,25 @@ static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigatio
 static void wig_window_attach_web_view(WigWindow *win, WebKitWebView *web_view)
 {
   wig_window_base_attach_web_view(WIG_WINDOW_BASE(win), web_view);
-  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
-  g_signal_connect_object(web_view, "decide-policy", G_CALLBACK(wig_window_decide_policy), win, G_CONNECT_SWAPPED);
-  g_signal_connect_object(web_view, "create", G_CALLBACK(wig_window_web_view_create), win, G_CONNECT_SWAPPED);
+
+  if (g_hash_table_contains(win->web_view_signal_groups, web_view))
+    return;
+
+  g_autoptr(GObject) signals_object = G_OBJECT(g_signal_group_new(WEBKIT_TYPE_WEB_VIEW));
+  GSignalGroup *signals = G_SIGNAL_GROUP(signals_object);
+  g_signal_group_connect_swapped(signals, "close", G_CALLBACK(wig_window_close_tab), win);
+  g_signal_group_connect_swapped(signals, "decide-policy", G_CALLBACK(wig_window_decide_policy), win);
+  g_signal_group_connect_swapped(signals, "create", G_CALLBACK(wig_window_web_view_create), win);
+  g_signal_group_set_target(signals, web_view);
+  g_hash_table_insert(win->web_view_signal_groups, web_view, g_steal_pointer(&signals_object));
 }
 
 static void wig_window_detach_web_view(WigWindow *win, WebKitWebView *web_view)
 {
-  g_signal_handlers_disconnect_by_func(web_view, wig_window_close_tab, win);
-  g_signal_handlers_disconnect_by_func(web_view, wig_window_decide_policy, win);
-  g_signal_handlers_disconnect_by_func(web_view, wig_window_web_view_create, win);
+  GSignalGroup *signals = g_hash_table_lookup(win->web_view_signal_groups, web_view);
+  if (signals)
+    g_signal_group_set_target(signals, NULL);
+  g_hash_table_remove(win->web_view_signal_groups, web_view);
   wig_window_base_detach_web_view(WIG_WINDOW_BASE(win), web_view);
 }
 
@@ -1310,6 +1320,7 @@ static void wig_window_dispose(GObject *object)
     g_signal_group_set_target(win->active_web_view_signals, NULL);
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), NULL);
   g_clear_object(&win->active_web_view_signals);
+  g_clear_pointer(&win->web_view_signal_groups, g_hash_table_unref);
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
 }
 
@@ -1332,6 +1343,7 @@ static void wig_window_init(WigWindow *win)
                                  G_CALLBACK(wig_window_web_view_context_menu), win);
   g_signal_group_connect_swapped(win->active_web_view_signals, "mouse-target-changed",
                                  G_CALLBACK(wig_window_on_mouse_target_changed), win);
+  win->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
 }
 
 static void wig_window_class_init(WigWindowClass *klass)
