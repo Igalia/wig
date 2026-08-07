@@ -67,6 +67,6 @@ modules:
     sources:
       - type: git
         url: https://github.com/WebKit/WebKit.git
-        commit: 2f66f5ed23f9a3ce154e7b5745861f76eeda67f0
+        commit: b29eae826faaf0aff766c3a64a48b514fb0efb76
       - type: patch
         path: webkit-empty-linked-into.patch
