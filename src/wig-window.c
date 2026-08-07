@@ -23,8 +23,8 @@
 #include "wig-window.h"
 
 #include "wig-application.h"
+#include "wig-context-menu.h"
 #include "wig-entry-completion-popover.h"
-#include "wig-permissions-popover.h"
 #include "wig-search-bar.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
@@ -35,12 +35,9 @@
 #include "wpe-view-gtk.h"
 
 struct _WigWindow {
-  GtkApplicationWindow parent;
+  WigWindowBase parent;
 
-  guint id;
   WigTabLayout tab_layout;
-
-  WPEToplevel *toplevel;
   GtkWidget *toolbar_view;
   GtkWidget *header_bar;
   GtkWidget *back_button;
@@ -49,10 +46,6 @@ struct _WigWindow {
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
   GtkWidget *entry_completion_popover;
-  GtkWidget *permissions_button;
-  GtkWidget *permissions_popover;
-  WigPermissionsManager *permissions_manager; /* borrowed from application */
-  char *current_origin; /* origin string of current_web_view, or NULL */
   WigTabList *tab_list;
   GtkWidget *content_box;
   GtkWidget *paned;
@@ -68,32 +61,25 @@ struct _WigWindow {
   gboolean url_entry_focused;
   GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
-  GtkWidget *back_history_popover;
-  GtkWidget *forward_history_popover;
+  GSignalGroup *active_web_view_signals;
 };
 
-G_DEFINE_FINAL_TYPE(WigWindow, wig_window, GTK_TYPE_APPLICATION_WINDOW)
+G_DEFINE_FINAL_TYPE(WigWindow, wig_window, WIG_TYPE_WINDOW_BASE)
 G_DEFINE_ENUM_TYPE(WigTabLayout, wig_tab_layout, G_DEFINE_ENUM_VALUE(WIG_TAB_LAYOUT_HORIZONTAL, "horizontal"),
                    G_DEFINE_ENUM_VALUE(WIG_TAB_LAYOUT_VERTICAL, "vertical"))
 
 typedef enum {
-  PROP_ID = 1,
-  PROP_TAB_LAYOUT,
+  PROP_TAB_LAYOUT = 1,
 } WigWindowProps;
 
 static GParamSpec *props[PROP_TAB_LAYOUT + 1];
 
 static void wig_window_set_tab_layout(WigWindow *win, WigTabLayout layout);
 
-static guint wig_window_next_id = 1;
-
 static void wig_window_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
   WigWindow *win = WIG_WINDOW(object);
   switch ((WigWindowProps)prop_id) {
-  case PROP_ID:
-    g_value_set_uint(value, win->id);
-    break;
   case PROP_TAB_LAYOUT:
     g_value_set_enum(value, win->tab_layout);
     break;
@@ -104,58 +90,18 @@ static void wig_window_set_property(GObject *object, guint prop_id, const GValue
 {
   WigWindow *win = WIG_WINDOW(object);
   switch ((WigWindowProps)prop_id) {
-  case PROP_ID: {
-    win->id = g_value_get_uint(value);
-    break;
-  }
   case PROP_TAB_LAYOUT:
     wig_window_set_tab_layout(win, g_value_get_enum(value));
     break;
   }
 }
 
-static void wig_window_go_back(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+static void wig_window_loading_changed(WigWindowBase *base, gboolean is_loading)
 {
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  webkit_web_view_go_back(win->current_web_view);
-}
-
-static void wig_window_go_forward(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  webkit_web_view_go_forward(win->current_web_view);
-}
-
-static void wig_window_stop_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  GVariant *state = g_action_get_state(G_ACTION(action));
-  if (g_variant_get_boolean(state))
-    webkit_web_view_stop_loading(win->current_web_view);
-  else
-    webkit_web_view_reload(win->current_web_view);
-
-  g_variant_unref(state);
-}
-
-static void wig_window_change_stop_reload_state(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  GVariant *state = g_variant_new_boolean(g_variant_get_boolean(parameter));
-
-  gtk_button_set_icon_name(GTK_BUTTON(win->stop_reload_button),
-                           g_variant_get_boolean(state) ? "process-stop-symbolic" : "view-refresh-symbolic");
-
-  g_simple_action_set_state(G_SIMPLE_ACTION(action), state);
+  WigWindow *win = WIG_WINDOW(base);
+  if (win->stop_reload_button)
+    gtk_button_set_icon_name(GTK_BUTTON(win->stop_reload_button),
+                             is_loading ? "process-stop-symbolic" : "view-refresh-symbolic");
 }
 
 static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *web_view)
@@ -169,14 +115,14 @@ static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *we
   for (guint i = 0; i < n; i++) {
     WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
     if (wig_tab_get_web_view(tab) == web_view)
-      return g_steal_pointer(&tab);
+      return g_object_ref(tab);
   }
   return NULL;
 }
 
 static void wig_window_save_tab_to_history(WigWindow *win, WebKitWebView *web_view)
 {
-  WigSessionWindow *closed = wig_session_window_new(win->id);
+  WigSessionWindow *closed = wig_session_window_new(wig_window_base_get_id(WIG_WINDOW_BASE(win)));
   wig_session_window_add_tab(closed, webkit_web_view_get_session_state(web_view), win->current_web_view == web_view);
   wig_session_push_closed_window(wig_application_get_session(wig_application_get()), closed);
 }
@@ -196,7 +142,7 @@ static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *w
 
 static void wig_window_close_tab(WigWindow *win, WebKitWebView *web_view)
 {
-  WigTab *tab = wig_window_get_tab_for_web_view(win, web_view);
+  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
   if (tab)
     wig_tab_list_close(win->tab_list, tab);
 }
@@ -243,194 +189,30 @@ WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, Web
   return NULL;
 }
 
-static void wig_window_on_webkit_notification_closed(WebKitNotification *webkit_notif, char *notif_id)
-{
-  WigApplication *app = wig_application_get();
-  g_application_withdraw_notification(G_APPLICATION(app), notif_id);
-  wig_application_untrack_notification(app, notif_id);
-}
-
-static void free_with_closure(void *data, GClosure *closure)
-{
-  g_free(data);
-}
-
-static gboolean wig_window_on_show_notification(WigWindow *win, WebKitNotification *webkit_notif)
-{
-  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
-
-  const char *title = webkit_notification_get_title(webkit_notif);
-  g_autoptr(GNotification) notif = g_notification_new(title && *title ? title : "Notification");
-
-  const char *body = webkit_notification_get_body(webkit_notif);
-  if (body && *body)
-    g_notification_set_body(notif, body);
-
-  g_autofree char *notif_id = g_strdup_printf("wig-%" G_GUINT64_FORMAT, webkit_notification_get_id(webkit_notif));
-  g_notification_set_default_action_and_target(notif, "app.notification-clicked", "s", notif_id);
-
-  wig_application_track_notification(app, notif_id, webkit_notif);
-  g_application_send_notification(G_APPLICATION(app), notif_id, notif);
-
-  g_signal_connect_data(webkit_notif, "closed", G_CALLBACK(wig_window_on_webkit_notification_closed),
-                        g_steal_pointer(&notif_id), free_with_closure, G_CONNECT_DEFAULT);
-
-  return TRUE;
-}
-
-static char *wig_window_current_origin(WigWindow *win)
-{
-  if (!win->current_web_view)
-    return NULL;
-
-  const char *uri = webkit_web_view_get_uri(win->current_web_view);
-  if (!uri || !*uri)
-    return NULL;
-
-  g_autoptr(WebKitSecurityOrigin) origin = webkit_security_origin_new_for_uri(uri);
-  return webkit_security_origin_to_string(origin);
-}
-
-static void wig_window_update_permissions(WigWindow *win)
-{
-  g_clear_pointer(&win->current_origin, g_free);
-  win->current_origin = wig_window_current_origin(win);
-
-  WigPermissions *permissions = NULL;
-  if (win->current_origin)
-    permissions = wig_permissions_manager_lookup(win->permissions_manager, win->current_origin);
-
-  wig_permissions_popover_set_permissions(WIG_PERMISSIONS_POPOVER(win->permissions_popover), permissions);
-}
-
-static void wig_window_on_permissions_changed(WigWindow *win, const char *origin)
-{
-  if (g_strcmp0(origin, win->current_origin) != 0)
-    return;
-
-  WigPermissions *permissions = wig_permissions_manager_lookup(win->permissions_manager, origin);
-  wig_permissions_popover_set_permissions(WIG_PERMISSIONS_POPOVER(win->permissions_popover), permissions);
-}
-
-static gboolean wig_window_on_permission_request(WebKitWebView *web_view, WebKitPermissionRequest *request,
-                                                 WigWindow *win)
-{
-  /* WebKit runs the whole desktop portal handshake while it validates the
-   * constraints, so by the time a screen sharing request reaches us the user has
-   * already picked what to share in the portal's own picker. Prompting again
-   * would only ask about capture that is set up already, so take the portal as
-   * the answer. Capture still cannot start without the PipeWire fd it holds. */
-  if (wig_permission_request_is_display_capture(request)) {
-    g_debug("allowing screen sharing request, already arranged by the portal");
-    webkit_permission_request_allow(request);
-    return TRUE;
-  }
-
-  if (wig_permission_kinds_for_request(request) == 0)
-    return FALSE;
-
-  const char *uri = webkit_web_view_get_uri(web_view);
-  if (!uri || !*uri)
-    return FALSE;
-
-  g_autoptr(WebKitSecurityOrigin) origin = webkit_security_origin_new_for_uri(uri);
-  g_autofree char *origin_str = webkit_security_origin_to_string(origin);
-  if (!origin_str)
-    return FALSE;
-
-  wig_permissions_manager_handle_request(win->permissions_manager, origin_str, request,
-                                         WIG_PERMISSIONS_POPOVER(win->permissions_popover));
-  return TRUE;
-}
-
-static void wig_window_file_chooser_done(GObject *source, GAsyncResult *result, gpointer user_data)
-{
-  g_autoptr(WebKitFileChooserRequest) request = user_data;
-  g_autoptr(GError) error = NULL;
-
-  if (webkit_file_chooser_request_get_select_multiple(request)) {
-    g_autoptr(GListModel) files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(source), result, &error);
-    if (files) {
-      guint n = g_list_model_get_n_items(files);
-      g_auto(GStrv) paths = g_new0(char *, n + 1);
-      for (guint i = 0; i < n; i++) {
-        g_autoptr(GFile) file = g_list_model_get_item(files, i);
-        paths[i] = g_file_get_path(file);
-      }
-      webkit_file_chooser_request_select_files(request, (const char *const *)paths);
-    } else {
-      g_debug("file-chooser failed: %s", error->message);
-      webkit_file_chooser_request_cancel(request);
-    }
-  } else {
-    g_autoptr(GFile) file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
-    if (file) {
-      const char *paths[] = { g_file_peek_path(file), NULL };
-      webkit_file_chooser_request_select_files(request, paths);
-    } else {
-      g_debug("file-chooser failed: %s", error->message);
-      webkit_file_chooser_request_cancel(request);
-    }
-  }
-}
-
-static gboolean wig_window_on_run_file_chooser(WigWindow *win, WebKitFileChooserRequest *request)
-{
-  g_autoptr(GtkFileDialog) dialog = gtk_file_dialog_new();
-
-  const char *const *mime_types = webkit_file_chooser_request_get_mime_types(request);
-  if (mime_types && *mime_types) {
-    g_autoptr(GtkFileFilter) filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "Supported Files");
-    for (guint i = 0; mime_types[i]; i++) {
-      gtk_file_filter_add_mime_type(filter, mime_types[i]);
-    }
-
-    g_autoptr(GtkFileFilter) all_filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(all_filter, "All Files");
-    gtk_file_filter_add_pattern(all_filter, "*");
-
-    g_autoptr(GListStore) filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filters, filter);
-    g_list_store_append(filters, all_filter);
-    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
-    gtk_file_dialog_set_default_filter(dialog, filter);
-  }
-
-  if (webkit_file_chooser_request_get_select_multiple(request))
-    gtk_file_dialog_open_multiple(dialog, GTK_WINDOW(win), NULL, wig_window_file_chooser_done, g_object_ref(request));
-  else
-    gtk_file_dialog_open(dialog, GTK_WINDOW(win), NULL, wig_window_file_chooser_done, g_object_ref(request));
-
-  return TRUE;
-}
-
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
                                          WebKitPolicyDecisionType decision_type, WebKitWebView *web_view);
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation,
                                                  WebKitWebView *opener);
-static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
-                                                 WebKitHitTestResult *hit_test_result);
+
+static void wig_window_attach_web_view(WigWindow *win, WebKitWebView *web_view)
+{
+  wig_window_base_attach_web_view(WIG_WINDOW_BASE(win), web_view);
+  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "decide-policy", G_CALLBACK(wig_window_decide_policy), win, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "create", G_CALLBACK(wig_window_web_view_create), win, G_CONNECT_SWAPPED);
+}
+
+static void wig_window_detach_web_view(WigWindow *win, WebKitWebView *web_view)
+{
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_close_tab, win);
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_decide_policy, win);
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_web_view_create, win);
+  wig_window_base_detach_web_view(WIG_WINDOW_BASE(win), web_view);
+}
 
 static WigTab *wig_window_add_tab_for_view(WigWindow *win, WebKitWebView *web_view)
 {
-  WigTab *tab = wig_tab_list_append(win->tab_list, web_view);
-
-  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), win, G_CONNECT_SWAPPED);
-  g_signal_connect_object(web_view, "show-notification", G_CALLBACK(wig_window_on_show_notification), win,
-                          G_CONNECT_SWAPPED);
-  g_signal_connect_object(web_view, "permission-request", G_CALLBACK(wig_window_on_permission_request), win,
-                          G_CONNECT_DEFAULT);
-  g_signal_connect_object(web_view, "run-file-chooser", G_CALLBACK(wig_window_on_run_file_chooser), win,
-                          G_CONNECT_SWAPPED);
-  g_signal_connect_object(web_view, "decide-policy", G_CALLBACK(wig_window_decide_policy), win, G_CONNECT_SWAPPED);
-  g_signal_connect_object(web_view, "create", G_CALLBACK(wig_window_web_view_create), win, G_CONNECT_SWAPPED);
-  g_signal_connect_object(web_view, "context-menu", G_CALLBACK(wig_window_web_view_context_menu), win,
-                          G_CONNECT_SWAPPED);
-
-  wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), win->toplevel);
-
-  return tab;
+  return wig_tab_list_append(win->tab_list, web_view);
 }
 
 static WebKitWebView *wig_window_create_web_view_for_new_tab(WigWindow *win)
@@ -511,39 +293,15 @@ static void wig_window_close_tab_action(GSimpleAction *action, GVariant *paramet
     wig_window_close_tab(win, win->current_web_view);
 }
 
-static void wig_window_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  webkit_web_view_reload(win->current_web_view);
-}
-
-static void wig_window_reload_bypass_cache(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  webkit_web_view_reload_bypass_cache(win->current_web_view);
-}
-
-static void wig_window_toggle_fullscreen(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (gtk_window_is_fullscreen(GTK_WINDOW(win)))
-    gtk_window_unfullscreen(GTK_WINDOW(win));
-  else
-    gtk_window_fullscreen(GTK_WINDOW(win));
-}
-
 static WigWindow *get_window_by_id(WigApplication *app, guint id)
 {
   GList *windows = gtk_application_get_windows(GTK_APPLICATION(app));
   for (GList *l = windows; l; l = g_list_next(l)) {
+    if (!WIG_IS_WINDOW(l->data))
+      continue;
+
     WigWindow *window = WIG_WINDOW(l->data);
-    if (window->id == id)
+    if (wig_window_base_get_id(WIG_WINDOW_BASE(window)) == id)
       return window;
   }
 
@@ -595,7 +353,7 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
 {
   g_return_val_if_fail(WIG_IS_WINDOW(win), NULL);
 
-  WigSessionWindow *captured = wig_session_window_new(win->id);
+  WigSessionWindow *captured = wig_session_window_new(wig_window_base_get_id(WIG_WINDOW_BASE(win)));
   captured->focused = gtk_window_is_active(GTK_WINDOW(win));
   captured->maximized = gtk_window_is_maximized(GTK_WINDOW(win));
   captured->fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
@@ -691,164 +449,6 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
     gtk_window_present(GTK_WINDOW(target_win));
 }
 
-#if HAVE_FAVICON_SUPPORT
-static void on_favicon_ready(GObject *source, GAsyncResult *result, gpointer user_data)
-{
-  WebKitFaviconDatabase *db = WEBKIT_FAVICON_DATABASE(source);
-  g_autoptr(GtkImage) image = GTK_IMAGE(user_data);
-  g_autoptr(GError) error = NULL;
-  g_autoptr(WebKitImageList) image_list = webkit_favicon_database_get_page_icons_finish(db, result, &error);
-  GIcon *icon = wig_util_best_page_icon(image_list, WIG_TAB_FAVICON_SIZE);
-  if (icon)
-    gtk_image_set_from_gicon(image, icon);
-}
-#endif
-
-static GtkWidget *wig_window_build_history_row(WebKitBackForwardListItem *item
-#if HAVE_FAVICON_SUPPORT
-                                               ,
-                                               WebKitFaviconDatabase *favicon_db
-#endif
-)
-{
-  const char *title = webkit_back_forward_list_item_get_title(item);
-  const char *uri = webkit_back_forward_list_item_get_uri(item);
-
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-
-#if HAVE_FAVICON_SUPPORT
-  GtkWidget *image = gtk_image_new();
-  gtk_image_set_icon_size(GTK_IMAGE(image), GTK_ICON_SIZE_NORMAL);
-  gtk_box_append(GTK_BOX(box), image);
-
-  if (favicon_db && uri)
-    webkit_favicon_database_get_page_icons(favicon_db, uri, NULL, on_favicon_ready, g_object_ref(image));
-#endif
-
-  GtkWidget *label = gtk_label_new(title && *title ? title : uri);
-  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
-  gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
-  gtk_widget_set_hexpand(label, TRUE);
-  gtk_box_append(GTK_BOX(box), label);
-
-  return box;
-}
-
-static GtkWidget *wig_window_build_history_popover(WigWindow *win, WebKitBackForwardListItem *current, GList *items)
-{
-#if HAVE_FAVICON_SUPPORT
-  WigApplication *app = wig_application_get();
-  WebKitNetworkSession *session = wig_application_get_network_session(app);
-  WebKitWebsiteDataManager *data_manager = webkit_network_session_get_website_data_manager(session);
-  WebKitFaviconDatabase *favicon_db = webkit_website_data_manager_get_favicon_database(data_manager);
-#endif
-
-  GtkWidget *list_box = gtk_list_box_new();
-  gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
-  gtk_widget_set_size_request(list_box, 240, -1);
-
-  GtkWidget *current_row_widget = wig_window_build_history_row(current
-#if HAVE_FAVICON_SUPPORT
-                                                               ,
-                                                               favicon_db
-#endif
-  );
-  gtk_list_box_append(GTK_LIST_BOX(list_box), current_row_widget);
-  GtkListBoxRow *current_row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(list_box), 0);
-  gtk_widget_add_css_class(GTK_WIDGET(current_row), "current-history-item");
-
-  for (GList *l = items; l; l = l->next) {
-    GtkWidget *row = wig_window_build_history_row(WEBKIT_BACK_FORWARD_LIST_ITEM(l->data)
-#if HAVE_FAVICON_SUPPORT
-                                                      ,
-                                                  favicon_db
-#endif
-    );
-
-    gtk_list_box_append(GTK_LIST_BOX(list_box), row);
-  }
-
-  GtkWidget *popover = gtk_popover_new();
-  gtk_widget_add_css_class(popover, "back-history-popover");
-  gtk_popover_set_child(GTK_POPOVER(popover), list_box);
-  gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);
-  return popover;
-}
-
-static void wig_window_back_history_row_activated(GtkListBox *list_box, GtkListBoxRow *row, WigWindow *win)
-{
-  int index = gtk_list_box_row_get_index(row);
-  g_clear_pointer(&win->back_history_popover, gtk_widget_unparent);
-
-  /* Row 0 is the current item — nothing to do. */
-  if (index == 0 || !win->current_web_view)
-    return;
-
-  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
-  WebKitBackForwardListItem *item = webkit_back_forward_list_get_nth_item(bfl, -index);
-  if (item)
-    webkit_web_view_go_to_back_forward_list_item(win->current_web_view, item);
-}
-
-static void wig_window_back_button_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
-                                                 WigWindow *win)
-{
-  if (!win->current_web_view)
-    return;
-
-  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
-  g_autoptr(GList) back_list = webkit_back_forward_list_get_back_list(bfl);
-  if (!back_list)
-    return;
-
-  WebKitBackForwardListItem *current = webkit_back_forward_list_get_current_item(bfl);
-  g_clear_pointer(&win->back_history_popover, gtk_widget_unparent);
-
-  win->back_history_popover = wig_window_build_history_popover(win, current, back_list);
-  GtkWidget *list_box = gtk_popover_get_child(GTK_POPOVER(win->back_history_popover));
-  g_signal_connect_object(list_box, "row-activated", G_CALLBACK(wig_window_back_history_row_activated), win,
-                          G_CONNECT_DEFAULT);
-  gtk_widget_set_parent(win->back_history_popover, win->back_button);
-  gtk_popover_popup(GTK_POPOVER(win->back_history_popover));
-}
-
-static void wig_window_forward_history_row_activated(GtkListBox *list_box, GtkListBoxRow *row, WigWindow *win)
-{
-  int index = gtk_list_box_row_get_index(row);
-  g_clear_pointer(&win->forward_history_popover, gtk_widget_unparent);
-
-  /* Row 0 is the current item — nothing to do. */
-  if (index == 0 || !win->current_web_view)
-    return;
-
-  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
-  WebKitBackForwardListItem *item = webkit_back_forward_list_get_nth_item(bfl, index);
-  if (item)
-    webkit_web_view_go_to_back_forward_list_item(win->current_web_view, item);
-}
-
-static void wig_window_forward_button_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
-                                                    WigWindow *win)
-{
-  if (!win->current_web_view)
-    return;
-
-  WebKitBackForwardList *bfl = webkit_web_view_get_back_forward_list(win->current_web_view);
-  g_autoptr(GList) forward_list = webkit_back_forward_list_get_forward_list(bfl);
-  if (!forward_list)
-    return;
-
-  WebKitBackForwardListItem *current = webkit_back_forward_list_get_current_item(bfl);
-  g_clear_pointer(&win->forward_history_popover, gtk_widget_unparent);
-
-  win->forward_history_popover = wig_window_build_history_popover(win, current, forward_list);
-  GtkWidget *list_box = gtk_popover_get_child(GTK_POPOVER(win->forward_history_popover));
-  g_signal_connect_object(list_box, "row-activated", G_CALLBACK(wig_window_forward_history_row_activated), win,
-                          G_CONNECT_DEFAULT);
-  gtk_widget_set_parent(win->forward_history_popover, win->forward_button);
-  gtk_popover_popup(GTK_POPOVER(win->forward_history_popover));
-}
-
 static void wig_window_tab_view_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
 {
   g_autoptr(GMenu) menu = g_menu_new();
@@ -919,33 +519,6 @@ static void wig_window_set_tab_layout(WigWindow *win, WigTabLayout layout)
   }
 }
 
-static void wig_window_zoom_in(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  webkit_web_view_set_zoom_level(win->current_web_view, webkit_web_view_get_zoom_level(win->current_web_view) + 0.1);
-}
-
-static void wig_window_zoom_out(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  webkit_web_view_set_zoom_level(win->current_web_view, webkit_web_view_get_zoom_level(win->current_web_view) - 0.1);
-}
-
-static void wig_window_zoom_reset(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
-    return;
-
-  webkit_web_view_set_zoom_level(win->current_web_view, 1.0);
-}
-
 static void wig_window_reload_middle_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
 {
   g_action_group_activate_action(G_ACTION_GROUP(win), "duplicate-active-tab", NULL);
@@ -963,9 +536,6 @@ static void wig_window_duplicate_active_tab(GSimpleAction *action, GVariant *par
 }
 
 static const GActionEntry actions[] = {
-  { "go-back", wig_window_go_back },
-  { "go-forward", wig_window_go_forward },
-  { "stop-reload", wig_window_stop_reload, NULL, "false", wig_window_change_stop_reload_state },
   { "new-tab", wig_window_new_tab },
   { "focus-entry", wig_window_focus_entry },
   { "find", wig_window_find },
@@ -975,12 +545,6 @@ static const GActionEntry actions[] = {
   { "show-history", wig_window_show_history },
   { "show-settings", wig_window_show_settings },
   { "close-tab", wig_window_close_tab_action },
-  { "reload", wig_window_reload },
-  { "reload-bypass-cache", wig_window_reload_bypass_cache },
-  { "toggle-fullscreen", wig_window_toggle_fullscreen },
-  { "zoom-in", wig_window_zoom_in },
-  { "zoom-out", wig_window_zoom_out },
-  { "zoom-reset", wig_window_zoom_reset },
   { "undo-close-tab", wig_window_undo_close_tab },
   { "duplicate-active-tab", wig_window_duplicate_active_tab },
 };
@@ -1062,6 +626,16 @@ static void wig_window_update_load_progress(WigWindow *win)
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
   if (progress == 1.0)
     win->progress_timeout_id = g_timeout_add_once(500, (GSourceOnceFunc)wig_window_clear_load_progress, win);
+}
+
+static void wig_window_uri_changed(WigWindow *win, GParamSpec *pspec, WebKitWebView *web_view)
+{
+  wig_window_update_url(win);
+}
+
+static void wig_window_load_progress_changed(WigWindow *win, GParamSpec *pspec, WebKitWebView *web_view)
+{
+  wig_window_update_load_progress(win);
 }
 
 static void wig_window_load_uri(WigWindow *win, const char *uri)
@@ -1231,16 +805,6 @@ static void wig_window_click_pressed(GtkGestureClick *gesture, int n_press, doub
   gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
 }
 
-static void wig_window_update_navigation_actions(WigWindow *win)
-{
-  GAction *action = g_action_map_lookup_action(G_ACTION_MAP(win), "go-back");
-  g_simple_action_set_enabled(G_SIMPLE_ACTION(action),
-                              win->current_web_view ? webkit_web_view_can_go_back(win->current_web_view) : FALSE);
-  action = g_action_map_lookup_action(G_ACTION_MAP(win), "go-forward");
-  g_simple_action_set_enabled(G_SIMPLE_ACTION(action),
-                              win->current_web_view ? webkit_web_view_can_go_forward(win->current_web_view) : FALSE);
-}
-
 static const char *wig_decision_type_name(WebKitPolicyDecisionType type)
 {
   switch (type) {
@@ -1372,9 +936,8 @@ static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigatio
     }
   }
 
-  g_autoptr(WebKitWebView) web_view = WEBKIT_WEB_VIEW(
-      g_object_new(WEBKIT_TYPE_WEB_VIEW, "related-view", win->current_web_view, "settings",
-                   webkit_web_view_get_settings(win->current_web_view), NULL));
+  g_autoptr(WebKitWebView) web_view = WEBKIT_WEB_VIEW(g_object_new(
+      WEBKIT_TYPE_WEB_VIEW, "related-view", opener, "settings", webkit_web_view_get_settings(opener), NULL));
 
   WigWindow *new_win = wig_window_new(WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))));
   wig_window_add_web_view(new_win, web_view);
@@ -1383,79 +946,29 @@ static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigatio
   return web_view;
 }
 
-static GMenu *build_context_menu(GList *items, GSimpleActionGroup *action_group, WebKitHitTestResult *hit_test_result)
-{
-  g_autoptr(GMenu) menu = g_menu_new();
-  GMenu *section_menu = menu;
-  for (GList *l = items; l != NULL; l = g_list_next(l)) {
-    WebKitContextMenuItem *item = WEBKIT_CONTEXT_MENU_ITEM(l->data);
-
-    if (webkit_context_menu_item_is_separator(item)) {
-      g_autoptr(GMenu) section = g_menu_new();
-      g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
-      section_menu = section;
-    } else if (webkit_context_menu_item_get_stock_action(item) == WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK
-               && webkit_hit_test_result_context_is_link(hit_test_result)) {
-      g_autoptr(GMenuItem) menu_item = g_menu_item_new("Open Link in New Tab", NULL);
-      const char *uri = webkit_hit_test_result_get_link_uri(hit_test_result);
-      g_menu_item_set_action_and_target(menu_item, "popup.open-in-new-tab", "s", uri);
-      g_menu_append_item(section_menu, menu_item);
-    } else {
-      GAction *action = webkit_context_menu_item_get_gaction(item);
-      if (action) {
-        g_action_map_add_action(G_ACTION_MAP(action_group), action);
-
-        g_autoptr(GMenuItem) menu_item = NULL;
-        WebKitContextMenu *subcontext_menu = webkit_context_menu_item_get_submenu(item);
-        if (subcontext_menu) {
-          g_autoptr(GMenu) submenu = build_context_menu(webkit_context_menu_get_items(subcontext_menu), action_group,
-                                                        hit_test_result);
-          menu_item = g_menu_item_new_submenu(webkit_context_menu_item_get_title(item), G_MENU_MODEL(submenu));
-        } else {
-          menu_item = g_menu_item_new(webkit_context_menu_item_get_title(item), NULL);
-          g_autofree char *action_name = g_strdup_printf("wpeContextMenu.%s", g_action_get_name(action));
-          g_menu_item_set_action_and_target_value(menu_item, action_name,
-                                                  webkit_context_menu_item_get_gaction_target(item));
-        }
-        g_menu_append_item(section_menu, menu_item);
-      }
-    }
-  }
-  return g_steal_pointer(&menu);
-}
-
 static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
-                                                 WebKitHitTestResult *hit_test_result)
+                                                 WebKitHitTestResult *hit_test_result, WebKitWebView *web_view)
 {
-  if (!win->current_web_view)
+  if (web_view != win->current_web_view)
     return FALSE;
 
   g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
-  g_autoptr(GMenu) menu = build_context_menu(webkit_context_menu_get_items(context_menu), action_group,
-                                             hit_test_result);
+  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, "popup.open-in-new-tab",
+                                                 "Open Link in New Tab");
   if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
     return FALSE;
 
   GdkRectangle target = { 0, 0, 1, 1 };
   gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
 
-  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(win->current_web_view)), G_MENU_MODEL(menu),
+  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)), G_MENU_MODEL(menu),
                                  G_ACTION_GROUP(action_group), has_position ? &target : NULL);
 
   return TRUE;
 }
 
-static void wig_window_update_stop_reload_actions(WigWindow *win)
-{
-  if (!win->current_web_view)
-    return;
-
-  GAction *action = g_action_map_lookup_action(G_ACTION_MAP(win), "stop-reload");
-  bool is_loading = webkit_web_view_is_loading(win->current_web_view);
-  g_action_change_state(action, g_variant_new_boolean(is_loading));
-}
-
-static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResult *hit_test_result, guint modifiers)
+static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResult *hit_test_result, guint modifiers,
+                                               WebKitWebView *web_view)
 {
   WigTab *tab = wig_tab_list_get_active(win->tab_list);
   if (!tab)
@@ -1465,19 +978,7 @@ static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResu
   if (webkit_hit_test_result_context_is_link(hit_test_result))
     uri = webkit_hit_test_result_get_link_uri(hit_test_result);
 
-  wig_tab_set_hovered_link(tab, uri, win->current_origin);
-}
-
-static gboolean wig_window_on_enter_fullscreen(WigWindow *win)
-{
-  gtk_window_fullscreen(GTK_WINDOW(win));
-  return TRUE;
-}
-
-static gboolean wig_window_on_leave_fullscreen(WigWindow *win)
-{
-  gtk_window_unfullscreen(GTK_WINDOW(win));
-  return TRUE;
+  wig_tab_set_hovered_link(tab, uri, wig_window_base_get_active_origin(WIG_WINDOW_BASE(win)));
 }
 
 static void wig_window_fullscreen_changed(WigWindow *win)
@@ -1496,34 +997,24 @@ static void wig_window_fullscreen_changed(WigWindow *win)
 static void wig_window_tab_added(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
 {
   gtk_stack_add_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
+  wig_window_attach_web_view(win, wig_tab_get_web_view(tab));
   wig_session_queue_save(wig_application_get_session(wig_application_get()));
 }
 
 static void wig_window_tab_removed(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
 {
+  wig_window_detach_web_view(win, wig_tab_get_web_view(tab));
   gtk_stack_remove(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
   wig_session_queue_save(wig_application_get_session(wig_application_get()));
 }
 
 static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, WigTabList *list)
 {
-  g_autoptr(WebKitWebView) previous_web_view = g_steal_pointer(&win->current_web_view);
-
-  if (previous_web_view) {
-    g_signal_handlers_disconnect_by_func(previous_web_view, wig_window_update_url, win);
-    g_signal_handlers_disconnect_by_func(previous_web_view, wig_window_update_permissions, win);
-    g_signal_handlers_disconnect_by_func(previous_web_view, wig_window_update_load_progress, win);
-    g_signal_handlers_disconnect_by_func(previous_web_view, wig_window_update_stop_reload_actions, win);
-    g_signal_handlers_disconnect_by_func(previous_web_view, wig_window_on_enter_fullscreen, win);
-    g_signal_handlers_disconnect_by_func(previous_web_view, wig_window_on_leave_fullscreen, win);
-    g_signal_handlers_disconnect_by_func(previous_web_view, wig_window_on_mouse_target_changed, win);
-
-    WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(previous_web_view);
-    g_signal_handlers_disconnect_by_func(backForwardlist, wig_window_update_navigation_actions, win);
-  }
-
   WigTab *tab = wig_tab_list_get_active(win->tab_list);
-  win->current_web_view = tab ? wig_tab_get_web_view(tab) : NULL;
+  WebKitWebView *web_view = tab ? wig_tab_get_web_view(tab) : NULL;
+  g_set_object(&win->current_web_view, web_view);
+  g_signal_group_set_target(win->active_web_view_signals, web_view);
+  wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), web_view);
 
   if (tab)
     gtk_stack_set_visible_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
@@ -1532,34 +1023,8 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
     wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
 
   wig_window_update_url(win);
-  wig_window_update_navigation_actions(win);
-  wig_window_update_stop_reload_actions(win);
-  wig_window_update_permissions(win);
   if (!win->current_web_view || webkit_web_view_is_loading(win->current_web_view))
     wig_window_update_load_progress(win);
-
-  if (win->current_web_view) {
-    g_object_ref(win->current_web_view);
-
-    g_signal_connect_object(win->current_web_view, "notify::uri", G_CALLBACK(wig_window_update_url), win,
-                            G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "notify::uri", G_CALLBACK(wig_window_update_permissions), win,
-                            G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "notify::estimated-load-progress",
-                            G_CALLBACK(wig_window_update_load_progress), win, G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "load-changed", G_CALLBACK(wig_window_update_stop_reload_actions),
-                            win, G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "enter-fullscreen", G_CALLBACK(wig_window_on_enter_fullscreen), win,
-                            G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "leave-fullscreen", G_CALLBACK(wig_window_on_leave_fullscreen), win,
-                            G_CONNECT_SWAPPED);
-    g_signal_connect_object(win->current_web_view, "mouse-target-changed",
-                            G_CALLBACK(wig_window_on_mouse_target_changed), win, G_CONNECT_SWAPPED);
-
-    WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(win->current_web_view);
-    g_signal_connect_object(backForwardlist, "changed", G_CALLBACK(wig_window_update_navigation_actions), win,
-                            G_CONNECT_SWAPPED);
-  }
 
   if (tab)
     wig_tab_load_discarded(tab);
@@ -1617,14 +1082,9 @@ static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, G
   if (wig_tab_list_get_n_tabs(src->tab_list) <= 1)
     return;
 
-  WebKitWebView *web_view = wig_tab_get_web_view(tab);
-
   /* Hold a ref so the widget survives gtk_stack_remove in wig_tab_list_detach. */
   GtkWidget *tab_widget = g_object_ref(wig_tab_get_widget(tab));
   g_autoptr(WigTab) owned_tab = wig_tab_list_detach(src->tab_list, tab);
-
-  g_signal_handlers_disconnect_by_func(web_view, wig_window_close_tab, src);
-  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), dst, G_CONNECT_SWAPPED);
 
   guint n = wig_tab_list_get_n_tabs(dst->tab_list);
   guint pos = MIN((guint)insert_index, n);
@@ -1635,7 +1095,6 @@ static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, G
     wig_tab_list_move(dst->tab_list, owned_tab, pos);
   wig_tab_list_set_active(dst->tab_list, owned_tab);
 
-  wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), dst->toplevel);
   gtk_window_present(GTK_WINDOW(dst));
 }
 
@@ -1653,25 +1112,16 @@ static void wig_window_detach_tab(GtkWidget *widget, const char *action_name, GV
   WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
   WigWindow *new_win = wig_window_new(app);
 
-  WebKitWebView *web_view = wig_tab_get_web_view(tab);
-
   /* Detach reuses the existing WigTab — no close-tab signal, no history save.
    * This fires tab-removed on the old list, which removes the WPE widget from
    * the old stack. We hold a ref so it survives unparenting. */
   GtkWidget *tab_widget = g_object_ref(wig_tab_get_widget(tab));
   g_autoptr(WigTab) owned_tab = wig_tab_list_detach(win->tab_list, tab);
 
-  /* Re-wire the web view's "close" signal from the old window to the new one. */
-  g_signal_handlers_disconnect_by_func(web_view, wig_window_close_tab, win);
-  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_close_tab), new_win, G_CONNECT_SWAPPED);
-
-  /* Attach before changing the toplevel so the widget is in the new stack when
-   * wpe_view_set_toplevel migrates the native surface. */
   wig_tab_list_attach(new_win->tab_list, owned_tab);
   wig_tab_list_set_active(new_win->tab_list, owned_tab);
   g_object_unref(tab_widget);
 
-  wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), new_win->toplevel);
   gtk_window_present(GTK_WINDOW(new_win));
 }
 
@@ -1710,24 +1160,12 @@ static void wig_window_constructed(GObject *object)
   gtk_widget_add_css_class(win->back_button, "toolbar-button");
   gtk_box_append(GTK_BOX(box), win->back_button);
 
-  GtkGestureClick *back_right = GTK_GESTURE_CLICK(gtk_gesture_click_new());
-  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(back_right), GDK_BUTTON_SECONDARY);
-  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(back_right), GTK_PHASE_CAPTURE);
-  g_signal_connect_object(back_right, "pressed", G_CALLBACK(wig_window_back_button_right_pressed), win,
-                          G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(win->back_button, GTK_EVENT_CONTROLLER(back_right));
-
   win->forward_button = gtk_button_new_from_icon_name("go-next-symbolic");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->forward_button), "win.go-forward");
   gtk_widget_add_css_class(win->forward_button, "toolbar-button");
   gtk_box_append(GTK_BOX(box), win->forward_button);
 
-  GtkGestureClick *forward_right = GTK_GESTURE_CLICK(gtk_gesture_click_new());
-  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(forward_right), GDK_BUTTON_SECONDARY);
-  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(forward_right), GTK_PHASE_CAPTURE);
-  g_signal_connect_object(forward_right, "pressed", G_CALLBACK(wig_window_forward_button_right_pressed), win,
-                          G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(win->forward_button, GTK_EVENT_CONTROLLER(forward_right));
+  wig_window_base_set_navigation_buttons(WIG_WINDOW_BASE(win), win->back_button, win->forward_button);
   gtk_box_append(GTK_BOX(start_box), box);
 
   win->stop_reload_button = gtk_button_new_from_icon_name("view-refresh-symbolic");
@@ -1766,21 +1204,9 @@ static void wig_window_constructed(GObject *object)
                           G_CONNECT_DEFAULT);
   gtk_widget_add_controller(win->url_entry, url_keys);
 
-  win->permissions_popover = wig_permissions_popover_new();
-
-  win->permissions_button = gtk_menu_button_new();
-  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(win->permissions_button), "sliders-horizontal-symbolic");
-  gtk_menu_button_set_popover(GTK_MENU_BUTTON(win->permissions_button), win->permissions_popover);
-  g_object_bind_property(win->permissions_popover, "has-permissions", win->permissions_button, "visible",
-                         G_BINDING_SYNC_CREATE);
-
-  win->permissions_manager = wig_application_get_permissions_manager(wig_application_get());
-  g_signal_connect_object(win->permissions_manager, "changed", G_CALLBACK(wig_window_on_permissions_changed), win,
-                          G_CONNECT_SWAPPED);
-
   GtkWidget *entry_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_add_css_class(entry_box, "linked");
-  gtk_box_append(GTK_BOX(entry_box), win->permissions_button);
+  gtk_box_append(GTK_BOX(entry_box), wig_window_base_get_permissions_button(WIG_WINDOW_BASE(win)));
   gtk_box_append(GTK_BOX(entry_box), win->url_entry);
 
   GtkWidget *clamp = adw_clamp_new();
@@ -1852,14 +1278,9 @@ static void wig_window_constructed(GObject *object)
   gtk_window_set_titlebar(GTK_WINDOW(win), win->header_bar);
 
   WigApplication *app = wig_application_get();
-  win->toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(wig_application_get_display(app)), 0, GTK_WINDOW(win));
-
-  /* A restored window keeps the id it was saved with, so ids handed out from
-   * here on have to stay clear of it. */
-  if (win->id == 0)
-    win->id = wig_window_next_id++;
-  else if (win->id >= wig_window_next_id)
-    wig_window_next_id = win->id + 1;
+  g_autoptr(WPEToplevel) toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(wig_application_get_display(app)), 0,
+                                                         GTK_WINDOW(win));
+  wig_window_base_set_toplevel(WIG_WINDOW_BASE(win), toplevel);
 
   g_settings_bind(wig_application_get_settings(app), "tab-layout", win, "tab-layout", G_SETTINGS_BIND_DEFAULT);
 }
@@ -1885,8 +1306,10 @@ static void wig_window_dispose(GObject *object)
 
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
   g_clear_pointer(&win->entry_completion_popover, gtk_widget_unparent);
-  g_clear_pointer(&win->back_history_popover, gtk_widget_unparent);
-  g_clear_pointer(&win->forward_history_popover, gtk_widget_unparent);
+  if (win->active_web_view_signals)
+    g_signal_group_set_target(win->active_web_view_signals, NULL);
+  wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), NULL);
+  g_clear_object(&win->active_web_view_signals);
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
 }
 
@@ -1894,15 +1317,21 @@ static void wig_window_finalize(GObject *object)
 {
   WigWindow *win = WIG_WINDOW(object);
   g_clear_object(&win->current_web_view);
-  g_clear_object(&win->toplevel);
   g_clear_object(&win->context_menu_action_group);
-  g_clear_pointer(&win->current_origin, g_free);
 
   G_OBJECT_CLASS(wig_window_parent_class)->finalize(object);
 }
 
 static void wig_window_init(WigWindow *win)
 {
+  win->active_web_view_signals = g_signal_group_new(WEBKIT_TYPE_WEB_VIEW);
+  g_signal_group_connect_swapped(win->active_web_view_signals, "notify::uri", G_CALLBACK(wig_window_uri_changed), win);
+  g_signal_group_connect_swapped(win->active_web_view_signals, "notify::estimated-load-progress",
+                                 G_CALLBACK(wig_window_load_progress_changed), win);
+  g_signal_group_connect_swapped(win->active_web_view_signals, "context-menu",
+                                 G_CALLBACK(wig_window_web_view_context_menu), win);
+  g_signal_group_connect_swapped(win->active_web_view_signals, "mouse-target-changed",
+                                 G_CALLBACK(wig_window_on_mouse_target_changed), win);
 }
 
 static void wig_window_class_init(WigWindowClass *klass)
@@ -1914,13 +1343,12 @@ static void wig_window_class_init(WigWindowClass *klass)
   gobject_class->get_property = wig_window_get_property;
   gobject_class->set_property = wig_window_set_property;
 
-  props[PROP_ID] = g_param_spec_uint("id", NULL, NULL, 0, G_MAXUINT, 0,
-                                     G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+  WigWindowBaseClass *base_class = WIG_WINDOW_BASE_CLASS(klass);
+  base_class->loading_changed = wig_window_loading_changed;
 
   props[PROP_TAB_LAYOUT] = g_param_spec_enum("tab-layout", NULL, NULL, WIG_TYPE_TAB_LAYOUT, WIG_TAB_LAYOUT_HORIZONTAL,
                                              G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-  g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
+  g_object_class_install_property(gobject_class, PROP_TAB_LAYOUT, props[PROP_TAB_LAYOUT]);
 
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
   gtk_widget_class_install_action(widget_class, "tab.detach", "u", wig_window_detach_tab);

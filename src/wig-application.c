@@ -88,9 +88,26 @@ static WebKitWebView *wig_application_focus_internal_page_in_window(WigWindow *w
   return web_view;
 }
 
+static WigWindow *wig_application_find_browser_window(WigApplication *app)
+{
+  GtkWindow *active = gtk_application_get_active_window(GTK_APPLICATION(app));
+  if (WIG_IS_WINDOW(active))
+    return WIG_WINDOW(active);
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (WIG_IS_WINDOW(l->data))
+      return WIG_WINDOW(l->data);
+  }
+
+  return NULL;
+}
+
 gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore)
 {
   for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (!WIG_IS_WINDOW(l->data))
+      continue;
+
     if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, ignore, FALSE)) {
       gtk_window_present(GTK_WINDOW(l->data));
       return TRUE;
@@ -102,11 +119,13 @@ gboolean wig_application_focus_internal_page(WigApplication *app, const char *ur
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
 {
-  if (win && wig_application_focus_internal_page_in_window(WIG_WINDOW(win), uri, NULL, TRUE))
+  if (WIG_IS_WINDOW(win) && wig_application_focus_internal_page_in_window(WIG_WINDOW(win), uri, NULL, TRUE))
     return;
 
   for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
     if (l->data == win)
+      continue;
+    if (!WIG_IS_WINDOW(l->data))
       continue;
 
     if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, NULL, TRUE)) {
@@ -115,8 +134,8 @@ void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, con
     }
   }
 
-  if (!win)
-    win = gtk_application_get_active_window(GTK_APPLICATION(app));
+  if (!WIG_IS_WINDOW(win))
+    win = GTK_WINDOW(wig_application_find_browser_window(app));
 
   if (win)
     wig_application_add_new_tab_with_uri(app, WIG_WINDOW(win), uri);
@@ -653,7 +672,7 @@ static WigWindow *wig_application_restore_session(WigApplication *app)
 static void wig_application_activate(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
-  WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
+  WigWindow *win = wig_application_find_browser_window(app);
   gboolean fresh = FALSE;
 
   if (!win && g_settings_get_boolean(app->settings, "restore-tabs"))
@@ -673,7 +692,7 @@ static void wig_application_activate(GApplication *application)
 static void wig_application_open(GApplication *application, GFile **files, gint n_files, const gchar *hint)
 {
   WigApplication *app = WIG_APPLICATION(application);
-  WigWindow *win = WIG_WINDOW(gtk_application_get_active_window(GTK_APPLICATION(app)));
+  WigWindow *win = wig_application_find_browser_window(app);
 
   if (!win && g_settings_get_boolean(app->settings, "restore-tabs"))
     win = wig_application_restore_session(app);

@@ -22,27 +22,8 @@
 
 #pragma once
 
-#include "wig-application.h"
-#include "wig-window-base.h"
+#include <wpe/webkit.h>
 
-G_BEGIN_DECLS
-
-#define WIG_TYPE_WINDOW (wig_window_get_type())
-G_DECLARE_FINAL_TYPE(WigWindow, wig_window, WIG, WINDOW, WigWindowBase)
-
-typedef enum {
-  WIG_TAB_LAYOUT_HORIZONTAL,
-  WIG_TAB_LAYOUT_VERTICAL,
-} WigTabLayout;
-
-#define WIG_TYPE_TAB_LAYOUT (wig_tab_layout_get_type())
-GType wig_tab_layout_get_type(void);
-
-WigWindow *wig_window_new(WigApplication *application);
-void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
-WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore);
-
-WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved);
-WigSessionWindow *wig_window_capture_session(WigWindow *win);
-
-G_END_DECLS
+GMenu *wig_context_menu_build(WebKitContextMenu *context_menu, GSimpleActionGroup *action_group,
+                              WebKitHitTestResult *hit_test_result, const char *open_link_action,
+                              const char *open_link_label);

@@ -22,27 +22,30 @@
 
 #pragma once
 
-#include "wig-application.h"
-#include "wig-window-base.h"
+#include <gtk/gtk.h>
+#include <wpe/webkit.h>
+#include <wpe/wpe.h>
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_WINDOW (wig_window_get_type())
-G_DECLARE_FINAL_TYPE(WigWindow, wig_window, WIG, WINDOW, WigWindowBase)
+#define WIG_TYPE_WINDOW_BASE (wig_window_base_get_type())
+G_DECLARE_DERIVABLE_TYPE(WigWindowBase, wig_window_base, WIG, WINDOW_BASE, GtkApplicationWindow)
 
-typedef enum {
-  WIG_TAB_LAYOUT_HORIZONTAL,
-  WIG_TAB_LAYOUT_VERTICAL,
-} WigTabLayout;
+struct _WigWindowBaseClass {
+  GtkApplicationWindowClass parent_class;
 
-#define WIG_TYPE_TAB_LAYOUT (wig_tab_layout_get_type())
-GType wig_tab_layout_get_type(void);
+  void (*loading_changed)(WigWindowBase *self, gboolean is_loading);
+};
 
-WigWindow *wig_window_new(WigApplication *application);
-void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
-WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore);
-
-WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved);
-WigSessionWindow *wig_window_capture_session(WigWindow *win);
+guint wig_window_base_get_id(WigWindowBase *self);
+void wig_window_base_set_toplevel(WigWindowBase *self, WPEToplevel *toplevel);
+WPEToplevel *wig_window_base_get_toplevel(WigWindowBase *self);
+void wig_window_base_set_navigation_buttons(WigWindowBase *self, GtkWidget *back_button, GtkWidget *forward_button);
+void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_view);
+void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_view);
+void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web_view);
+WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self);
+GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self);
+const char *wig_window_base_get_active_origin(WigWindowBase *self);
 
 G_END_DECLS
