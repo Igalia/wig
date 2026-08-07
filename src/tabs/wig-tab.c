@@ -354,6 +354,18 @@ const char *wig_tab_get_title(WigTab *self)
   return self->title;
 }
 
+const char *wig_tab_get_uri(WigTab *self)
+{
+  if (self->discarded) {
+    WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(self->web_view);
+    WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
+    if (item)
+      return webkit_back_forward_list_item_get_uri(item);
+  }
+
+  return webkit_web_view_get_uri(self->web_view);
+}
+
 gboolean wig_tab_get_discarded(WigTab *self)
 {
   return self->discarded;

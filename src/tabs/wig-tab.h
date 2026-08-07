@@ -46,6 +46,7 @@ GtkWidget *wig_tab_get_widget(WigTab *self);
 GIcon *wig_tab_get_icon(WigTab *self);
 void wig_tab_set_icon(WigTab *self, GIcon *icon);
 const char *wig_tab_get_title(WigTab *self);
+const char *wig_tab_get_uri(WigTab *self);
 gboolean wig_tab_get_discarded(WigTab *self);
 void wig_tab_mark_discarded(WigTab *self);
 void wig_tab_load_discarded(WigTab *self);

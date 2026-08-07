@@ -82,10 +82,7 @@ static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow 
 static WebKitWebView *wig_application_focus_internal_page_in_window(WigWindow *win, const char *uri,
                                                                     WebKitWebView *ignore, gboolean reload)
 {
-  WebKitWebView *web_view = wig_window_focus_tab_by_site(win, uri, ignore);
-  if (web_view && reload)
-    webkit_web_view_reload(web_view);
-  return web_view;
+  return wig_window_focus_tab_by_site(win, uri, ignore, reload);
 }
 
 static WigWindow *wig_application_find_browser_window(WigApplication *app)

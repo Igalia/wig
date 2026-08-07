@@ -40,7 +40,7 @@ GType wig_tab_layout_get_type(void);
 
 WigWindow *wig_window_new(WigApplication *application);
 void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
-WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore);
+WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore, gboolean reload);
 
 WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved);
 WigSessionWindow *wig_window_capture_session(WigWindow *win);

@@ -148,7 +148,7 @@ static void wig_window_close_tab(WigWindow *win, WebKitWebView *web_view)
     wig_tab_list_close(win->tab_list, tab);
 }
 
-WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore)
+WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore, gboolean reload)
 {
   g_autoptr(GUri) lookup = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
   if (!lookup)
@@ -165,7 +165,7 @@ WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, Web
     if (web_view == ignore)
       continue;
 
-    const char *tab_uri = webkit_web_view_get_uri(web_view);
+    const char *tab_uri = wig_tab_get_uri(tab);
     if (!tab_uri)
       continue;
 
@@ -183,7 +183,11 @@ WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, Web
       match = g_str_equal(lookup_scheme, tab_scheme) && g_strcmp0(lookup_path, g_uri_get_path(parsed)) == 0;
 
     if (match) {
+      gboolean discarded = wig_tab_get_discarded(tab);
       wig_tab_list_set_active(win->tab_list, tab);
+      wig_tab_load_discarded(tab);
+      if (reload && !discarded)
+        webkit_web_view_reload(web_view);
       return web_view;
     }
   }
