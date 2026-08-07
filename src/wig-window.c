@@ -189,11 +189,11 @@ static void wig_window_close_tab(WigWindow *win, WebKitWebView *web_view)
     wig_tab_list_close(win->tab_list, tab);
 }
 
-gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
+WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore)
 {
   g_autoptr(GUri) lookup = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
   if (!lookup)
-    return FALSE;
+    return NULL;
 
   const char *lookup_scheme = g_uri_get_scheme(lookup);
   const char *lookup_host = g_uri_get_host(lookup);
@@ -203,6 +203,9 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
   for (guint i = 0; i < n; i++) {
     WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
     WebKitWebView *web_view = wig_tab_get_web_view(tab);
+    if (web_view == ignore)
+      continue;
+
     const char *tab_uri = webkit_web_view_get_uri(web_view);
     if (!tab_uri)
       continue;
@@ -222,11 +225,10 @@ gboolean wig_window_focus_tab_by_site(WigWindow *win, const char *uri)
 
     if (match) {
       wig_tab_list_set_active(win->tab_list, tab);
-      webkit_web_view_reload(web_view);
-      return TRUE;
+      return web_view;
     }
   }
-  return FALSE;
+  return NULL;
 }
 
 static void wig_window_on_webkit_notification_closed(WebKitNotification *webkit_notif, char *notif_id)
@@ -1276,6 +1278,13 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
       webkit_policy_decision_ignore(decision);
       return TRUE;
     }
+  }
+
+  if (g_strcmp0(target_scheme, "wig") == 0
+      && wig_application_focus_internal_page(wig_application_get(), request_uri, web_view)) {
+    g_debug("wig: focusing the page that is already open instead of '%s'", request_uri);
+    webkit_policy_decision_ignore(decision);
+    return TRUE;
   }
 
   gboolean middle_click = nav_type == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
