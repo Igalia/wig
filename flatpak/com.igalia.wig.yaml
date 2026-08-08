@@ -58,4 +58,9 @@ modules:
         skip:
           - subprojects/template-glib
           - subprojects/wpe-platform-gtk
+          - .flatpak-builder
+          - .git
+          - .ruff_cache
+          - .cache
+          - _build
 

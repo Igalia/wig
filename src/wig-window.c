@@ -43,6 +43,7 @@ struct _WigWindow {
   GtkWidget *back_button;
   GtkWidget *forward_button;
   GtkWidget *stop_reload_button;
+  GtkWidget *update_button;
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
   GtkWidget *entry_completion_popover;
@@ -1008,6 +1009,40 @@ static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResu
   wig_tab_set_hovered_link(tab, uri, wig_window_base_get_active_origin(WIG_WINDOW_BASE(win)));
 }
 
+static void wig_window_update_state_changed(WigWindow *win, GParamSpec *pspec, WigUpdateMonitor *monitor)
+{
+  switch (wig_update_monitor_get_state(monitor)) {
+  case WIG_UPDATE_STATE_AVAILABLE:
+    gtk_button_set_label(GTK_BUTTON(win->update_button), "Download Update");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), "app.download-update");
+    gtk_widget_set_sensitive(win->update_button, TRUE);
+    gtk_widget_set_visible(win->update_button, TRUE);
+    break;
+  case WIG_UPDATE_STATE_DOWNLOADING:
+    gtk_button_set_label(GTK_BUTTON(win->update_button), "Downloading Update…");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), NULL);
+    gtk_widget_set_sensitive(win->update_button, FALSE);
+    gtk_widget_set_visible(win->update_button, TRUE);
+    break;
+  case WIG_UPDATE_STATE_READY:
+    gtk_button_set_label(GTK_BUTTON(win->update_button), "Restart to Update");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), "app.restart-to-update");
+    gtk_widget_set_sensitive(win->update_button, TRUE);
+    gtk_widget_set_visible(win->update_button, TRUE);
+    break;
+  case WIG_UPDATE_STATE_BLOCKED:
+    gtk_button_set_label(GTK_BUTTON(win->update_button), "Update Blocked");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), NULL);
+    gtk_widget_set_tooltip_text(win->update_button, "wig is not allowed to update itself");
+    gtk_widget_set_sensitive(win->update_button, FALSE);
+    gtk_widget_set_visible(win->update_button, TRUE);
+    break;
+  case WIG_UPDATE_STATE_NONE:
+    gtk_widget_set_visible(win->update_button, FALSE);
+    break;
+  }
+}
+
 static void wig_window_fullscreen_changed(WigWindow *win)
 {
   bool is_fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
@@ -1263,6 +1298,18 @@ static void wig_window_constructed(GObject *object)
   gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), G_MENU_MODEL(menu));
   gtk_header_bar_pack_end(GTK_HEADER_BAR(win->header_bar), menu_button);
 
+  WigApplication *app = wig_application_get();
+
+  WigUpdateMonitor *update_monitor = wig_application_get_update_monitor(app);
+  if (update_monitor) {
+    win->update_button = gtk_button_new();
+    gtk_widget_add_css_class(win->update_button, "suggested-action");
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(win->header_bar), win->update_button);
+    g_signal_connect_object(update_monitor, "notify::state", G_CALLBACK(wig_window_update_state_changed), win,
+                            G_CONNECT_SWAPPED);
+    wig_window_update_state_changed(win, NULL, update_monitor);
+  }
+
   win->tab_list = wig_tab_list_new();
   gtk_widget_insert_action_group(GTK_WIDGET(win), "tabs", G_ACTION_GROUP(wig_tab_list_get_action_group(win->tab_list)));
   g_signal_connect_object(win->tab_list, "close-tab", G_CALLBACK(wig_window_tab_close), win, G_CONNECT_DEFAULT);
@@ -1305,7 +1352,6 @@ static void wig_window_constructed(GObject *object)
   gtk_window_set_child(GTK_WINDOW(win), content_box);
   gtk_window_set_titlebar(GTK_WINDOW(win), win->header_bar);
 
-  WigApplication *app = wig_application_get();
   g_autoptr(WPEToplevel) toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(wig_application_get_display(app)), 0,
                                                          GTK_WINDOW(win));
   wig_window_base_set_toplevel(WIG_WINDOW_BASE(win), toplevel);

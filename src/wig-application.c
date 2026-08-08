@@ -34,6 +34,7 @@
 #include "internal-pages/wig-user-scripts.h"
 #include "internal-pages/wig-user-styles.h"
 #include "internal-pages/wig-website-data.h"
+#include "wig-flatpak.h"
 #include "wig-settings.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
@@ -62,6 +63,7 @@ struct _WigApplication {
   gboolean quitting;
   GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
   WigPermissionsManager *permissions_manager;
+  WigUpdateMonitor *update_monitor;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -269,9 +271,34 @@ static void wig_application_new_window_action(GSimpleAction *action, GVariant *p
   g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
 }
 
+static void wig_application_download_update_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigApplication *app = WIG_APPLICATION(user_data);
+
+  wig_update_monitor_download(app->update_monitor);
+}
+
+static void wig_application_restart_to_update_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigApplication *app = WIG_APPLICATION(user_data);
+  g_autoptr(GError) error = NULL;
+
+  if (!wig_update_monitor_spawn_restart_helper(&error)) {
+    g_warning("update: staying put, the restart helper did not start: %s", error->message);
+    return;
+  }
+
+  g_application_quit(G_APPLICATION(app));
+}
+
 static const GActionEntry app_actions[] = {
   { "quit", wig_application_quit_action },
   { "new-window", wig_application_new_window_action },
+};
+
+static const GActionEntry app_update_actions[] = {
+  { "download-update", wig_application_download_update_action },
+  { "restart-to-update", wig_application_restart_to_update_action },
 };
 
 static void wig_download_record_free(WigDownloadRecord *record)
@@ -528,6 +555,12 @@ static void wig_application_startup(GApplication *application)
   g_autoptr(GAction) tab_layout_action = g_settings_create_action(app->settings, "tab-layout");
   g_action_map_add_action(G_ACTION_MAP(application), tab_layout_action);
 
+  if (wig_in_flatpak()) {
+    app->update_monitor = wig_update_monitor_new();
+    g_action_map_add_action_entries(G_ACTION_MAP(application), app_update_actions, G_N_ELEMENTS(app_update_actions),
+                                    application);
+  }
+
   g_autoptr(GSimpleAction) notif_clicked_action = g_simple_action_new("notification-clicked", G_VARIANT_TYPE_STRING);
   g_signal_connect(notif_clicked_action, "activate", G_CALLBACK(on_notification_clicked_action), application);
   g_action_map_add_action(G_ACTION_MAP(application), G_ACTION(notif_clicked_action));
@@ -635,6 +668,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->content_filter_store);
   g_clear_pointer(&app->notifications, g_hash_table_unref);
   g_clear_object(&app->permissions_manager);
+  g_clear_object(&app->update_monitor);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -902,4 +936,9 @@ WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *a
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->permissions_manager;
+}
+
+WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app)
+{
+  return app->update_monitor;
 }

@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=com.igalia.wig
+Exec=@bindir@/wig --gapplication-service

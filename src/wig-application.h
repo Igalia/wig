@@ -29,6 +29,7 @@
 #include "wig-history-store.h"
 #include "wig-permissions-manager.h"
 #include "wig-session.h"
+#include "wig-update-monitor.h"
 
 G_BEGIN_DECLS
 
@@ -82,5 +83,6 @@ void wig_application_track_notification(WigApplication *app, const char *id, Web
 void wig_application_untrack_notification(WigApplication *app, const char *id);
 
 WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *app);
+WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app);
 
 G_END_DECLS

@@ -4,5 +4,6 @@ Name=Wig
 Exec=wig %U
 Icon=web-browser
 Terminal=false
+DBusActivatable=true
 Categories=Network;WebBrowser;
 MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;

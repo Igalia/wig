@@ -95,7 +95,10 @@ foreach ldflag : test_ldflags
 endforeach
 add_project_link_arguments(global_ldflags, language: 'c')
 
+wig_libexecdir = get_option('prefix') / get_option('libexecdir') / 'wig'
+
 config_h = configuration_data()
+config_h.set_quoted('WIG_LIBEXECDIR', wig_libexecdir)
 config_h.set10(
     'HAVE_FAVICON_SUPPORT',
     cc.has_function(
