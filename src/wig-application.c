@@ -205,6 +205,14 @@ static void on_web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent lo
   gboolean typed = g_hash_table_remove(app->typed_navigations, web_view);
   record_history_visit(app, web_view, typed);
 
+  const char *uri = webkit_web_view_get_uri(web_view);
+  if (uri) {
+    g_autoptr(WebKitSecurityOrigin) security_origin = webkit_security_origin_new_for_uri(uri);
+    g_autofree char *origin = security_origin ? webkit_security_origin_to_string(security_origin) : NULL;
+    if (origin)
+      wig_permissions_manager_visit(app->permissions_manager, origin);
+  }
+
   wig_session_queue_save(app->session);
 }
 
@@ -401,13 +409,15 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
 
 static void wig_application_init(WigApplication *app)
 {
+  g_autofree char *state_dir = g_build_filename(g_get_user_state_dir(), "com.igalia.wig", NULL);
+
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
   app->notifications = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
-  app->permissions_manager = wig_permissions_manager_new();
+  app->permissions_manager = wig_permissions_manager_new(state_dir);
 }
 
 static void wig_application_settings_changed(GSettings *settings, const char *key, WigApplication *app)
@@ -541,6 +551,9 @@ static void wig_application_startup(GApplication *application)
   app->history_store = wig_history_store_new(state_dir, &history_error);
   if (!app->history_store)
     g_warning("history: disabled: %s", history_error->message);
+  g_autoptr(GError) permissions_error = NULL;
+  if (!wig_permissions_manager_load(app->permissions_manager, &permissions_error))
+    g_warning("persistant permissions disabled: %s", permissions_error->message);
 
   app->session = wig_session_new(state_dir);
   wig_session_set_collect_func(app->session, wig_application_collect_session_windows, app);
@@ -601,6 +614,7 @@ static void wig_application_shutdown(GApplication *application)
   /* Quitting while windows are still up (app.quit, a signal) reaches here with
    * everything to save still in place. */
   wig_session_save(app->session);
+  wig_permissions_manager_save(app->permissions_manager);
   wig_application_begin_quit(app);
   g_clear_object(&app->session);
 

@@ -28,6 +28,7 @@ G_BEGIN_DECLS
 
 gboolean wig_key_file_get_boolean(GKeyFile *key_file, const char *group, const char *key, gboolean default_value);
 int wig_key_file_get_integer(GKeyFile *key_file, const char *group, const char *key, int default_value);
+gint64 wig_key_file_get_int64(GKeyFile *key_file, const char *group, const char *key, gint64 default_value);
 gboolean wig_key_file_save(GKeyFile *key_file, const char *path, GError **error);
 
 G_END_DECLS

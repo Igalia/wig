@@ -22,10 +22,38 @@
 
 #include "wig-permissions-manager.h"
 
+#include "wig-key-file-utils.h"
+
+#include <errno.h>
+#include <glib/gstdio.h>
+
+#define WIG_PERMISSIONS_FORMAT_VERSION 1
+#define WIG_PERMISSIONS_GROUP "Permissions"
+#define WIG_PERMISSIONS_SAVE_DELAY_SECONDS 5
+#define WIG_PERMISSIONS_VISIT_PRECISION_SECONDS (7 * 24 * 60 * 60)
+#define WIG_PERMISSIONS_EXPIRY_SECONDS (60 * 24 * 60 * 60)
+#define WIG_PERMISSIONS_EXPIRY_INTERVAL_SECONDS (24 * 60 * 60)
+
+/* Notifications are exempt as they are in Chromium. */
+#define WIG_PERMISSIONS_EXPIRABLE_KINDS (WIG_PERMISSION_ALL_KINDS ^ WIG_PERMISSION_NOTIFICATION)
+
+typedef struct {
+  WigPermissionsManager *manager; /* borrowed */
+  char *origin;
+  WigPermissions *permissions;
+  gint64 last_visited;
+  gulong notify_id;
+} WigPermissionOrigin;
+
 struct _WigPermissionsManager {
   GObject parent;
 
-  GHashTable *origins; /* char* origin -> WigPermissions* (owned) */
+  char *path;
+  GHashTable *origins; /* borrowed char* origin -> owned WigPermissionOrigin* */
+  guint save_timeout_id;
+  guint expire_timeout_id;
+  gboolean dirty;
+  gboolean unsupported_format;
 };
 
 G_DEFINE_FINAL_TYPE(WigPermissionsManager, wig_permissions_manager, G_TYPE_OBJECT)
@@ -37,11 +65,327 @@ enum {
 
 static guint signals[N_SIGNALS];
 
+static gint64 current_timestamp(void)
+{
+  return g_get_real_time() / G_USEC_PER_SEC;
+}
+
+/* Visit times only decide whether an origin has gone untouched for months, so
+ * they are floored to a week. This exposes less information that can be inferred
+ * from permissions. This matches Chromium's behavior. */
+static gint64 current_visit_timestamp(void)
+{
+  gint64 timestamp = current_timestamp();
+  return timestamp - (timestamp % WIG_PERMISSIONS_VISIT_PRECISION_SECONDS);
+}
+
+static WigPermissionKind permission_kind_for_property(const char *property_name)
+{
+  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
+    if (g_str_equal(property_name, wig_permission_kind_get_property_name(kind)))
+      return kind;
+  }
+  return 0;
+}
+
+static gboolean permission_origin_has_decisions(WigPermissionOrigin *record)
+{
+  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
+    if (wig_permissions_get_state(record->permissions, kind) != WEBKIT_PERMISSION_STATE_PROMPT)
+      return TRUE;
+  }
+  return FALSE;
+}
+
+static gboolean permission_origin_has_data(WigPermissionOrigin *record)
+{
+  return record->last_visited || permission_origin_has_decisions(record);
+}
+
+static void permission_origin_free(WigPermissionOrigin *record)
+{
+  if (record->notify_id)
+    g_signal_handler_disconnect(record->permissions, record->notify_id);
+  g_clear_object(&record->permissions);
+  g_free(record->origin);
+  g_free(record);
+}
+
+static void wig_permissions_manager_queue_save(WigPermissionsManager *self);
+
+static void permission_state_changed(WigPermissions *permissions, GParamSpec *pspec, WigPermissionOrigin *record)
+{
+  if (!permission_kind_for_property(g_param_spec_get_name(pspec)))
+    return;
+
+  record->manager->dirty = TRUE;
+  wig_permissions_manager_queue_save(record->manager);
+  g_signal_emit(record->manager, signals[SIGNAL_CHANGED], 0, record->origin);
+}
+
+static WigPermissionOrigin *permission_origin_new(WigPermissionsManager *self, const char *origin)
+{
+  WigPermissionOrigin *record = g_new0(WigPermissionOrigin, 1);
+  record->manager = self;
+  record->origin = g_strdup(origin);
+  record->permissions = wig_permissions_new();
+  return record;
+}
+
+static void permission_origin_connect(WigPermissionOrigin *record)
+{
+  record->notify_id = g_signal_connect(record->permissions, "notify", G_CALLBACK(permission_state_changed), record);
+}
+
+static char *permission_origin_group_name(const char *origin)
+{
+  return g_uri_escape_string(origin, ":/.-_~", FALSE);
+}
+
+static const char *permission_state_to_string(WebKitPermissionState state)
+{
+  switch (state) {
+  case WEBKIT_PERMISSION_STATE_GRANTED:
+    return "granted";
+  case WEBKIT_PERMISSION_STATE_DENIED:
+    return "denied";
+  case WEBKIT_PERMISSION_STATE_PROMPT:
+  default:
+    return "prompt";
+  }
+}
+
+static gboolean permission_state_from_string(const char *state, WebKitPermissionState *result)
+{
+  if (!state) {
+    *result = WEBKIT_PERMISSION_STATE_PROMPT;
+    return TRUE;
+  }
+  if (g_str_equal(state, "granted")) {
+    *result = WEBKIT_PERMISSION_STATE_GRANTED;
+    return TRUE;
+  }
+  if (g_str_equal(state, "denied")) {
+    *result = WEBKIT_PERMISSION_STATE_DENIED;
+    return TRUE;
+  }
+  if (g_str_equal(state, "prompt")) {
+    *result = WEBKIT_PERMISSION_STATE_PROMPT;
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/* Grants are given up by origins the user has stopped visiting, so a permission
+ * handed out once cannot outlive any interest in the site. Denials are kept:
+ * they are a standing answer, not something the user needs re-asked about. */
+static void wig_permissions_manager_expire(WigPermissionsManager *self)
+{
+  if (self->unsupported_format)
+    return;
+
+  /* Visit times are floored to a week, so an origin survives between 60 and 67
+   * days of disuse. Erring late keeps a grant from lapsing early. */
+  gint64 threshold = current_timestamp() - WIG_PERMISSIONS_EXPIRY_SECONDS;
+  guint expired = 0;
+  guint forgotten = 0;
+
+  GHashTableIter iter;
+  gpointer value;
+  g_hash_table_iter_init(&iter, self->origins);
+  while (g_hash_table_iter_next(&iter, NULL, &value)) {
+    WigPermissionOrigin *record = value;
+    if (!record->last_visited || record->last_visited > threshold)
+      continue;
+
+    for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
+      if (!(WIG_PERMISSIONS_EXPIRABLE_KINDS & kind)
+          || wig_permissions_get_state(record->permissions, kind) != WEBKIT_PERMISSION_STATE_GRANTED) {
+        continue;
+      }
+
+      g_debug("permissions: expiring %s for %s, unvisited since %" G_GINT64_FORMAT,
+              wig_permission_kind_get_property_name(kind), record->origin, record->last_visited);
+      wig_permissions_set_state(record->permissions, kind, WEBKIT_PERMISSION_STATE_PROMPT);
+      expired++;
+    }
+
+    /* With no answer left to remember there is no reason to keep recording that
+     * the origin was ever visited. */
+    if (!permission_origin_has_decisions(record)) {
+      g_hash_table_iter_remove(&iter);
+      forgotten++;
+    }
+  }
+
+  if (expired || forgotten) {
+    g_debug("permissions: expired %u permission(s), forgot %u origin(s)", expired, forgotten);
+    self->dirty = TRUE;
+    wig_permissions_manager_queue_save(self);
+  }
+}
+
+static gboolean wig_permissions_manager_expire_timeout(gpointer user_data)
+{
+  wig_permissions_manager_expire(WIG_PERMISSIONS_MANAGER(user_data));
+  return G_SOURCE_CONTINUE;
+}
+
+gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **error)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), FALSE);
+  g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+  g_autoptr(GError) local_error = NULL;
+  if (!g_key_file_load_from_file(key_file, self->path, G_KEY_FILE_NONE, &local_error)) {
+    if (g_error_matches(local_error, G_FILE_ERROR, G_FILE_ERROR_NOENT))
+      return TRUE;
+    g_propagate_prefixed_error(error, g_steal_pointer(&local_error), "cannot read '%s': ", self->path);
+    return FALSE;
+  }
+
+  int version = g_key_file_get_integer(key_file, WIG_PERMISSIONS_GROUP, "version", &local_error);
+  if (local_error) {
+    g_propagate_prefixed_error(error, g_steal_pointer(&local_error),
+                               "cannot read format version from '%s': ", self->path);
+    return FALSE;
+  }
+  if (version != WIG_PERMISSIONS_FORMAT_VERSION) {
+    /* A file from a newer wig is left untouched rather than downgraded. */
+    self->unsupported_format = TRUE;
+    g_set_error(error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_PARSE,
+                "'%s' is in format version %d, not %d; it will not be modified", self->path, version,
+                WIG_PERMISSIONS_FORMAT_VERSION);
+    return FALSE;
+  }
+
+  gsize n_groups;
+  g_auto(GStrv) groups = g_key_file_get_groups(key_file, &n_groups);
+  for (gsize i = 0; i < n_groups; i++) {
+    if (g_str_equal(groups[i], WIG_PERMISSIONS_GROUP))
+      continue;
+
+    g_autofree char *origin = g_uri_unescape_string(groups[i], NULL);
+    if (!origin) {
+      g_warning("permissions: ignoring invalid origin group '%s'", groups[i]);
+      continue;
+    }
+
+    if (!*origin) {
+      g_warning("permissions: ignoring empty origin group");
+      continue;
+    }
+
+    WigPermissionOrigin *record = permission_origin_new(self, origin);
+    record->last_visited = MAX(0, wig_key_file_get_int64(key_file, groups[i], "last-visited", 0));
+    for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
+      const char *name = wig_permission_kind_get_property_name(kind);
+      g_autoptr(GError) state_error = NULL;
+      g_autofree char *state = g_key_file_get_string(key_file, groups[i], name, &state_error);
+      if (state_error && !g_error_matches(state_error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_KEY_NOT_FOUND))
+        g_warning("permissions: invalid %s.%s: %s", groups[i], name, state_error->message);
+      WebKitPermissionState parsed_state;
+      if (!permission_state_from_string(state, &parsed_state)) {
+        g_warning("permissions: ignoring invalid %s.%s value '%s'", groups[i], name, state);
+        parsed_state = WEBKIT_PERMISSION_STATE_PROMPT;
+      }
+      wig_permissions_set_state(record->permissions, kind, parsed_state);
+    }
+
+    if (!permission_origin_has_data(record)) {
+      permission_origin_free(record);
+      continue;
+    }
+
+    /* An entry with no visit recorded has nothing to measure disuse against, so
+     * count this run as the visit rather than let it sit un-expirable. */
+    if (!record->last_visited) {
+      record->last_visited = current_visit_timestamp();
+      self->dirty = TRUE;
+    }
+
+    permission_origin_connect(record);
+    g_hash_table_insert(self->origins, g_strdup(record->origin), record);
+  }
+
+  g_debug("permissions: loaded %u origin(s) from '%s'", g_hash_table_size(self->origins), self->path);
+  wig_permissions_manager_expire(self);
+  return TRUE;
+}
+
+void wig_permissions_manager_save(WigPermissionsManager *self)
+{
+  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
+
+  g_clear_handle_id(&self->save_timeout_id, g_source_remove);
+  if (!self->dirty || self->unsupported_format)
+    return;
+
+  g_autofree char *dir = g_path_get_dirname(self->path);
+  if (g_mkdir_with_parents(dir, 0700) != 0) {
+    g_warning("permissions: cannot create '%s': %s", dir, g_strerror(errno));
+    return;
+  }
+
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+  g_key_file_set_integer(key_file, WIG_PERMISSIONS_GROUP, "version", WIG_PERMISSIONS_FORMAT_VERSION);
+
+  g_autoptr(GList) origins = g_hash_table_get_keys(self->origins);
+  origins = g_list_sort(g_steal_pointer(&origins), (GCompareFunc)g_strcmp0);
+  guint saved = 0;
+  for (GList *l = origins; l; l = l->next) {
+    WigPermissionOrigin *record = g_hash_table_lookup(self->origins, l->data);
+    if (!permission_origin_has_data(record))
+      continue;
+
+    g_autofree char *group = permission_origin_group_name(record->origin);
+    if (record->last_visited)
+      g_key_file_set_int64(key_file, group, "last-visited", record->last_visited);
+
+    for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
+      const char *name = wig_permission_kind_get_property_name(kind);
+      WebKitPermissionState state = wig_permissions_get_state(record->permissions, kind);
+      if (state != WEBKIT_PERMISSION_STATE_PROMPT)
+        g_key_file_set_string(key_file, group, name, permission_state_to_string(state));
+    }
+    saved++;
+  }
+
+  g_autoptr(GError) error = NULL;
+  if (!wig_key_file_save(key_file, self->path, &error)) {
+    g_warning("permissions: cannot write '%s': %s", self->path, error->message);
+    return;
+  }
+
+  self->dirty = FALSE;
+  g_debug("permissions: wrote %u origin(s) to '%s'", saved, self->path);
+}
+
+static gboolean wig_permissions_manager_save_timeout(gpointer user_data)
+{
+  WigPermissionsManager *self = WIG_PERMISSIONS_MANAGER(user_data);
+  self->save_timeout_id = 0;
+  wig_permissions_manager_save(self);
+  return G_SOURCE_REMOVE;
+}
+
+static void wig_permissions_manager_queue_save(WigPermissionsManager *self)
+{
+  if (!self->unsupported_format && !self->save_timeout_id) {
+    self->save_timeout_id = g_timeout_add_seconds(WIG_PERMISSIONS_SAVE_DELAY_SECONDS,
+                                                  wig_permissions_manager_save_timeout, self);
+  }
+}
+
 static void wig_permissions_manager_dispose(GObject *object)
 {
   WigPermissionsManager *self = WIG_PERMISSIONS_MANAGER(object);
 
+  g_clear_handle_id(&self->save_timeout_id, g_source_remove);
+  g_clear_handle_id(&self->expire_timeout_id, g_source_remove);
   g_clear_pointer(&self->origins, g_hash_table_unref);
+  g_clear_pointer(&self->path, g_free);
 
   G_OBJECT_CLASS(wig_permissions_manager_parent_class)->dispose(object);
 }
@@ -57,12 +401,20 @@ static void wig_permissions_manager_class_init(WigPermissionsManagerClass *klass
 
 static void wig_permissions_manager_init(WigPermissionsManager *self)
 {
-  self->origins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
+  self->origins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)permission_origin_free);
+  /* Sessions can outlast the expiry threshold, so checking only at startup
+   * would let grants sit long past it. */
+  self->expire_timeout_id = g_timeout_add_seconds(WIG_PERMISSIONS_EXPIRY_INTERVAL_SECONDS,
+                                                  wig_permissions_manager_expire_timeout, self);
 }
 
-WigPermissionsManager *wig_permissions_manager_new(void)
+WigPermissionsManager *wig_permissions_manager_new(const char *state_dir)
 {
-  return g_object_new(WIG_TYPE_PERMISSIONS_MANAGER, NULL);
+  g_return_val_if_fail(state_dir != NULL, NULL);
+
+  WigPermissionsManager *self = g_object_new(WIG_TYPE_PERMISSIONS_MANAGER, NULL);
+  self->path = g_build_filename(state_dir, "permissions.ini", NULL);
+  return self;
 }
 
 WigPermissions *wig_permissions_manager_lookup(WigPermissionsManager *self, const char *origin)
@@ -70,7 +422,8 @@ WigPermissions *wig_permissions_manager_lookup(WigPermissionsManager *self, cons
   g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
   g_return_val_if_fail(origin != NULL, NULL);
 
-  return g_hash_table_lookup(self->origins, origin);
+  WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
+  return record && permission_origin_has_decisions(record) ? record->permissions : NULL;
 }
 
 WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, const char *origin)
@@ -78,16 +431,40 @@ WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, cons
   g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
   g_return_val_if_fail(origin != NULL, NULL);
 
-  WigPermissions *permissions = g_hash_table_lookup(self->origins, origin);
-  if (permissions)
-    return permissions;
+  WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
+  if (record)
+    return record->permissions;
 
-  permissions = wig_permissions_new();
-  g_hash_table_insert(self->origins, g_strdup(origin), permissions);
+  record = permission_origin_new(self, origin);
+  record->last_visited = current_visit_timestamp();
+  permission_origin_connect(record);
+  g_hash_table_insert(self->origins, g_strdup(record->origin), record);
 
+  self->dirty = TRUE;
+  wig_permissions_manager_queue_save(self);
   g_signal_emit(self, signals[SIGNAL_CHANGED], 0, origin);
 
-  return permissions;
+  return record->permissions;
+}
+
+void wig_permissions_manager_visit(WigPermissionsManager *self, const char *origin)
+{
+  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
+  g_return_if_fail(origin != NULL);
+
+  WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
+  if (!record)
+    return;
+
+  gint64 timestamp = current_visit_timestamp();
+  if (record->last_visited >= timestamp)
+    return;
+
+  g_debug("permissions: %s visited, last-visited %" G_GINT64_FORMAT " -> %" G_GINT64_FORMAT, origin,
+          record->last_visited, timestamp);
+  record->last_visited = timestamp;
+  self->dirty = TRUE;
+  wig_permissions_manager_queue_save(self);
 }
 
 void wig_permissions_manager_handle_request(WigPermissionsManager *self, const char *origin,
@@ -103,7 +480,7 @@ void wig_permissions_manager_handle_request(WigPermissionsManager *self, const c
 
   g_debug("permission request %s for %s: kinds 0x%x", G_OBJECT_TYPE_NAME(request), origin, undecided);
 
-  WigPermissions *permissions = wig_permissions_manager_lookup(self, origin);
+  WigPermissions *permissions = wig_permissions_manager_ensure(self, origin);
 
   /* A request covering several devices is answered as a whole, so any one of
    * them being denied denies all of it, and it can only be allowed outright
@@ -134,6 +511,5 @@ void wig_permissions_manager_handle_request(WigPermissionsManager *self, const c
 
   /* Remember the origin (making the button visible) and prompt the user for
    * whichever permissions are still undecided. */
-  permissions = wig_permissions_manager_ensure(self, origin);
   wig_permissions_popover_prompt(popover, permissions, undecided, request);
 }

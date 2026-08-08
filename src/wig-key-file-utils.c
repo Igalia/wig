@@ -52,6 +52,18 @@ int wig_key_file_get_integer(GKeyFile *key_file, const char *group, const char *
   return default_value;
 }
 
+gint64 wig_key_file_get_int64(GKeyFile *key_file, const char *group, const char *key, gint64 default_value)
+{
+  g_autoptr(GError) error = NULL;
+  gint64 value = g_key_file_get_int64(key_file, group, key, &error);
+  if (!error)
+    return value;
+
+  if (!key_file_error_is_missing(error))
+    g_warning("key-file: invalid %s.%s: %s", group, key, error->message);
+  return default_value;
+}
+
 gboolean wig_key_file_save(GKeyFile *key_file, const char *path, GError **error)
 {
   g_return_val_if_fail(key_file != NULL, FALSE);

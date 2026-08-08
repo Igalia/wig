@@ -30,9 +30,12 @@ G_BEGIN_DECLS
 #define WIG_TYPE_PERMISSIONS_MANAGER (wig_permissions_manager_get_type())
 G_DECLARE_FINAL_TYPE(WigPermissionsManager, wig_permissions_manager, WIG, PERMISSIONS_MANAGER, GObject)
 
-WigPermissionsManager *wig_permissions_manager_new(void);
+WigPermissionsManager *wig_permissions_manager_new(const char *state_dir);
+gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **error);
 WigPermissions *wig_permissions_manager_lookup(WigPermissionsManager *self, const char *origin);
 WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, const char *origin);
+void wig_permissions_manager_visit(WigPermissionsManager *self, const char *origin);
+void wig_permissions_manager_save(WigPermissionsManager *self);
 void wig_permissions_manager_handle_request(WigPermissionsManager *self, const char *origin,
                                             WebKitPermissionRequest *request, WigPermissionsPopover *popover);
 
