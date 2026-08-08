@@ -179,6 +179,40 @@ static gboolean permission_requested(WebKitWebView *web_view, WebKitPermissionRe
   return TRUE;
 }
 
+static gboolean query_permission_state(WebKitWebView *web_view, WebKitPermissionStateQuery *query, WigWindowBase *self)
+{
+  const char *name = webkit_permission_state_query_get_name(query);
+
+  WigPermissionKind kind = 0;
+  if (g_str_equal(name, "geolocation"))
+    kind = WIG_PERMISSION_GEOLOCATION;
+  else if (g_str_equal(name, "notifications"))
+    kind = WIG_PERMISSION_NOTIFICATION;
+  else if (g_str_equal(name, "microphone"))
+    kind = WIG_PERMISSION_MICROPHONE;
+  else if (g_str_equal(name, "camera"))
+    kind = WIG_PERMISSION_CAMERA;
+  else if (g_str_equal(name, "clipboard-read") || g_str_equal(name, "clipboard-write"))
+    kind = WIG_PERMISSION_CLIPBOARD;
+  else
+    return FALSE;
+
+  g_autoptr(WebKitSecurityOrigin) security_origin = webkit_permission_state_query_get_security_origin(query);
+  g_autofree char *origin = webkit_security_origin_to_string(security_origin);
+  if (!origin)
+    return FALSE;
+
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  WigPermissions *permissions = wig_permissions_manager_lookup(priv->permissions_manager, origin);
+  WebKitPermissionState state = permissions ? wig_permissions_get_state(permissions, kind)
+                                            : WEBKIT_PERMISSION_STATE_PROMPT;
+
+  g_debug("permission state query for %s at %s: %d", name, origin, state);
+
+  webkit_permission_state_query_finish(query, state);
+  return TRUE;
+}
+
 static void wig_window_base_go_back(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
@@ -701,6 +735,7 @@ void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_vie
 #endif
   g_signal_group_connect(signals, "show-notification", G_CALLBACK(show_notification), self);
   g_signal_group_connect(signals, "permission-request", G_CALLBACK(permission_requested), self);
+  g_signal_group_connect(signals, "query-permission-state", G_CALLBACK(query_permission_state), self);
   g_signal_group_set_target(signals, web_view);
   g_hash_table_insert(priv->web_view_signal_groups, web_view, signals);
 }
