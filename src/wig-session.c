@@ -22,22 +22,14 @@
 
 #include "wig-session.h"
 
+#include "wig-key-file-utils.h"
+
 #include <glib/gstdio.h>
 
 #define WIG_SESSION_MAX_CLOSED_WINDOWS 20
 #define WIG_SESSION_SAVE_DELAY_SECONDS 5
-#define WIG_SESSION_FORMAT_VERSION 4
-
-/* A window is its id, whether it was focused, maximised, fullscreen and
- * minimised, the size to come back at, the sidebar width, the monitor it was on,
- * and its tabs; a tab is its serialized state and whether it was on screen. */
-#define WIG_SESSION_WINDOW_TYPE "(ubbbbiiisa(ayb))"
-#define WIG_SESSION_WINDOWS_TYPE "a" WIG_SESSION_WINDOW_TYPE
-#define WIG_SESSION_WINDOW_FORMAT "(ubbbbiiis@a(ayb))"
-
-/* (version, open windows, closed windows) */
-#define WIG_SESSION_FORMAT "(u" WIG_SESSION_WINDOWS_TYPE WIG_SESSION_WINDOWS_TYPE ")"
-#define WIG_SESSION_FILE_FORMAT "(u@" WIG_SESSION_WINDOWS_TYPE "@" WIG_SESSION_WINDOWS_TYPE ")"
+#define WIG_SESSION_FORMAT_VERSION 1
+#define WIG_SESSION_GROUP "Session"
 
 struct _WigSession {
   GObject parent;
@@ -98,104 +90,183 @@ static void wig_session_window_list_free(GSList *windows)
   g_slist_free_full(windows, (GDestroyNotify)wig_session_window_free);
 }
 
-static GVariant *wig_session_window_to_variant(const WigSessionWindow *window)
+static char *wig_session_group_name(const char *prefix, guint index)
 {
-  GVariantBuilder tabs;
-  g_variant_builder_init(&tabs, G_VARIANT_TYPE("a(ayb)"));
-
-  for (const GSList *l = window->tabs; l; l = l->next) {
-    const WigSessionTab *tab = l->data;
-    g_autoptr(GBytes) bytes = webkit_web_view_session_state_serialize(tab->state);
-    if (!bytes)
-      continue;
-
-    gsize size;
-    const guint8 *data = g_bytes_get_data(bytes, &size);
-    g_variant_builder_add(&tabs, "(@ayb)", g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, data, size, 1),
-                          tab->was_focused);
-  }
-
-  return g_variant_new(WIG_SESSION_WINDOW_FORMAT, window->window_id, window->focused, window->maximized,
-                       window->fullscreen, window->minimized, window->width, window->height, window->sidebar_width,
-                       window->monitor ? window->monitor : "", g_variant_builder_end(&tabs));
+  return g_strdup_printf("%s %u", prefix, index);
 }
 
-static WigSessionWindow *wig_session_window_from_variant(GVariant *variant)
+static gboolean wig_session_tab_to_key_file(GKeyFile *key_file, const WigSessionTab *tab, const char *prefix,
+                                            guint index)
 {
-  guint window_id;
-  gboolean focused, maximized, fullscreen, minimized;
-  int width, height, sidebar_width;
-  g_autofree char *monitor = NULL;
-  g_autoptr(GVariant) tabs = NULL;
-  g_variant_get(variant, WIG_SESSION_WINDOW_FORMAT, &window_id, &focused, &maximized, &fullscreen, &minimized, &width,
-                &height, &sidebar_width, &monitor, &tabs);
+  g_autoptr(GBytes) bytes = webkit_web_view_session_state_serialize(tab->state);
+  if (!bytes)
+    return FALSE;
 
-  WigSessionWindow *window = wig_session_window_new(window_id);
-  window->focused = focused;
-  window->maximized = maximized;
-  window->fullscreen = fullscreen;
-  window->minimized = minimized;
-  window->width = width;
-  window->height = height;
-  window->sidebar_width = sidebar_width;
-  if (monitor && *monitor)
-    window->monitor = g_steal_pointer(&monitor);
+  g_autofree char *group = wig_session_group_name(prefix, index);
+  gsize size;
+  const guint8 *data = g_bytes_get_data(bytes, &size);
+  g_autofree char *state = g_base64_encode(data, size);
+  g_key_file_set_boolean(key_file, group, "Focused", tab->was_focused);
+  g_key_file_set_string(key_file, group, "State", state);
+  return TRUE;
+}
 
-  GVariantIter iter;
-  GVariant *blob;
-  gboolean was_focused;
-  g_variant_iter_init(&iter, tabs);
-  while (g_variant_iter_loop(&iter, "(@ayb)", &blob, &was_focused)) {
-    gsize size;
-    const guint8 *data = g_variant_get_fixed_array(blob, &size, 1);
-    if (!size)
+static gboolean wig_session_window_to_key_file(GKeyFile *key_file, const WigSessionWindow *window,
+                                               const char *window_prefix, guint window_index, const char *tab_prefix,
+                                               guint *tab_index)
+{
+  g_autofree char *group = wig_session_group_name(window_prefix, window_index);
+  g_key_file_set_uint64(key_file, group, "Id", window->window_id);
+  g_key_file_set_boolean(key_file, group, "Focused", window->focused);
+  g_key_file_set_boolean(key_file, group, "Maximized", window->maximized);
+  g_key_file_set_boolean(key_file, group, "Fullscreen", window->fullscreen);
+  g_key_file_set_boolean(key_file, group, "Minimized", window->minimized);
+  g_key_file_set_integer(key_file, group, "Width", window->width);
+  g_key_file_set_integer(key_file, group, "Height", window->height);
+  g_key_file_set_integer(key_file, group, "SidebarWidth", window->sidebar_width);
+  if (window->fullscreen)
+    g_key_file_set_string(key_file, group, "Monitor", window->monitor ? window->monitor : "");
+
+  g_autoptr(GArray) tab_indexes = g_array_new(FALSE, FALSE, sizeof(int));
+  for (const GSList *l = window->tabs; l; l = l->next) {
+    if (!wig_session_tab_to_key_file(key_file, l->data, tab_prefix, *tab_index))
       continue;
 
-    g_autoptr(GBytes) bytes = g_bytes_new(data, size);
-    WebKitWebViewSessionState *state = webkit_web_view_session_state_new(bytes);
-    if (!state) {
-      g_warning("session: discarding a tab with unreadable state");
-      continue;
-    }
+    int index = (int)(*tab_index)++;
+    g_array_append_val(tab_indexes, index);
+  }
+  if (!tab_indexes->len) {
+    g_key_file_remove_group(key_file, group, NULL);
+    return FALSE;
+  }
+  g_key_file_set_integer_list(key_file, group, "Tabs", &g_array_index(tab_indexes, int, 0), tab_indexes->len);
+  return TRUE;
+}
 
-    wig_session_window_add_tab(window, state, was_focused);
+static WebKitWebViewSessionState *wig_session_tab_state_from_key_file(GKeyFile *key_file, const char *prefix, int index,
+                                                                      gboolean *was_focused)
+{
+  *was_focused = FALSE;
+
+  g_autofree char *group = wig_session_group_name(prefix, (guint)index);
+  g_autoptr(GError) error = NULL;
+  g_autofree char *encoded_state = g_key_file_get_string(key_file, group, "State", &error);
+  if (!encoded_state) {
+    g_warning("session: discarding %s: %s", group, error->message);
+    return NULL;
   }
 
+  gsize size;
+  g_autofree guint8 *data = g_base64_decode(encoded_state, &size);
+  if (!size) {
+    g_warning("session: discarding %s with invalid state encoding", group);
+    return NULL;
+  }
+
+  g_autoptr(GBytes) bytes = g_bytes_new(data, size);
+  WebKitWebViewSessionState *state = webkit_web_view_session_state_new(bytes);
+  if (!state) {
+    g_warning("session: discarding %s with unreadable state", group);
+    return NULL;
+  }
+
+  *was_focused = wig_key_file_get_boolean(key_file, group, "Focused", FALSE);
+  return state;
+}
+
+static WigSessionWindow *wig_session_window_from_key_file(GKeyFile *key_file, const char *window_prefix,
+                                                          guint window_index, const char *tab_prefix,
+                                                          GHashTable *seen_tabs)
+{
+  g_autofree char *group = wig_session_group_name(window_prefix, window_index);
+  g_autoptr(GError) error = NULL;
+  guint64 window_id = g_key_file_get_uint64(key_file, group, "Id", &error);
+  if (error || window_id > G_MAXUINT) {
+    g_warning("session: discarding %s with invalid id: %s", group, error ? error->message : "out of range");
+    return NULL;
+  }
+
+  gsize n_tabs;
+  g_autofree int *tab_indexes = g_key_file_get_integer_list(key_file, group, "Tabs", &n_tabs, &error);
+  if (!tab_indexes) {
+    g_warning("session: discarding %s: %s", group, error ? error->message : "no tabs");
+    return NULL;
+  }
+
+  WigSessionWindow *window = wig_session_window_new((guint)window_id);
+  window->focused = wig_key_file_get_boolean(key_file, group, "Focused", FALSE);
+  window->maximized = wig_key_file_get_boolean(key_file, group, "Maximized", FALSE);
+  window->fullscreen = wig_key_file_get_boolean(key_file, group, "Fullscreen", FALSE);
+  window->minimized = wig_key_file_get_boolean(key_file, group, "Minimized", FALSE);
+  window->width = wig_key_file_get_integer(key_file, group, "Width", 0);
+  window->height = wig_key_file_get_integer(key_file, group, "Height", 0);
+  window->sidebar_width = wig_key_file_get_integer(key_file, group, "SidebarWidth", 0);
+  window->monitor = g_key_file_get_string(key_file, group, "Monitor", NULL);
+  if (window->monitor && !*window->monitor)
+    g_clear_pointer(&window->monitor, g_free);
+
+  for (gsize i = 0; i < n_tabs; i++) {
+    gpointer tab_key = GINT_TO_POINTER(tab_indexes[i]);
+    if (tab_indexes[i] < 0 || g_hash_table_contains(seen_tabs, tab_key)) {
+      g_warning("session: discarding invalid tab reference %d from %s", tab_indexes[i], group);
+      continue;
+    }
+    g_hash_table_add(seen_tabs, tab_key);
+
+    gboolean was_focused;
+    WebKitWebViewSessionState *state = wig_session_tab_state_from_key_file(key_file, tab_prefix, tab_indexes[i],
+                                                                           &was_focused);
+    wig_session_window_add_tab(window, state, was_focused);
+  }
   return window;
 }
 
-static GSList *wig_session_window_list_from_variant(GVariant *variant)
+static GSList *wig_session_window_list_from_key_file(GKeyFile *key_file, const char *count_key,
+                                                     const char *window_prefix, const char *tab_prefix,
+                                                     gboolean unique_window_ids)
 {
-  GSList *windows = NULL;
-  GVariantIter iter;
-  GVariant *child;
-
-  g_variant_iter_init(&iter, variant);
-  while (g_variant_iter_loop(&iter, "@" WIG_SESSION_WINDOW_TYPE, &child)) {
-    WigSessionWindow *window = wig_session_window_from_variant(child);
-    if (window->tabs)
-      windows = g_slist_prepend(windows, window);
-    else
-      wig_session_window_free(window);
+  int count = wig_key_file_get_integer(key_file, WIG_SESSION_GROUP, count_key, 0);
+  if (count <= 0) {
+    if (count < 0)
+      g_warning("session: ignoring negative %s.%s count %d", WIG_SESSION_GROUP, count_key, count);
+    return NULL;
   }
 
+  /* Every window carries a group of its own, so the number of groups is an upper
+   * bound on the count a sane file can claim. */
+  gsize n_groups;
+  g_auto(GStrv) groups = g_key_file_get_groups(key_file, &n_groups);
+  if ((gsize)count > n_groups) {
+    g_warning("session: %s.%s claims %d window(s) but only %" G_GSIZE_FORMAT " group(s) exist", WIG_SESSION_GROUP,
+              count_key, count, n_groups);
+    count = (int)n_groups;
+  }
+
+  GSList *windows = NULL;
+  g_autoptr(GHashTable) seen_tabs = g_hash_table_new(g_direct_hash, g_direct_equal);
+  g_autoptr(GHashTable) seen_window_ids = unique_window_ids ? g_hash_table_new(g_direct_hash, g_direct_equal) : NULL;
+  for (int i = 0; i < count; i++) {
+    WigSessionWindow *window = wig_session_window_from_key_file(key_file, window_prefix, (guint)i, tab_prefix,
+                                                                seen_tabs);
+    if (!window || !window->tabs) {
+      wig_session_window_free(window);
+      continue;
+    }
+
+    if (seen_window_ids && !g_hash_table_add(seen_window_ids, GUINT_TO_POINTER(window->window_id))) {
+      g_warning("session: discarding duplicate open window id %u", window->window_id);
+      wig_session_window_free(window);
+      continue;
+    }
+
+    windows = g_slist_prepend(windows, window);
+  }
   return g_slist_reverse(windows);
 }
 
-static GVariant *wig_session_window_list_to_variant(GSList *windows)
+static void wig_session_write(WigSession *self, GSList *open_windows)
 {
-  GVariantBuilder builder;
-  g_variant_builder_init(&builder, G_VARIANT_TYPE(WIG_SESSION_WINDOWS_TYPE));
-
-  for (GSList *l = windows; l; l = l->next)
-    g_variant_builder_add_value(&builder, wig_session_window_to_variant(l->data));
-
-  return g_variant_builder_end(&builder);
-}
-
-static void wig_session_write(WigSession *self, GVariant *open_windows)
-{
-  g_assert(g_variant_n_children(open_windows) > 0);
+  g_assert(open_windows != NULL);
 
   g_autofree char *dir = g_path_get_dirname(self->path);
   if (g_mkdir_with_parents(dir, 0700) != 0) {
@@ -203,23 +274,32 @@ static void wig_session_write(WigSession *self, GVariant *open_windows)
     return;
   }
 
-  GVariantBuilder closed_builder;
-  g_variant_builder_init(&closed_builder, G_VARIANT_TYPE(WIG_SESSION_WINDOWS_TYPE));
-  for (GList *l = self->closed_windows->head; l; l = l->next)
-    g_variant_builder_add_value(&closed_builder, wig_session_window_to_variant(l->data));
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+  g_key_file_set_integer(key_file, WIG_SESSION_GROUP, "Version", WIG_SESSION_FORMAT_VERSION);
 
-  g_autoptr(GVariant) variant = g_variant_ref_sink(g_variant_new(WIG_SESSION_FILE_FORMAT, WIG_SESSION_FORMAT_VERSION,
-                                                                 open_windows, g_variant_builder_end(&closed_builder)));
+  guint n_open = 0;
+  guint n_open_tabs = 0;
+  for (GSList *l = open_windows; l; l = l->next) {
+    if (wig_session_window_to_key_file(key_file, l->data, "Window", n_open, "Tab", &n_open_tabs))
+      n_open++;
+  }
+  g_key_file_set_integer(key_file, WIG_SESSION_GROUP, "Windows", (int)n_open);
+
+  guint n_closed = 0;
+  guint n_closed_tabs = 0;
+  for (GList *l = self->closed_windows->head; l; l = l->next) {
+    if (wig_session_window_to_key_file(key_file, l->data, "ClosedWindow", n_closed, "ClosedTab", &n_closed_tabs))
+      n_closed++;
+  }
+  g_key_file_set_integer(key_file, WIG_SESSION_GROUP, "ClosedWindows", (int)n_closed);
 
   g_autoptr(GError) error = NULL;
-  if (!g_file_set_contents_full(self->path, g_variant_get_data(variant), (gssize)g_variant_get_size(variant),
-                                G_FILE_SET_CONTENTS_CONSISTENT, 0600, &error)) {
+  if (!wig_key_file_save(key_file, self->path, &error)) {
     g_warning("session: cannot write '%s': %s", self->path, error->message);
     return;
   }
 
-  g_debug("session: wrote %" G_GSIZE_FORMAT " window(s) and %d closed window(s) to '%s'",
-          g_variant_n_children(open_windows), g_queue_get_length(self->closed_windows), self->path);
+  g_debug("session: wrote %u window(s) and %u closed window(s) to '%s'", n_open, n_closed, self->path);
 }
 
 static void wig_session_dispose(GObject *object)
@@ -264,7 +344,7 @@ WigSession *wig_session_new(const char *state_dir)
   g_return_val_if_fail(state_dir != NULL, NULL);
 
   WigSession *self = g_object_new(WIG_TYPE_SESSION, NULL);
-  self->path = g_build_filename(state_dir, "session.gvariant", NULL);
+  self->path = g_build_filename(state_dir, "session.ini", NULL);
   return self;
 }
 
@@ -280,36 +360,29 @@ void wig_session_load(WigSession *self)
 {
   g_return_if_fail(WIG_IS_SESSION(self));
 
-  g_autofree char *contents = NULL;
-  gsize length;
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
   g_autoptr(GError) error = NULL;
-  if (!g_file_get_contents(self->path, &contents, &length, &error)) {
+  if (!g_key_file_load_from_file(key_file, self->path, G_KEY_FILE_NONE, &error)) {
     if (!g_error_matches(error, G_FILE_ERROR, G_FILE_ERROR_NOENT))
       g_warning("session: cannot read '%s': %s", self->path, error->message);
     return;
   }
 
-  g_autoptr(GBytes) bytes = g_bytes_new_take(g_steal_pointer(&contents), length);
-  g_autoptr(GVariant) variant = g_variant_new_from_bytes(G_VARIANT_TYPE(WIG_SESSION_FORMAT), bytes, FALSE);
-  if (!g_variant_is_normal_form(variant)) {
-    g_warning("session: '%s' is corrupt, ignoring it", self->path);
+  int version = g_key_file_get_integer(key_file, WIG_SESSION_GROUP, "Version", &error);
+  if (error) {
+    g_warning("session: ignoring '%s' with no readable format version: %s", self->path, error->message);
     return;
   }
-
-  guint version;
-  g_autoptr(GVariant) open_windows = NULL;
-  g_autoptr(GVariant) closed_windows = NULL;
-  g_variant_get(variant, WIG_SESSION_FILE_FORMAT, &version, &open_windows, &closed_windows);
-
   if (version != WIG_SESSION_FORMAT_VERSION) {
-    g_message("session: ignoring '%s' written in format version %u", self->path, version);
+    g_warning("session: ignoring '%s' written in format version %d", self->path, version);
     return;
   }
 
   g_clear_pointer(&self->restored_windows, wig_session_window_list_free);
-  self->restored_windows = wig_session_window_list_from_variant(open_windows);
+  self->restored_windows = wig_session_window_list_from_key_file(key_file, "Windows", "Window", "Tab", TRUE);
 
-  GSList *closed = wig_session_window_list_from_variant(closed_windows);
+  g_queue_clear_full(self->closed_windows, (GDestroyNotify)wig_session_window_free);
+  GSList *closed = wig_session_window_list_from_key_file(key_file, "ClosedWindows", "ClosedWindow", "ClosedTab", FALSE);
   for (GSList *l = closed; l; l = l->next)
     g_queue_push_tail(self->closed_windows, l->data);
   g_slist_free(closed);
@@ -372,10 +445,8 @@ void wig_session_save(WigSession *self)
     return;
   }
 
-  g_autoptr(GVariant) open_variant = g_variant_ref_sink(wig_session_window_list_to_variant(open_windows));
+  wig_session_write(self, open_windows);
   wig_session_window_list_free(open_windows);
-
-  wig_session_write(self, open_variant);
 }
 
 static gboolean wig_session_on_save_timeout(gpointer user_data)

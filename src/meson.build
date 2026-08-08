@@ -27,6 +27,7 @@ wig_sources = files(
     'wig-favicon.c',
     'wig-history-item.c',
     'wig-history-store.c',
+    'wig-key-file-utils.c',
     'wig-permissions-manager.c',
     'wig-permissions.c',
     'wig-search-bar.c',
