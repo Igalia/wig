@@ -36,16 +36,49 @@
         </select>
       </div>
     </div>
+
+    <div class='setting-row'>
+      <div class='setting-text'>
+        <label class='setting-name' for='search-engine'>Search Engine</label>
+        <p class='setting-desc'>Choose the service used when text in the address bar is not a URL.</p>
+      </div>
+      <div class='setting-control setting-select'>
+        <select id='search-engine' data-current='{{search_engine}}'>
+          <option value='https://duckduckgo.com/?q=%s'>DuckDuckGo</option>
+          <option value='https://kagi.com/search?q=%s'>Kagi</option>
+          <option value='https://search.brave.com/search?q=%s'>Brave Search</option>
+          <option value='https://www.startpage.com/sp/search?query=%s'>Startpage</option>
+          <option value='https://www.google.com/search?q=%s'>Google</option>
+          <option value='https://www.bing.com/search?q=%s'>Bing</option>
+        </select>
+      </div>
+    </div>
   </div>
 
   <script nonce='{{nonce}}'>
     const restoreTabs = document.querySelector('#restore-tabs');
     const tabLayout = document.querySelector('#tab-layout');
+    const searchEngine = document.querySelector('#search-engine');
+
+    function setSearchEngine(value) {
+      const custom = searchEngine.querySelector('option[data-custom]');
+      if (custom)
+        custom.remove();
+      if (!Array.from(searchEngine.options).some(option => option.value === value)) {
+        const option = new Option('Custom', value);
+        option.dataset.custom = '';
+        searchEngine.add(option);
+      }
+      searchEngine.value = value;
+    }
+
+    setSearchEngine(searchEngine.dataset.current);
 
     window.wigSettings = {
-      update(restoreTabsValue, tabLayoutValue) {
+      update(restoreTabsValue, tabLayoutValue, searchEngineValue) {
         restoreTabs.checked = restoreTabsValue !== 0;
         tabLayout.value = tabLayoutValue;
+        setSearchEngine(searchEngineValue);
       }
     };
 
@@ -55,6 +88,8 @@
         value = String(restoreTabs.checked);
       else if (e.target === tabLayout)
         value = tabLayout.value;
+      else if (e.target === searchEngine)
+        value = searchEngine.value;
       else
         return;
 

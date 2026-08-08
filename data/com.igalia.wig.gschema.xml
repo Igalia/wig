@@ -18,6 +18,12 @@
       <summary>Tab Layout</summary>
       <description>Whether tabs are listed in a bar above the page or in a sidebar beside it.</description>
     </key>
+
+    <key name="search-engine" type="s">
+      <default>'https://duckduckgo.com/?q=%s'</default>
+      <summary>Search Engine</summary>
+      <description>A URL template where %s is replaced by the escaped search terms.</description>
+    </key>
   </schema>
 
 </schemalist>

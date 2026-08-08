@@ -100,7 +100,7 @@ WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url)
  * If it's a valid domain, we add https.
  * Otherwise use a search engine on the random string.
  */
-char *wig_util_complete_uri(const char *url)
+char *wig_util_complete_uri(const char *url, const char *search_engine)
 {
   switch (wig_util_get_uri_completion_type(url)) {
   case WIG_UTIL_URI_COMPLETION_PASSTHROUGH: {
@@ -121,7 +121,12 @@ char *wig_util_complete_uri(const char *url)
 
   case WIG_UTIL_URI_COMPLETION_SEARCH: {
     g_autofree char *escaped = g_uri_escape_string(url ? url : "", NULL, FALSE);
-    return g_strconcat("https://duckduckgo.com/?q=", escaped, NULL);
+    g_autoptr(GString) search_string = g_string_new(search_engine);
+    if (g_string_replace(search_string, "%s", escaped, 0) != 1) {
+      g_warning("Invalid search engine template, must contain one %%s");
+      return g_strconcat("https://duckduckgo.com/?q=", escaped, NULL);
+    }
+    return g_string_free(g_steal_pointer(&search_string), FALSE);
   }
   }
 

@@ -195,7 +195,8 @@ void wig_entry_completion_popover_set_width(WigEntryCompletionPopover *self, int
   gtk_widget_set_size_request(self->list, width, -1);
 }
 
-void wig_entry_completion_popover_set_items(WigEntryCompletionPopover *self, const char *entry_text, GPtrArray *items)
+void wig_entry_completion_popover_set_items(WigEntryCompletionPopover *self, const char *entry_text,
+                                            const char *search_engine, GPtrArray *items)
 {
   g_return_if_fail(WIG_IS_ENTRY_COMPLETION_POPOVER(self));
   g_return_if_fail(entry_text != NULL);
@@ -205,10 +206,10 @@ void wig_entry_completion_popover_set_items(WigEntryCompletionPopover *self, con
   g_ptr_array_set_size(self->items, 0);
 
   WigUtilUriCompletionType completion_type = wig_util_get_uri_completion_type(entry_text);
-  g_autofree char *completion_url = wig_util_complete_uri(entry_text);
+  g_autofree char *completion_url = wig_util_complete_uri(entry_text, search_engine);
   gboolean is_navigable = completion_type != WIG_UTIL_URI_COMPLETION_SEARCH;
   g_autofree char *first_title = is_navigable ? g_strdup_printf("Navigate to %s", entry_text)
-                                              : g_strdup_printf("%s - Search with DuckDuckGo", entry_text);
+                                              : g_strdup_printf("%s - Search the Web", entry_text);
   const char *first_subtitle = is_navigable ? NULL : completion_url;
   WigEntryCompletionItem *first_item = wig_entry_completion_item_new(first_title, completion_url, first_subtitle,
                                                                      entry_text);

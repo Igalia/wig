@@ -671,7 +671,10 @@ static void wig_window_load_uri(WigWindow *win, const char *uri)
 
 static void wig_window_load_url(WigWindow *win)
 {
-  g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)));
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+  g_autofree char *search_engine = g_settings_get_string(wig_application_get_settings(app), "search-engine");
+  g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)),
+                                                        search_engine);
   gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
   wig_window_load_uri(win, complete_uri);
 }
@@ -707,8 +710,8 @@ static void wig_window_update_entry_completion(WigWindow *win)
     return;
   }
 
-  WigHistoryStore *store = wig_application_get_history_store(
-      WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))));
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+  WigHistoryStore *store = wig_application_get_history_store(app);
   if (!store) {
     gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
     return;
@@ -732,8 +735,9 @@ static void wig_window_update_entry_completion(WigWindow *win)
     g_ptr_array_add(completion_items, wig_entry_completion_item_new(title && *title ? title : url, url, url, url));
   }
 
+  g_autofree char *search_engine = g_settings_get_string(wig_application_get_settings(app), "search-engine");
   wig_entry_completion_popover_set_items(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover), text,
-                                         completion_items);
+                                         search_engine, completion_items);
   if (wig_entry_completion_popover_get_n_items(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover)) > 0) {
     int width = gtk_widget_get_width(win->url_entry);
     GdkRectangle pointing_to = {

@@ -37,7 +37,8 @@ void wig_entry_completion_item_free(WigEntryCompletionItem *item);
 
 GtkWidget *wig_entry_completion_popover_new(void);
 void wig_entry_completion_popover_set_width(WigEntryCompletionPopover *self, int width);
-void wig_entry_completion_popover_set_items(WigEntryCompletionPopover *self, const char *entry_text, GPtrArray *items);
+void wig_entry_completion_popover_set_items(WigEntryCompletionPopover *self, const char *entry_text,
+                                            const char *search_engine, GPtrArray *items);
 gboolean wig_entry_completion_popover_select_next(WigEntryCompletionPopover *self);
 gboolean wig_entry_completion_popover_select_previous(WigEntryCompletionPopover *self);
 guint wig_entry_completion_popover_get_n_items(WigEntryCompletionPopover *self);
