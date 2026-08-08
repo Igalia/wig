@@ -32,6 +32,7 @@ struct _WigTabWidget {
 
   GtkWidget *favicon;
   GtkWidget *spinner;
+  GtkWidget *audio_icon;
   GtkWidget *title_label;
   GtkWidget *close_button;
   GtkWidget *context_menu_popover;
@@ -87,6 +88,44 @@ static void wig_tab_widget_on_loading_changed(WigTabWidget *self, GParamSpec *ps
       g_clear_pointer(&self->spinner, gtk_widget_unparent);
     }
     wig_tab_widget_on_icon_changed(self, NULL, self->tab);
+  }
+}
+
+static void wig_tab_widget_audio_icon_clicked(GtkGestureClick *gesture, int n_press, double x, double y,
+                                              WigTabWidget *self)
+{
+  wig_tab_set_muted(self->tab, !wig_tab_get_muted(self->tab));
+}
+
+static void wig_tab_widget_on_muted_changed(WigTabWidget *self, GParamSpec *pspec, WigTab *tab)
+{
+  if (!self->audio_icon)
+    return;
+  gtk_image_set_from_icon_name(GTK_IMAGE(self->audio_icon),
+                               wig_tab_get_muted(tab) ? "audio-volume-muted-symbolic" : "audio-volume-high-symbolic");
+}
+
+static void wig_tab_widget_on_playing_audio_changed(WigTabWidget *self, GParamSpec *pspec, WigTab *tab)
+{
+  if (wig_tab_get_playing_audio(tab)) {
+    if (!self->audio_icon) {
+      self->audio_icon = gtk_image_new_from_icon_name("audio-volume-high-symbolic");
+      gtk_image_set_pixel_size(GTK_IMAGE(self->audio_icon), WIG_TAB_FAVICON_SIZE);
+      gtk_widget_set_halign(self->audio_icon, GTK_ALIGN_CENTER);
+      gtk_widget_set_hexpand(self->audio_icon, FALSE);
+      gtk_widget_set_cursor(self->audio_icon, gdk_cursor_new_from_name("pointer", NULL));
+      gtk_widget_add_css_class(self->audio_icon, "tab-audio");
+      gtk_widget_insert_before(self->audio_icon, GTK_WIDGET(self), self->title_label);
+
+      GtkGestureClick *gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+      g_signal_connect_object(gesture, "pressed", G_CALLBACK(wig_tab_widget_audio_icon_clicked), self,
+                              G_CONNECT_DEFAULT);
+      gtk_widget_add_controller(self->audio_icon, GTK_EVENT_CONTROLLER(gesture));
+    }
+    gtk_widget_set_visible(self->audio_icon, TRUE);
+    wig_tab_widget_on_muted_changed(self, NULL, tab);
+  } else {
+    g_clear_pointer(&self->audio_icon, gtk_widget_unparent);
   }
 }
 
@@ -252,6 +291,7 @@ static void wig_tab_widget_dispose(GObject *object)
   g_clear_pointer(&self->close_button, gtk_widget_unparent);
   g_clear_pointer(&self->title_label, gtk_widget_unparent);
   g_clear_pointer(&self->spinner, gtk_widget_unparent);
+  g_clear_pointer(&self->audio_icon, gtk_widget_unparent);
   g_clear_pointer(&self->favicon, gtk_widget_unparent);
   g_clear_pointer(&self->context_menu_popover, gtk_widget_unparent);
   if (self->snapshot_popover) {
@@ -326,7 +366,11 @@ GtkWidget *wig_tab_widget_new(WigTab *tab)
   g_signal_connect_object(tab, "notify::icon", G_CALLBACK(wig_tab_widget_on_icon_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(tab, "notify::loading", G_CALLBACK(wig_tab_widget_on_loading_changed), self,
                           G_CONNECT_SWAPPED);
+  g_signal_connect_object(tab, "notify::playing-audio", G_CALLBACK(wig_tab_widget_on_playing_audio_changed), self,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(tab, "notify::muted", G_CALLBACK(wig_tab_widget_on_muted_changed), self, G_CONNECT_SWAPPED);
   wig_tab_widget_on_loading_changed(self, NULL, tab);
+  wig_tab_widget_on_playing_audio_changed(self, NULL, tab);
 
   return GTK_WIDGET(self);
 }

@@ -106,6 +106,10 @@ wig-tab .tab-favicon {
   margin: 6px 6px 6px 0px;
 }
 
+wig-tab .tab-audio {
+  margin: 6px 6px 6px 0px;
+}
+
 
 wig-tab .tab-close {
   padding: 6px 6px 6px 0px;

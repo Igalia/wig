@@ -40,6 +40,8 @@ struct _WigTab {
   gboolean discarded;
   gboolean pinned;
   gboolean loading;
+  gboolean playing_audio;
+  gboolean muted;
   gboolean selected;
   gboolean search_active;
   guint search_match_count;
@@ -73,9 +75,11 @@ typedef enum {
   PROP_PINNED,
   PROP_LOADING,
   PROP_SELECTED,
+  PROP_PLAYING_AUDIO,
+  PROP_MUTED,
 } WigTabProps;
 
-static GParamSpec *props[PROP_SELECTED + 1];
+static GParamSpec *props[PROP_MUTED + 1];
 
 static void wig_tab_set_title(WigTab *self, const char *title)
 {
@@ -104,6 +108,12 @@ static void wig_tab_get_property(GObject *object, guint prop_id, GValue *value, 
   case PROP_SELECTED:
     g_value_set_boolean(value, self->selected);
     break;
+  case PROP_PLAYING_AUDIO:
+    g_value_set_boolean(value, self->playing_audio);
+    break;
+  case PROP_MUTED:
+    g_value_set_boolean(value, self->muted);
+    break;
   }
 }
 
@@ -131,6 +141,22 @@ static void wig_tab_set_property(GObject *object, guint prop_id, const GValue *v
   case PROP_SELECTED:
     wig_tab_set_selected(self, g_value_get_boolean(value));
     break;
+  case PROP_PLAYING_AUDIO: {
+    gboolean playing_audio = g_value_get_boolean(value);
+    if (self->playing_audio != playing_audio) {
+      self->playing_audio = playing_audio;
+      g_object_notify_by_pspec(object, props[PROP_PLAYING_AUDIO]);
+    }
+    break;
+  }
+  case PROP_MUTED: {
+    gboolean muted = g_value_get_boolean(value);
+    if (self->muted != muted) {
+      self->muted = muted;
+      g_object_notify_by_pspec(object, props[PROP_MUTED]);
+    }
+    break;
+  }
   }
 }
 
@@ -172,6 +198,10 @@ static void wig_tab_class_init(WigTabClass *klass)
   props[PROP_LOADING] = g_param_spec_boolean("loading", NULL, NULL, FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
   props[PROP_SELECTED] = g_param_spec_boolean("selected", NULL, NULL, FALSE,
                                               G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
+  props[PROP_PLAYING_AUDIO] = g_param_spec_boolean(
+      "playing-audio", NULL, NULL, FALSE, G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
+  props[PROP_MUTED] = g_param_spec_boolean("muted", NULL, NULL, FALSE,
+                                           G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
 }
@@ -338,6 +368,9 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_signal_connect_object(web_view, "script-dialog", G_CALLBACK(wig_tab_on_script_dialog), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "authenticate", G_CALLBACK(wig_tab_on_authenticate), self, G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
+  g_object_bind_property(G_OBJECT(web_view), "is-playing-audio", self, "playing-audio", G_BINDING_SYNC_CREATE);
+  g_object_bind_property(G_OBJECT(web_view), "is-muted", self, "muted",
+                         G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
 
   /* Pick up a title and icons the view may already have (e.g. a related view). */
   wig_tab_on_title_changed(self);
@@ -462,6 +495,21 @@ void wig_tab_set_pinned(WigTab *self, gboolean pinned)
 gboolean wig_tab_get_loading(WigTab *self)
 {
   return self->loading;
+}
+
+gboolean wig_tab_get_playing_audio(WigTab *self)
+{
+  return self->playing_audio;
+}
+
+gboolean wig_tab_get_muted(WigTab *self)
+{
+  return self->muted;
+}
+
+void wig_tab_set_muted(WigTab *self, gboolean muted)
+{
+  g_object_set(self, "muted", muted, NULL);
 }
 
 gboolean wig_tab_get_selected(WigTab *self)
