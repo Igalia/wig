@@ -26,16 +26,17 @@ typedef struct {
   const char *property_name;
   const char *icon_name;
   const char *label;
+  const char *request_phrase;
 } WigPermissionInfo;
 
 /* Indexed by wig_permission_kind_index(), so ordered as WigPermissionKind is. */
 static const WigPermissionInfo permission_infos[WIG_PERMISSION_N_KINDS] = {
-  { "camera", "camera-web-symbolic", "Camera" },
-  { "microphone", "audio-input-microphone-symbolic", "Microphone" },
-  { "device-info", "camera-small-symbolic", "Device Info" },
-  { "notification", "preferences-system-notifications-symbolic", "Notifications" },
-  { "clipboard", "edit-paste-symbolic", "Clipboard" },
-  { "geolocation", "find-location-symbolic", "Location" },
+  { "camera", "camera-web-symbolic", "Camera", "use your camera" },
+  { "microphone", "audio-input-microphone-symbolic", "Microphone", "use your microphone" },
+  { "device-info", "camera-small-symbolic", "Device Info", "see the names of your cameras and microphones" },
+  { "notification", "preferences-system-notifications-symbolic", "Notifications", "send you notifications" },
+  { "clipboard", "edit-paste-symbolic", "Clipboard", "read your clipboard" },
+  { "geolocation", "find-location-symbolic", "Location", "know your location" },
 };
 
 guint wig_permission_kind_index(WigPermissionKind kind)
@@ -97,10 +98,16 @@ const char *wig_permission_kind_get_property_name(WigPermissionKind kind)
   return permission_infos[wig_permission_kind_index(kind)].property_name;
 }
 
+const char *wig_permission_kind_get_request_phrase(WigPermissionKind kind)
+{
+  return permission_infos[wig_permission_kind_index(kind)].request_phrase;
+}
+
 struct _WigPermissions {
   GObject parent;
 
   WebKitPermissionState states[WIG_PERMISSION_N_KINDS];
+  gboolean session_only[WIG_PERMISSION_N_KINDS];
 };
 
 G_DEFINE_FINAL_TYPE(WigPermissions, wig_permissions, G_TYPE_OBJECT)
@@ -162,14 +169,31 @@ WebKitPermissionState wig_permissions_get_state(WigPermissions *self, WigPermiss
   return self->states[wig_permission_kind_index(kind)];
 }
 
-void wig_permissions_set_state(WigPermissions *self, WigPermissionKind kind, WebKitPermissionState state)
+static void set_state(WigPermissions *self, WigPermissionKind kind, WebKitPermissionState state, gboolean session_only)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS(self));
-
   guint index = wig_permission_kind_index(kind);
-  if (self->states[index] == state)
+
+  session_only = session_only && state != WEBKIT_PERMISSION_STATE_PROMPT;
+
+  if (self->states[index] == state && self->session_only[index] == session_only)
     return;
 
   self->states[index] = state;
+  self->session_only[index] = session_only;
   g_object_notify_by_pspec(G_OBJECT(self), properties[index + 1]);
+}
+
+void wig_permissions_set_state(WigPermissions *self, WigPermissionKind kind, WebKitPermissionState state)
+{
+  set_state(self, kind, state, FALSE);
+}
+
+void wig_permissions_set_session_state(WigPermissions *self, WigPermissionKind kind, WebKitPermissionState state)
+{
+  set_state(self, kind, state, TRUE);
+}
+
+gboolean wig_permissions_is_session_only(WigPermissions *self, WigPermissionKind kind)
+{
+  return self->session_only[wig_permission_kind_index(kind)];
 }

@@ -233,9 +233,6 @@ static gboolean wig_permissions_manager_expire_timeout(gpointer user_data)
 
 gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **error)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), FALSE);
-  g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
-
   g_autoptr(GKeyFile) key_file = g_key_file_new();
   g_autoptr(GError) local_error = NULL;
   if (!g_key_file_load_from_file(key_file, self->path, G_KEY_FILE_NONE, &local_error)) {
@@ -346,7 +343,7 @@ void wig_permissions_manager_save(WigPermissionsManager *self)
     for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
       const char *name = wig_permission_kind_get_property_name(kind);
       WebKitPermissionState state = wig_permissions_get_state(record->permissions, kind);
-      if (state != WEBKIT_PERMISSION_STATE_PROMPT)
+      if (state != WEBKIT_PERMISSION_STATE_PROMPT && !wig_permissions_is_session_only(record->permissions, kind))
         g_key_file_set_string(key_file, group, name, permission_state_to_string(state));
     }
     saved++;
@@ -468,12 +465,12 @@ void wig_permissions_manager_visit(WigPermissionsManager *self, const char *orig
 }
 
 void wig_permissions_manager_handle_request(WigPermissionsManager *self, const char *origin,
-                                            WebKitPermissionRequest *request, WigPermissionsPopover *popover)
+                                            WebKitPermissionRequest *request, WigPermissionRequestPopover *popover)
 {
   g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
   g_return_if_fail(origin != NULL);
   g_return_if_fail(WEBKIT_IS_PERMISSION_REQUEST(request));
-  g_return_if_fail(WIG_IS_PERMISSIONS_POPOVER(popover));
+  g_return_if_fail(WIG_IS_PERMISSION_REQUEST_POPOVER(popover));
 
   WigPermissionKind undecided = wig_permission_kinds_for_request(request);
   g_assert(undecided != 0);
@@ -511,5 +508,5 @@ void wig_permissions_manager_handle_request(WigPermissionsManager *self, const c
 
   /* Remember the origin (making the button visible) and prompt the user for
    * whichever permissions are still undecided. */
-  wig_permissions_popover_prompt(popover, permissions, undecided, request);
+  wig_permission_request_popover_prompt(popover, permissions, origin, undecided, request);
 }

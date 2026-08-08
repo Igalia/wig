@@ -34,7 +34,5 @@ G_DECLARE_FINAL_TYPE(WigPermissionsPopover, wig_permissions_popover, WIG, PERMIS
 
 GtkWidget *wig_permissions_popover_new(void);
 void wig_permissions_popover_set_permissions(WigPermissionsPopover *self, WigPermissions *permissions);
-void wig_permissions_popover_prompt(WigPermissionsPopover *self, WigPermissions *permissions, WigPermissionKind kinds,
-                                    WebKitPermissionRequest *request);
 
 G_END_DECLS

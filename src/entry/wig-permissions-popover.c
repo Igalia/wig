@@ -33,13 +33,6 @@ static const char *state_labels[] = { "Prompt", "Granted", "Denied", NULL };
 #define DROPDOWN_INDEX_GRANTED 1
 #define DROPDOWN_INDEX_DENIED 2
 
-/* One in-flight WebKitPermissionRequest, shared by every row it prompts for. */
-typedef struct {
-  WebKitPermissionRequest *request;
-  WigPermissionKind undecided;
-  gboolean denied;
-} PendingRequest;
-
 /* Per-kind arrays are indexed by wig_permission_kind_index(). */
 struct _WigPermissionsPopover {
   GtkPopover parent;
@@ -49,8 +42,6 @@ struct _WigPermissionsPopover {
 
   WigPermissions *permissions;
   gulong permissions_notify_id;
-
-  PendingRequest *pending[WIG_PERMISSION_N_KINDS]; /* entries may be shared between kinds */
 };
 
 G_DEFINE_FINAL_TYPE(WigPermissionsPopover, wig_permissions_popover, GTK_TYPE_POPOVER)
@@ -101,17 +92,9 @@ static void update_row_visibility(WigPermissionsPopover *self, WigPermissionKind
 {
   WebKitPermissionState state = self->permissions ? wig_permissions_get_state(self->permissions, kind)
                                                   : WEBKIT_PERMISSION_STATE_PROMPT;
-  guint index = wig_permission_kind_index(kind);
 
-  /* PROMPT rows are hidden unless we are actively prompting for them. */
-  gboolean visible = (state != WEBKIT_PERMISSION_STATE_PROMPT) || (self->pending[index] != NULL);
-  gtk_widget_set_visible(self->rows[index], visible);
-}
-
-static void update_all_row_visibility(WigPermissionsPopover *self)
-{
-  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1)
-    update_row_visibility(self, kind);
+  /* Only answered permissions are listed; the rest are nothing to manage. */
+  gtk_widget_set_visible(self->rows[wig_permission_kind_index(kind)], state != WEBKIT_PERMISSION_STATE_PROMPT);
 }
 
 static void sync_from_permissions(WigPermissionsPopover *self)
@@ -136,63 +119,6 @@ static void on_permissions_notify(WigPermissions *permissions, GParamSpec *pspec
   }
 }
 
-/* Detaches @pending from every kind it was prompting for and frees it. */
-static void drop_pending_request(WigPermissionsPopover *self, PendingRequest *pending)
-{
-  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
-    if (self->pending[i] == pending)
-      self->pending[i] = NULL;
-  }
-
-  g_clear_object(&pending->request);
-  g_free(pending);
-}
-
-static void clear_pending_requests(WigPermissionsPopover *self)
-{
-  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
-    if (self->pending[i])
-      drop_pending_request(self, self->pending[i]);
-  }
-}
-
-static gboolean has_pending_request(WigPermissionsPopover *self)
-{
-  for (guint i = 0; i < WIG_PERMISSION_N_KINDS; i++) {
-    if (self->pending[i])
-      return TRUE;
-  }
-  return FALSE;
-}
-
-/* A getUserMedia request naming both camera and microphone can only be answered
- * as a whole, so it waits until every row it prompts for has been decided. A
- * single denial is enough to answer it immediately. */
-static void apply_decision_to_pending(WigPermissionsPopover *self, WigPermissionKind kind, WebKitPermissionState state)
-{
-  PendingRequest *pending = self->pending[wig_permission_kind_index(kind)];
-  if (!pending || state == WEBKIT_PERMISSION_STATE_PROMPT)
-    return;
-
-  pending->undecided &= ~kind;
-  if (state == WEBKIT_PERMISSION_STATE_DENIED)
-    pending->denied = TRUE;
-
-  if (!pending->denied && pending->undecided != 0) {
-    g_debug("%s decided, still awaiting kinds 0x%x", wig_permission_kind_get_label(kind), pending->undecided);
-    return;
-  }
-
-  g_debug("answering %s: %s", G_OBJECT_TYPE_NAME(pending->request), pending->denied ? "deny" : "allow");
-
-  if (pending->denied)
-    webkit_permission_request_deny(pending->request);
-  else
-    webkit_permission_request_allow(pending->request);
-
-  drop_pending_request(self, pending);
-}
-
 static void on_dropdown_selected(GtkDropDown *dropdown, GParamSpec *pspec, WigPermissionsPopover *self)
 {
   WigPermissionKind kind = 0;
@@ -207,14 +133,10 @@ static void on_dropdown_selected(GtkDropDown *dropdown, GParamSpec *pspec, WigPe
 
   WebKitPermissionState state = state_for_dropdown_index(gtk_drop_down_get_selected(dropdown));
 
+  /* Choosing here is a lasting answer, so a grant made for one session earlier
+   * becomes permanent. */
   wig_permissions_set_state(self->permissions, kind, state);
-  apply_decision_to_pending(self, kind, state);
-
-  /* Answering a request can retire rows other than this one. */
-  update_all_row_visibility(self);
-
-  if (state != WEBKIT_PERMISSION_STATE_PROMPT && !has_pending_request(self))
-    gtk_popover_popdown(GTK_POPOVER(self));
+  update_row_visibility(self, kind);
 }
 
 static GtkWidget *build_permission_row(WigPermissionsPopover *self, WigPermissionKind kind)
@@ -245,8 +167,6 @@ static GtkWidget *build_permission_row(WigPermissionsPopover *self, WigPermissio
 static void wig_permissions_popover_dispose(GObject *object)
 {
   WigPermissionsPopover *self = WIG_PERMISSIONS_POPOVER(object);
-
-  clear_pending_requests(self);
 
   if (self->permissions && self->permissions_notify_id) {
     g_clear_signal_handler(&self->permissions_notify_id, self->permissions);
@@ -307,8 +227,6 @@ void wig_permissions_popover_set_permissions(WigPermissionsPopover *self, WigPer
   if (self->permissions == permissions)
     return;
 
-  clear_pending_requests(self);
-
   if (self->permissions && self->permissions_notify_id)
     g_clear_signal_handler(&self->permissions_notify_id, self->permissions);
 
@@ -320,36 +238,4 @@ void wig_permissions_popover_set_permissions(WigPermissionsPopover *self, WigPer
 
   sync_from_permissions(self);
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_HAS_PERMISSIONS]);
-}
-
-void wig_permissions_popover_prompt(WigPermissionsPopover *self, WigPermissions *permissions, WigPermissionKind kinds,
-                                    WebKitPermissionRequest *request)
-{
-  g_return_if_fail(WIG_IS_PERMISSIONS_POPOVER(self));
-  g_return_if_fail(WIG_IS_PERMISSIONS(permissions));
-  g_return_if_fail(kinds > 0 && kinds <= WIG_PERMISSION_ALL_KINDS);
-  g_return_if_fail(WEBKIT_IS_PERMISSION_REQUEST(request));
-
-  /* Binding a different origin drops anything still pending for the old one. */
-  wig_permissions_popover_set_permissions(self, permissions);
-
-  PendingRequest *pending = g_new0(PendingRequest, 1);
-  pending->request = g_object_ref(request);
-  pending->undecided = kinds;
-
-  for (WigPermissionKind kind = 1; kind <= WIG_PERMISSION_ALL_KINDS; kind <<= 1) {
-    if (!(kinds & kind))
-      continue;
-
-    guint index = wig_permission_kind_index(kind);
-    if (self->pending[index])
-      drop_pending_request(self, self->pending[index]);
-
-    self->pending[index] = pending;
-    set_dropdown_blocked(self, kind, DROPDOWN_INDEX_PROMPT);
-  }
-
-  update_all_row_visibility(self);
-
-  gtk_popover_popup(GTK_POPOVER(self));
 }

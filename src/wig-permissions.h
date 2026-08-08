@@ -45,6 +45,7 @@ guint wig_permission_kind_index(WigPermissionKind kind);
 const char *wig_permission_kind_get_icon_name(WigPermissionKind kind);
 const char *wig_permission_kind_get_label(WigPermissionKind kind);
 const char *wig_permission_kind_get_property_name(WigPermissionKind kind);
+const char *wig_permission_kind_get_request_phrase(WigPermissionKind kind);
 
 #define WIG_TYPE_PERMISSIONS (wig_permissions_get_type())
 G_DECLARE_FINAL_TYPE(WigPermissions, wig_permissions, WIG, PERMISSIONS, GObject)
@@ -52,5 +53,7 @@ G_DECLARE_FINAL_TYPE(WigPermissions, wig_permissions, WIG, PERMISSIONS, GObject)
 WigPermissions *wig_permissions_new(void);
 WebKitPermissionState wig_permissions_get_state(WigPermissions *self, WigPermissionKind kind);
 void wig_permissions_set_state(WigPermissions *self, WigPermissionKind kind, WebKitPermissionState state);
+void wig_permissions_set_session_state(WigPermissions *self, WigPermissionKind kind, WebKitPermissionState state);
+gboolean wig_permissions_is_session_only(WigPermissions *self, WigPermissionKind kind);
 
 G_END_DECLS

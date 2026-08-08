@@ -37,6 +37,7 @@ typedef struct {
   GtkWidget *forward_history_popover;
   GtkWidget *permissions_button;
   GtkWidget *permissions_popover;
+  GtkWidget *permission_request_popover;
   WigPermissionsManager *permissions_manager; /* borrowed from application */
   char *active_origin;
 } WigWindowBasePrivate;
@@ -124,6 +125,41 @@ static char *web_view_origin(WebKitWebView *web_view)
   return webkit_security_origin_to_string(origin);
 }
 
+/* The button stands for what the site is allowed to do, so it appears both for
+ * an origin with answers on file and for one currently asking a question. */
+static void update_permissions_button_visibility(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  gboolean has_permissions = FALSE;
+  gboolean prompting = FALSE;
+
+  g_object_get(priv->permissions_popover, "has-permissions", &has_permissions, NULL);
+  g_object_get(priv->permission_request_popover, "prompting", &prompting, NULL);
+  gtk_widget_set_visible(priv->permissions_button, has_permissions || prompting);
+}
+
+static void permission_request_prompting_changed(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  gboolean prompting = FALSE;
+
+  g_object_get(priv->permission_request_popover, "prompting", &prompting, NULL);
+  if (!prompting)
+    return;
+
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(priv->permissions_button), priv->permission_request_popover);
+  update_permissions_button_visibility(self);
+  gtk_menu_button_popup(GTK_MENU_BUTTON(priv->permissions_button));
+}
+
+static void permission_request_closed(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(priv->permissions_button), priv->permissions_popover);
+  update_permissions_button_visibility(self);
+}
+
 static void update_permissions(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
@@ -174,7 +210,7 @@ static gboolean permission_requested(WebKitWebView *web_view, WebKitPermissionRe
 
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   wig_permissions_manager_handle_request(priv->permissions_manager, origin, request,
-                                         WIG_PERMISSIONS_POPOVER(priv->permissions_popover));
+                                         WIG_PERMISSION_REQUEST_POPOVER(priv->permission_request_popover));
   g_debug("permission request %s is awaiting a decision for %s", G_OBJECT_TYPE_NAME(request), origin);
   return TRUE;
 }
@@ -627,6 +663,8 @@ static void wig_window_base_dispose(GObject *object)
   g_clear_object(&priv->toplevel);
   g_clear_pointer(&priv->back_history_popover, gtk_widget_unparent);
   g_clear_pointer(&priv->forward_history_popover, gtk_widget_unparent);
+  g_clear_object(&priv->permissions_popover);
+  g_clear_object(&priv->permission_request_popover);
   g_clear_pointer(&priv->active_origin, g_free);
 
   G_OBJECT_CLASS(wig_window_base_parent_class)->dispose(object);
@@ -649,12 +687,19 @@ static void wig_window_base_init(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
 
-  priv->permissions_popover = wig_permissions_popover_new();
+  priv->permissions_popover = g_object_ref_sink(wig_permissions_popover_new());
+  priv->permission_request_popover = g_object_ref_sink(wig_permission_request_popover_new());
+
   priv->permissions_button = gtk_menu_button_new();
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(priv->permissions_button), "sliders-horizontal-symbolic");
   gtk_menu_button_set_popover(GTK_MENU_BUTTON(priv->permissions_button), priv->permissions_popover);
-  g_object_bind_property(priv->permissions_popover, "has-permissions", priv->permissions_button, "visible",
-                         G_BINDING_SYNC_CREATE);
+
+  g_signal_connect_swapped(priv->permissions_popover, "notify::has-permissions",
+                           G_CALLBACK(update_permissions_button_visibility), self);
+  g_signal_connect_swapped(priv->permission_request_popover, "notify::prompting",
+                           G_CALLBACK(permission_request_prompting_changed), self);
+  g_signal_connect_swapped(priv->permission_request_popover, "closed", G_CALLBACK(permission_request_closed), self);
+  update_permissions_button_visibility(self);
 
   priv->active_web_view_signals = g_signal_group_new(WEBKIT_TYPE_WEB_VIEW);
   g_signal_group_connect_swapped(priv->active_web_view_signals, "load-changed",
