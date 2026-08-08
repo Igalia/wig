@@ -363,6 +363,12 @@ static GdkMonitor *wig_window_find_monitor(GdkDisplay *display, const char *conn
   return NULL;
 }
 
+static void wig_window_sidebar_position_changed(GtkPaned *paned, GParamSpec *pspec, WigWindow *win)
+{
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+  wig_session_queue_save(wig_application_get_session(app));
+}
+
 WigSessionWindow *wig_window_capture_session(WigWindow *win)
 {
   g_return_val_if_fail(WIG_IS_WINDOW(win), NULL);
@@ -377,6 +383,7 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
   /* The default size is the size to come back at: it holds the size the window
    * had before it was maximised or fullscreened, which is the one to restore. */
   gtk_window_get_default_size(GTK_WINDOW(win), &captured->width, &captured->height);
+  captured->sidebar_width = gtk_paned_get_position(GTK_PANED(win->paned));
 
   guint n_tabs = win->tab_list ? wig_tab_list_get_n_tabs(win->tab_list) : 0;
 
@@ -395,9 +402,9 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
   g_return_val_if_fail(saved != NULL, NULL);
 
-  g_debug("session: restoring window %u with %d tab(s), %dx%d on '%s' maximized=%d fullscreen=%d minimized=%d "
-          "focused=%d",
-          saved->window_id, g_slist_length(saved->tabs), saved->width, saved->height,
+  g_debug("session: restoring window %u with %d tab(s), %dx%d sidebar=%d on '%s' maximized=%d fullscreen=%d "
+          "minimized=%d focused=%d",
+          saved->window_id, g_slist_length(saved->tabs), saved->width, saved->height, saved->sidebar_width,
           saved->monitor ? saved->monitor : "", saved->maximized, saved->fullscreen, saved->minimized, saved->focused);
 
   WigWindow *win = get_window_by_id(app, saved->window_id);
@@ -406,6 +413,8 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
     win = g_object_new(WIG_TYPE_WINDOW, "id", saved->window_id, "application", app, NULL);
     if (saved->width > 0 && saved->height > 0)
       gtk_window_set_default_size(GTK_WINDOW(win), saved->width, saved->height);
+    if (saved->sidebar_width > 0)
+      gtk_paned_set_position(GTK_PANED(win->paned), saved->sidebar_width);
     if (saved->maximized)
       gtk_window_maximize(GTK_WINDOW(win));
 
@@ -1290,6 +1299,7 @@ static void wig_window_constructed(GObject *object)
   gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
   gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
   gtk_paned_set_position(GTK_PANED(paned), 200);
+  g_signal_connect(paned, "notify::position", G_CALLBACK(wig_window_sidebar_position_changed), win);
   gtk_box_append(GTK_BOX(content_box), paned);
 
   gtk_window_set_child(GTK_WINDOW(win), content_box);

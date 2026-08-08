@@ -26,14 +26,14 @@
 
 #define WIG_SESSION_MAX_CLOSED_WINDOWS 20
 #define WIG_SESSION_SAVE_DELAY_SECONDS 5
-#define WIG_SESSION_FORMAT_VERSION 3
+#define WIG_SESSION_FORMAT_VERSION 4
 
 /* A window is its id, whether it was focused, maximised, fullscreen and
- * minimised, the size to come back at, the monitor it was on, and its tabs; a
- * tab is its serialized state and whether it was the one on screen. */
-#define WIG_SESSION_WINDOW_TYPE "(ubbbbiisa(ayb))"
+ * minimised, the size to come back at, the sidebar width, the monitor it was on,
+ * and its tabs; a tab is its serialized state and whether it was on screen. */
+#define WIG_SESSION_WINDOW_TYPE "(ubbbbiiisa(ayb))"
 #define WIG_SESSION_WINDOWS_TYPE "a" WIG_SESSION_WINDOW_TYPE
-#define WIG_SESSION_WINDOW_FORMAT "(ubbbbiis@a(ayb))"
+#define WIG_SESSION_WINDOW_FORMAT "(ubbbbiiis@a(ayb))"
 
 /* (version, open windows, closed windows) */
 #define WIG_SESSION_FORMAT "(u" WIG_SESSION_WINDOWS_TYPE WIG_SESSION_WINDOWS_TYPE ")"
@@ -116,7 +116,7 @@ static GVariant *wig_session_window_to_variant(const WigSessionWindow *window)
   }
 
   return g_variant_new(WIG_SESSION_WINDOW_FORMAT, window->window_id, window->focused, window->maximized,
-                       window->fullscreen, window->minimized, window->width, window->height,
+                       window->fullscreen, window->minimized, window->width, window->height, window->sidebar_width,
                        window->monitor ? window->monitor : "", g_variant_builder_end(&tabs));
 }
 
@@ -124,11 +124,11 @@ static WigSessionWindow *wig_session_window_from_variant(GVariant *variant)
 {
   guint window_id;
   gboolean focused, maximized, fullscreen, minimized;
-  int width, height;
+  int width, height, sidebar_width;
   g_autofree char *monitor = NULL;
   g_autoptr(GVariant) tabs = NULL;
   g_variant_get(variant, WIG_SESSION_WINDOW_FORMAT, &window_id, &focused, &maximized, &fullscreen, &minimized, &width,
-                &height, &monitor, &tabs);
+                &height, &sidebar_width, &monitor, &tabs);
 
   WigSessionWindow *window = wig_session_window_new(window_id);
   window->focused = focused;
@@ -137,6 +137,7 @@ static WigSessionWindow *wig_session_window_from_variant(GVariant *variant)
   window->minimized = minimized;
   window->width = width;
   window->height = height;
+  window->sidebar_width = sidebar_width;
   if (monitor && *monitor)
     window->monitor = g_steal_pointer(&monitor);
 
