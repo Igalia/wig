@@ -1,6 +1,7 @@
 subdir('internal-pages')
 subdir('tabs')
 subdir('entry')
+subdir('downloads')
 subdir('flatpak')
 
 wig_compiled_schemas = custom_target(
@@ -37,7 +38,7 @@ wig_sources = files(
     'wig-utils.c',
     'wig-window-base.c',
     'wig-window.c',
-) + internal_pages_sources + wig_tab_sources + wig_entry_sources + wig_flatpak_sources + wig_resources + wig_icon_resources
+) + internal_pages_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_resources + wig_icon_resources
 
 executable(
     'wig',
@@ -50,7 +51,14 @@ executable(
         sqlite_dep,
         template_glib_dep,
     ],
-    include_directories: ['.', 'internal-pages', 'tabs', 'entry', 'flatpak'],
+    include_directories: [
+        '.',
+        'internal-pages',
+        'tabs',
+        'entry',
+        'downloads',
+        'flatpak',
+    ],
     c_args: ['-DG_LOG_DOMAIN="wig"'],
     link_depends: wig_compiled_schemas,
     install: true,

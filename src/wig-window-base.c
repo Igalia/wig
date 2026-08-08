@@ -23,6 +23,7 @@
 #include "wig-window-base.h"
 
 #include "wig-application.h"
+#include "wig-downloads-button.h"
 #include "wig-favicon.h"
 #include "wig-permissions-popover.h"
 
@@ -36,6 +37,7 @@ typedef struct {
   GtkWidget *back_history_popover;
   GtkWidget *forward_history_popover;
   GtkWidget *permissions_button;
+  GtkWidget *downloads_button;
   GtkWidget *permissions_popover;
   GtkWidget *permission_request_popover;
   WigPermissionsManager *permissions_manager; /* borrowed from application */
@@ -694,6 +696,8 @@ static void wig_window_base_init(WigWindowBase *self)
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(priv->permissions_button), "sliders-horizontal-symbolic");
   gtk_menu_button_set_popover(GTK_MENU_BUTTON(priv->permissions_button), priv->permissions_popover);
 
+  priv->downloads_button = wig_downloads_button_new();
+
   g_signal_connect_swapped(priv->permissions_popover, "notify::has-permissions",
                            G_CALLBACK(update_permissions_button_visibility), self);
   g_signal_connect_swapped(priv->permission_request_popover, "notify::prompting",
@@ -829,6 +833,14 @@ GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self)
 
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->permissions_button;
+}
+
+GtkWidget *wig_window_base_get_downloads_button(WigWindowBase *self)
+{
+  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
+
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  return priv->downloads_button;
 }
 
 const char *wig_window_base_get_active_origin(WigWindowBase *self)

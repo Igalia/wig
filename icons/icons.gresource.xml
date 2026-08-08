@@ -4,5 +4,9 @@
     <file preprocess="xml-stripblanks">sliders-horizontal-symbolic.svg</file>
     <file preprocess="xml-stripblanks">camera-small-symbolic.svg</file>
     <file preprocess="xml-stripblanks">web-browser-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">wig-download-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">wig-download-done-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">cross-large-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">arrow-circular-top-right-symbolic.svg</file>
   </gresource>
 </gresources>

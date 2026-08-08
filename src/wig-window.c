@@ -24,6 +24,7 @@
 
 #include "wig-application.h"
 #include "wig-context-menu.h"
+#include "wig-downloads-button.h"
 #include "wig-entry-completion-popover.h"
 #include "wig-search-bar.h"
 #include "wig-tab-bar.h"
@@ -289,7 +290,9 @@ static void wig_window_search_bar_closed(WigSearchBar *search_bar, WigWindow *wi
 
 static void wig_window_show_downloads(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:downloads");
+  WigWindow *win = WIG_WINDOW(user_data);
+
+  wig_downloads_button_popup(WIG_DOWNLOADS_BUTTON(wig_window_base_get_downloads_button(WIG_WINDOW_BASE(win))));
 }
 
 static void wig_window_show_history(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -1334,6 +1337,8 @@ static void wig_window_constructed(GObject *object)
                             G_CONNECT_SWAPPED);
     wig_window_update_state_changed(win, NULL, update_monitor);
   }
+
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(win->header_bar), wig_window_base_get_downloads_button(WIG_WINDOW_BASE(win)));
 
   win->tab_list = wig_tab_list_new();
   gtk_widget_insert_action_group(GTK_WIDGET(win), "tabs", G_ACTION_GROUP(wig_tab_list_get_action_group(win->tab_list)));

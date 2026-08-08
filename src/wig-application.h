@@ -26,6 +26,7 @@
 #include <gtk/gtk.h>
 #include <wpe/webkit.h>
 
+#include "wig-downloads-manager.h"
 #include "wig-history-store.h"
 #include "wig-permissions-manager.h"
 #include "wig-session.h"
@@ -35,18 +36,6 @@ G_BEGIN_DECLS
 
 #define WIG_TYPE_APPLICATION (wig_application_get_type())
 G_DECLARE_FINAL_TYPE(WigApplication, wig_application, WIG, APPLICATION, AdwApplication)
-
-typedef enum {
-  WIG_DOWNLOAD_ACTIVE,
-  WIG_DOWNLOAD_COMPLETE,
-  WIG_DOWNLOAD_FAILED,
-  WIG_DOWNLOAD_CANCELLED,
-} WigDownloadState;
-
-typedef struct {
-  WebKitDownload *download;
-  WigDownloadState state;
-} WigDownloadRecord;
 
 typedef struct {
   char *source;
@@ -68,6 +57,7 @@ WPEDisplay *wig_application_get_display(WigApplication *app);
 WebKitNetworkSession *wig_application_get_network_session(WigApplication *app);
 WebKitWebView *wig_application_create_web_view(WigApplication *app);
 WigHistoryStore *wig_application_get_history_store(WigApplication *app);
+WigDownloadsManager *wig_application_get_downloads_manager(WigApplication *app);
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri);
 gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore);
 

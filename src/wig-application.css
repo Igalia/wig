@@ -77,6 +77,58 @@ window > .titlebar:not(.flat) {
   font-size: 0.85em;
 }
 
+/* Downloads popover - the rows carry their own padding. */
+.downloads-popover > contents {
+  padding: 0;
+}
+
+.downloads-header {
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid alpha(@borders, 0.5);
+}
+
+.downloads-error {
+  background-color: alpha(@error_color, 0.15);
+  padding: 8px 12px;
+}
+
+.downloads-empty {
+  padding: 24px;
+}
+
+/* Fixed height: the progress bar only exists while a download is running, and
+ * without this the row would shrink the moment one finished. */
+wig-download-row {
+  min-height: 62px;
+  padding: 8px 12px;
+  border-bottom: 1px solid alpha(@borders, 0.3);
+}
+
+wig-download-row:last-child {
+  border-bottom: none;
+}
+
+wig-download-row .download-icon {
+  color: alpha(@window_fg_color, 0.8);
+}
+
+wig-download-row .download-name {
+  font-weight: 600;
+}
+
+/* Monospaced so the sizes and rate keep their width as they count up, rather
+ * than shuffling the rest of the line along on every update. */
+wig-download-row .download-detail {
+  color: alpha(@window_fg_color, 0.65);
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+wig-download-row .download-detail.failed,
+wig-download-row .download-detail.cancelled {
+  color: @error_color;
+}
+
 wig-search-bar .search-bar-box {
   background-color: @window_bg_color;
   border-top: 1px solid alpha(@borders, 0.5);

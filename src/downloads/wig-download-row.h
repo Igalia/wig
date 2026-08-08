@@ -22,7 +22,17 @@
 
 #pragma once
 
-#include <tmpl-glib.h>
-#include <wpe/webkit.h>
+#include <gtk/gtk.h>
 
-TmplScope *handle_downloads_uri(WebKitURISchemeRequest *request, GPtrArray *downloads);
+#include "wig-downloads-manager.h"
+
+G_BEGIN_DECLS
+
+#define WIG_TYPE_DOWNLOAD_ROW (wig_download_row_get_type())
+G_DECLARE_FINAL_TYPE(WigDownloadRow, wig_download_row, WIG, DOWNLOAD_ROW, GtkWidget)
+
+GtkWidget *wig_download_row_new(WigDownloadRecord *record);
+WigDownloadRecord *wig_download_row_get_record(WigDownloadRow *self);
+void wig_download_row_update(WigDownloadRow *self);
+
+G_END_DECLS

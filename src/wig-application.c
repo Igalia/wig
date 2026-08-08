@@ -25,7 +25,6 @@
 #include <tmpl-glib.h>
 
 #include "internal-pages/wig-content-filters.h"
-#include "internal-pages/wig-downloads.h"
 #include "internal-pages/wig-features.h"
 #include "internal-pages/wig-history.h"
 #include "internal-pages/wig-internal-page.h"
@@ -34,6 +33,7 @@
 #include "internal-pages/wig-user-scripts.h"
 #include "internal-pages/wig-user-styles.h"
 #include "internal-pages/wig-website-data.h"
+#include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
 #include "wig-settings.h"
 #include "wig-window.h"
@@ -50,7 +50,7 @@ struct _WigApplication {
   WigHistoryStore *history_store;
   GHashTable *typed_navigations; /* WebKitWebView* -> char* pending URI */
   GHashTable *internal_navigations; /* WebKitWebView* -> char* pending wig: URI */
-  GPtrArray *downloads;
+  WigDownloadsManager *downloads;
   WebKitUserContentManager *user_content_manager;
   GPtrArray *user_scripts;
   GPtrArray *user_style_sheets;
@@ -305,59 +305,6 @@ static const GActionEntry app_update_actions[] = {
   { "restart-to-update", wig_application_restart_to_update_action },
 };
 
-static void wig_download_record_free(WigDownloadRecord *record)
-{
-  g_object_unref(record->download);
-  g_free(record);
-}
-
-static void on_download_finished(WebKitDownload *download, WigDownloadRecord *record)
-{
-  g_debug("download: finished '%s'", webkit_download_get_destination(download));
-  if (record->state == WIG_DOWNLOAD_ACTIVE)
-    record->state = WIG_DOWNLOAD_COMPLETE;
-}
-
-static void on_download_failed(WebKitDownload *download, GError *error, WigDownloadRecord *record)
-{
-  g_debug("download: failed '%s': %s", webkit_download_get_destination(download), error->message);
-  if (g_error_matches(error, WEBKIT_DOWNLOAD_ERROR, WEBKIT_DOWNLOAD_ERROR_CANCELLED_BY_USER))
-    record->state = WIG_DOWNLOAD_CANCELLED;
-  else
-    record->state = WIG_DOWNLOAD_FAILED;
-}
-
-static gboolean on_decide_destination(WebKitDownload *download, const char *suggested_filename, WigApplication *app)
-{
-  // FIXME: Show chooser
-  if (!suggested_filename || !*suggested_filename) {
-    g_warning("download: ignoring download with empty filename");
-    webkit_download_cancel(download);
-    return TRUE;
-  }
-
-  const char *dir = g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD);
-  g_autofree char *fallback = dir ? NULL : g_build_filename(g_get_home_dir(), "Downloads", NULL);
-  g_autofree char *path = g_build_filename(dir ? dir : fallback, suggested_filename, NULL);
-  webkit_download_set_destination(download, path);
-
-  wig_application_open_internal_page(app, NULL, "wig:downloads");
-  return TRUE;
-}
-
-static void on_download_started(WebKitNetworkSession *session, WebKitDownload *download, WigApplication *app)
-{
-  g_debug("download: started '%s'", webkit_uri_request_get_uri(webkit_download_get_request(download)));
-
-  WigDownloadRecord *record = g_new0(WigDownloadRecord, 1);
-  record->download = g_object_ref(download);
-  g_ptr_array_add(app->downloads, record);
-
-  g_signal_connect(download, "decide-destination", G_CALLBACK(on_decide_destination), app);
-  g_signal_connect(download, "finished", G_CALLBACK(on_download_finished), record);
-  g_signal_connect(download, "failed", G_CALLBACK(on_download_failed), record);
-}
-
 static void wig_application_initialize_notification_permissions(WigApplication *app)
 {
   g_autolist(WebKitSecurityOrigin) allowed = wig_permissions_manager_list_origins(
@@ -422,9 +369,6 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
     WebKitWebsiteDataManager *manager = webkit_network_session_get_website_data_manager(app->network_session);
     handle_website_data_uri(request, manager);
     return; // async
-  } else if (g_str_has_prefix(uri, "wig:downloads")) {
-    scope = handle_downloads_uri(request, app->downloads);
-    html = wig_internal_page_render("/com/igalia/wig/internal-pages/downloads.html", scope);
   } else if (uri_is_settings_page(uri)) {
     g_set_weak_pointer(&app->settings_view, web_view);
     scope = handle_settings_uri(request, app->settings);
@@ -455,7 +399,6 @@ static void wig_application_init(WigApplication *app)
 
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
-  app->downloads = g_ptr_array_new_with_free_func((GDestroyNotify)wig_download_record_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
   app->notifications = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
@@ -642,7 +585,7 @@ static void wig_application_startup(GApplication *application)
 #endif
   app->memory_pressure_settings = webkit_memory_pressure_settings_new();
   webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
-  g_signal_connect(app->network_session, "download-started", G_CALLBACK(on_download_started), app);
+  app->downloads = wig_downloads_manager_new(app->network_session);
   app->user_content_manager = webkit_user_content_manager_new();
   g_autofree char *filters_dir = g_build_filename(data_dir, "content-filters", NULL);
   app->content_filter_store = webkit_user_content_filter_store_new(filters_dir);
@@ -708,7 +651,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->history_store);
   g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
   g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
-  g_clear_pointer(&app->downloads, g_ptr_array_unref);
+  g_clear_object(&app->downloads);
   g_clear_weak_pointer(&app->settings_view);
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
   g_clear_object(&app->website_policies);
@@ -942,6 +885,11 @@ WigHistoryStore *wig_application_get_history_store(WigApplication *app)
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->history_store;
+}
+
+WigDownloadsManager *wig_application_get_downloads_manager(WigApplication *app)
+{
+  return app->downloads;
 }
 
 void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
