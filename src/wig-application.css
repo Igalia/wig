@@ -1,3 +1,21 @@
+/* The web view reaches the bottom corners of the window, and a rounded clip
+ * covering it stops GTK from offloading its dmabuf to a subsurface. */
+window.csd {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  /* The outline is drawn after the child content, so it overlaps the view and
+   * forces the subsurface below the toplevel ("Lowering because a
+   * GskBorderNode overlaps") instead of above it. */
+  outline: none;
+}
+
+/* libadwaita gives the title bar a `0 2px 4px` drop shadow, which extends 6px
+ * past its bottom edge and over the view sitting directly below it in sidebar
+ * layout. Draw the separating line inside the header bar instead. */
+window > .titlebar:not(.flat) {
+  box-shadow: inset 0 -1px var(--headerbar-shade-color);
+}
+
 /* Link hover status bar */
 .link-status-bar {
   background-color: alpha(@window_bg_color, 0.8);
