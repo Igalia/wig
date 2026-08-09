@@ -29,11 +29,14 @@
 #include "wig-flatpak.h"
 #include "wig-history-page.h"
 #include "wig-new-tab-page.h"
+#include "wig-pwa-launch-handler.h"
+#include "wig-pwa-window.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
 #include "wig-settings-memory.h"
 #include "wig-settings-page.h"
 #include "wig-settings.h"
+#include "wig-tab.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 
@@ -68,6 +71,7 @@ struct _WigApplication {
 
   WigSession *session;
   gboolean quitting;
+  gboolean adopting_web_app;
   GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
   WigPermissionsManager *permissions_manager;
   WigUpdateMonitor *update_monitor;
@@ -422,6 +426,12 @@ static void wig_user_style_sheet_record_free(WigUserStyleSheetRecord *record)
 
 static void wig_application_init(WigApplication *app)
 {
+  static const GOptionEntry options[] = {
+    { "web-app", 0, 0, G_OPTION_ARG_STRING, NULL, "Open URLs in the context of an installed web application", "ID" },
+    { NULL },
+  };
+  g_application_add_main_option_entries(G_APPLICATION(app), options);
+
   g_autofree char *state_dir = g_build_filename(g_get_user_state_dir(), "com.igalia.wig", NULL);
 
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
@@ -601,7 +611,10 @@ static void wig_application_window_removed(GtkApplication *application, GtkWindo
 {
   WigApplication *app = WIG_APPLICATION(application);
   GList *windows = gtk_application_get_windows(application);
-  gboolean last = windows && !windows->next && windows->data == window;
+  /* A browser window emptied by an install is on its way to becoming an app
+   * window, so the browser leaving is a step of that move rather than the end of
+   * the session. */
+  gboolean last = windows && !windows->next && windows->data == window && !app->adopting_web_app;
 
   if (last)
     wig_session_save(app->session);
@@ -1031,8 +1044,34 @@ static int wig_application_command_line(GApplication *application, GApplicationC
     return 0;
   }
 
+  const char *web_app_id = NULL;
+  g_variant_dict_lookup(options, "web-app", "&s", &web_app_id);
+
   int argc = 0;
   g_auto(GStrv) argv = g_application_command_line_get_arguments(command_line, &argc);
+  if (web_app_id) {
+    if (argc <= 1) {
+      g_autoptr(GError) error = NULL;
+      if (!wig_application_open_web_app(app, web_app_id, NULL, &error)) {
+        g_application_command_line_printerr(command_line, "Failed to open web app '%s': %s\n", web_app_id,
+                                            error->message);
+        return 1;
+      }
+    } else {
+      for (int i = 1; i < argc; i++) {
+        g_autoptr(GFile) file = g_application_command_line_create_file_for_arg(command_line, argv[i]);
+        g_autofree char *uri = g_file_get_uri(file);
+        g_autoptr(GError) error = NULL;
+        if (!wig_application_open_web_app(app, web_app_id, uri, &error)) {
+          g_application_command_line_printerr(command_line, "Failed to open '%s' for web app '%s': %s\n", uri,
+                                              web_app_id, error->message);
+          return 1;
+        }
+      }
+    }
+    return 0;
+  }
+
   if (argc <= 1) {
     g_application_activate(application);
     return 0;
@@ -1120,18 +1159,194 @@ static gboolean on_web_view_decide_policy(WebKitWebView *web_view, WebKitPolicyD
   return TRUE;
 }
 
-WebKitWebView *wig_application_create_web_view(WigApplication *app)
+static WebKitWebView *wig_application_create_web_view_internal(WigApplication *app, gboolean record_history)
 {
   WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(
       WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context, "network-session",
       app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
   g_signal_connect(web_view, "decide-policy", G_CALLBACK(on_web_view_decide_policy), app);
-  g_signal_connect(web_view, "load-changed", G_CALLBACK(on_web_view_load_changed), app);
   g_signal_connect(web_view, "load-failed", G_CALLBACK(on_load_failed), app);
-  g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
-  g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
+  if (record_history) {
+    g_signal_connect(web_view, "load-changed", G_CALLBACK(on_web_view_load_changed), app);
+    g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
+    g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
+  }
 
   return web_view;
+}
+
+WebKitWebView *wig_application_create_web_view(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  return wig_application_create_web_view_internal(app, TRUE);
+}
+
+void wig_application_open_uri_in_browser(WigApplication *app, const char *uri)
+{
+  g_return_if_fail(WIG_IS_APPLICATION(app));
+  g_return_if_fail(uri != NULL);
+
+  WigWindow *window = wig_application_find_browser_window(app);
+  if (!window)
+    window = wig_window_new(app);
+  wig_application_add_new_tab_with_uri(app, window, uri);
+  gtk_window_present(GTK_WINDOW(window));
+}
+
+static gboolean wig_application_get_pwa_window_configuration(WigApplication *app, const char *id,
+                                                             WigPwaNavigationPolicy **navigation_policy,
+                                                             char **background_color, GVariant **shortcuts,
+                                                             GError **error)
+{
+  *navigation_policy = wig_pwa_manager_get_navigation_policy(app->pwa_manager, id, error);
+  if (!*navigation_policy)
+    return FALSE;
+
+  *background_color = wig_pwa_manager_get_background_color(app->pwa_manager, id, error);
+  if (!*background_color && error && *error)
+    return FALSE;
+
+  *shortcuts = wig_pwa_manager_get_shortcuts(app->pwa_manager, id, error);
+  return *shortcuts != NULL;
+}
+
+static WigPwaWindow *wig_application_find_web_app_window(WigApplication *app, const char *id)
+{
+  GtkWindow *active_window = gtk_application_get_active_window(GTK_APPLICATION(app));
+  if (WIG_IS_PWA_WINDOW(active_window) && g_str_equal(wig_pwa_window_get_id(WIG_PWA_WINDOW(active_window)), id))
+    return WIG_PWA_WINDOW(active_window);
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (WIG_IS_PWA_WINDOW(l->data) && g_str_equal(wig_pwa_window_get_id(WIG_PWA_WINDOW(l->data)), id))
+      return WIG_PWA_WINDOW(l->data);
+  }
+  return NULL;
+}
+
+static gboolean wig_application_open_web_app_in_new_window(WigApplication *app, const char *id, const char *target_url,
+                                                           GError **error)
+{
+  g_autoptr(WigPwaNavigationPolicy) navigation_policy = NULL;
+  g_autofree char *background_color = NULL;
+  g_autoptr(GVariant) shortcuts = NULL;
+  if (!wig_application_get_pwa_window_configuration(app, id, &navigation_policy, &background_color, &shortcuts, error))
+    return FALSE;
+
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view_internal(app, FALSE);
+  g_autoptr(WigTab) tab = wig_tab_new(web_view);
+  WigPwaWindow *window = wig_pwa_window_new(GTK_APPLICATION(app), app->display, id, navigation_policy, shortcuts,
+                                            background_color, tab);
+  webkit_web_view_load_uri(web_view, target_url);
+  gtk_window_present(GTK_WINDOW(window));
+  g_debug("Opened web app %s", id);
+  return TRUE;
+}
+
+gboolean wig_application_open_web_app(WigApplication *app, const char *id, const char *target_url, GError **error)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), FALSE);
+  g_return_val_if_fail(id != NULL, FALSE);
+  g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+
+  g_autofree char *launch_url = target_url ? g_strdup(target_url)
+                                           : wig_pwa_manager_get_start_url(app->pwa_manager, id, error);
+  if (!launch_url)
+    return FALSE;
+
+  if (target_url) {
+    g_autofree char *protocol_url = wig_pwa_manager_resolve_protocol_url(app->pwa_manager, id, target_url, error);
+    if (error && *error)
+      return FALSE;
+    if (protocol_url) {
+      g_debug("Resolved %s protocol launch target for web app %s", g_uri_peek_scheme(target_url), id);
+      g_clear_pointer(&launch_url, g_free);
+      launch_url = g_steal_pointer(&protocol_url);
+    }
+
+    g_autoptr(WigPwaNavigationPolicy) navigation_policy = wig_pwa_manager_get_navigation_policy(app->pwa_manager, id,
+                                                                                                error);
+    if (!navigation_policy)
+      return FALSE;
+    if (wig_pwa_navigation_policy_match(navigation_policy, launch_url) == WIG_PWA_SCOPE_MATCH_OUTSIDE) {
+      g_debug("Opening out-of-scope %s launch target in a browser", g_uri_peek_scheme(launch_url));
+      wig_application_open_uri_in_browser(app, launch_url);
+      return TRUE;
+    }
+  }
+
+  WigPwaLaunchClientMode client_mode = wig_pwa_manager_get_launch_client_mode(app->pwa_manager, id, error);
+  if (error && *error)
+    return FALSE;
+
+  if (client_mode == WIG_PWA_LAUNCH_CLIENT_MODE_FOCUS_EXISTING
+      || client_mode == WIG_PWA_LAUNCH_CLIENT_MODE_NAVIGATE_EXISTING) {
+    WigPwaWindow *window = wig_application_find_web_app_window(app, id);
+    if (window) {
+      gboolean should_navigate = client_mode == WIG_PWA_LAUNCH_CLIENT_MODE_NAVIGATE_EXISTING
+          || !wig_pwa_window_is_current_uri_in_scope(window);
+      if (should_navigate) {
+        webkit_web_view_load_uri(wig_pwa_window_get_web_view(window), launch_url);
+        g_debug("Navigated existing web app %s (launch mode %d)", id, client_mode);
+      } else {
+        g_debug("Focused existing web app %s", id);
+      }
+      gtk_window_present(GTK_WINDOW(window));
+      return TRUE;
+    }
+  }
+
+  g_debug("Opening new window for web app %s (launch mode %d)", id, client_mode);
+  return wig_application_open_web_app_in_new_window(app, id, launch_url, error);
+}
+
+gboolean wig_application_adopt_web_app(WigApplication *app, const char *id, WebKitWebView *web_view, GError **error)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), FALSE);
+  g_return_val_if_fail(id != NULL, FALSE);
+  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), FALSE);
+  g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+
+  WPEView *view = webkit_web_view_get_wpe_view(web_view);
+  if (wpe_view_get_display(view) != app->display) {
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Web view and web app use different displays");
+    return FALSE;
+  }
+
+  g_autoptr(WigPwaNavigationPolicy) navigation_policy = NULL;
+  g_autofree char *background_color = NULL;
+  g_autoptr(GVariant) shortcuts = NULL;
+  if (!wig_application_get_pwa_window_configuration(app, id, &navigation_policy, &background_color, &shortcuts, error))
+    return FALSE;
+
+  g_autoptr(WigTab) adopted_tab = NULL;
+  app->adopting_web_app = TRUE;
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (!WIG_IS_WINDOW(l->data))
+      continue;
+
+    adopted_tab = wig_window_take_tab(WIG_WINDOW(l->data), web_view);
+    if (adopted_tab)
+      break;
+  }
+  app->adopting_web_app = FALSE;
+  if (!adopted_tab) {
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Web view is no longer in a browser tab");
+    return FALSE;
+  }
+
+  WebKitWebView *adopted_web_view = wig_tab_get_web_view(adopted_tab);
+  guint history_handlers = g_signal_handlers_disconnect_by_func(adopted_web_view, on_web_view_load_changed, app);
+  history_handlers += g_signal_handlers_disconnect_by_func(adopted_web_view, on_history_title_changed, app);
+  if (history_handlers)
+    g_object_weak_unref(G_OBJECT(adopted_web_view), history_web_view_finalized, app);
+  g_hash_table_remove(app->typed_navigations, adopted_web_view);
+
+  WigPwaWindow *window = wig_pwa_window_new(GTK_APPLICATION(app), app->display, id, navigation_policy, shortcuts,
+                                            background_color, adopted_tab);
+  gtk_window_present(GTK_WINDOW(window));
+  g_debug("Adopted browser tab %u into web app %s", wig_tab_get_id(adopted_tab), id);
+  return TRUE;
 }
 
 WigHistoryStore *wig_application_get_history_store(WigApplication *app)

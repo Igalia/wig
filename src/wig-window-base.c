@@ -857,6 +857,10 @@ void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_vie
   if (signals)
     g_signal_group_set_target(signals, NULL);
   g_hash_table_remove(priv->web_view_signal_groups, web_view);
+
+  WPEView *view = webkit_web_view_get_wpe_view(web_view);
+  if (wpe_view_get_toplevel(view) == priv->toplevel)
+    wpe_view_set_toplevel(view, NULL);
 }
 
 void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web_view)
@@ -914,6 +918,18 @@ const char *wig_window_base_get_active_origin(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->active_origin;
+}
+
+gboolean wig_window_base_handle_download_response(WebKitPolicyDecision *decision,
+                                                  WebKitPolicyDecisionType decision_type)
+{
+  if (decision_type != WEBKIT_POLICY_DECISION_TYPE_RESPONSE)
+    return FALSE;
+  if (webkit_response_policy_decision_is_mime_type_supported(WEBKIT_RESPONSE_POLICY_DECISION(decision)))
+    return FALSE;
+
+  webkit_policy_decision_download(decision);
+  return TRUE;
 }
 
 /* The hit test says a selection was clicked but not what is in it, and nothing in

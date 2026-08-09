@@ -8,6 +8,7 @@ pwa_sources = files(
     'wig-pwa-manager.c',
     'wig-pwa-navigation-policy.c',
     'wig-pwa-protocol-handlers.c',
+    'wig-pwa-window.c',
 )
 
 pwa_navigation_policy_test = executable(

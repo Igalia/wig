@@ -48,6 +48,8 @@ void wig_window_base_set_loading(WigWindowBase *self, gboolean loading);
 GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self);
 GtkWidget *wig_window_base_get_downloads_button(WigWindowBase *self);
 const char *wig_window_base_get_active_origin(WigWindowBase *self);
+gboolean wig_window_base_handle_download_response(WebKitPolicyDecision *decision,
+                                                  WebKitPolicyDecisionType decision_type);
 gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMenu *context_menu,
                                            WebKitHitTestResult *hit_test_result);
 

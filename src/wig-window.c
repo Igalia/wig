@@ -2166,3 +2166,21 @@ void wig_window_add_web_view_in_background(WigWindow *win, WebKitWebView *web_vi
 
   wig_tab_list_insert(win->tab_list, web_view, index);
 }
+
+WigTab *wig_window_take_tab(WigWindow *win, WebKitWebView *web_view)
+{
+  g_return_val_if_fail(WIG_IS_WINDOW(win), NULL);
+  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
+
+  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
+  if (!tab)
+    return NULL;
+
+  g_autoptr(WigTab) detached_tab = wig_tab_list_detach(win->tab_list, tab);
+  if (!detached_tab)
+    return NULL;
+
+  if (wig_tab_list_get_n_tabs(win->tab_list) == 0)
+    gtk_window_destroy(GTK_WINDOW(win));
+  return g_steal_pointer(&detached_tab);
+}
