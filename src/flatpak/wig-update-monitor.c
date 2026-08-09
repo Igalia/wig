@@ -28,6 +28,8 @@
 /* What the portal reports when the flatpak updates permission for this application is "no". */
 #define WIG_DBUS_ERROR_ACCESS_DENIED "org.freedesktop.DBus.Error.AccessDenied"
 
+#define FLATPAK_UPDATED_FILE "/app/.updated"
+
 /* Progress::status values of org.freedesktop.portal.Flatpak.UpdateMonitor. */
 typedef enum {
   UPDATE_STATUS_RUNNING,
@@ -41,9 +43,15 @@ struct _WigUpdateMonitor {
 
   GCancellable *cancellable;
   GDBusConnection *connection;
+  GFileMonitor *updated_file_monitor;
   char *object_path;
+  char *local_commit;
+  char *remote_commit;
   guint update_available_id;
   guint progress_id;
+  gboolean has_updated_file;
+  gboolean download_blocked;
+  gboolean downloading;
   WigUpdateState state;
 };
 
@@ -62,13 +70,62 @@ enum {
 
 static GParamSpec *props[N_PROPS];
 
-static void wig_update_monitor_set_state(WigUpdateMonitor *self, WigUpdateState state)
+static WigUpdateState wig_update_monitor_derive_state(WigUpdateMonitor *self)
 {
+  if (self->downloading)
+    return WIG_UPDATE_STATE_DOWNLOADING;
+
+  gboolean download_pending = self->remote_commit && g_strcmp0(self->remote_commit, self->local_commit) != 0;
+
+  if (download_pending && !self->download_blocked)
+    return WIG_UPDATE_STATE_AVAILABLE;
+
+  if (self->has_updated_file)
+    return WIG_UPDATE_STATE_READY;
+
+  return download_pending ? WIG_UPDATE_STATE_BLOCKED : WIG_UPDATE_STATE_NONE;
+}
+
+static void wig_update_monitor_refresh_state(WigUpdateMonitor *self)
+{
+  WigUpdateState state = wig_update_monitor_derive_state(self);
   if (self->state == state)
     return;
 
   self->state = state;
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_STATE]);
+}
+
+static void wig_update_monitor_updated_file_changed(GFileMonitor *monitor, GFile *file, GFile *other_file,
+                                                    GFileMonitorEvent event_type, gpointer user_data)
+{
+  WigUpdateMonitor *self = user_data;
+
+  if (event_type != G_FILE_MONITOR_EVENT_CREATED)
+    return;
+
+  g_debug("update: %s appeared, a newer commit is deployed", FLATPAK_UPDATED_FILE);
+
+  self->has_updated_file = TRUE;
+  wig_update_monitor_refresh_state(self);
+}
+
+static void wig_update_monitor_watch_updated_file(WigUpdateMonitor *self)
+{
+  g_autoptr(GFile) updated_file = g_file_new_for_path(FLATPAK_UPDATED_FILE);
+  g_autoptr(GError) error = NULL;
+
+  self->has_updated_file = g_file_query_exists(updated_file, NULL);
+
+  self->updated_file_monitor = g_file_monitor_file(updated_file, G_FILE_MONITOR_NONE, self->cancellable, &error);
+  if (!self->updated_file_monitor) {
+    g_warning("update: cannot watch %s, an update installed by anything else will not be noticed until the portal "
+              "polls: %s",
+              FLATPAK_UPDATED_FILE, error->message);
+    return;
+  }
+
+  g_signal_connect(self->updated_file_monitor, "changed", G_CALLBACK(wig_update_monitor_updated_file_changed), self);
 }
 
 static void wig_update_monitor_progress(GDBusConnection *connection, const char *sender_name, const char *object_path,
@@ -93,12 +150,15 @@ static void wig_update_monitor_progress(GDBusConnection *connection, const char 
     g_debug("update: downloading, operation %u of %u at %u%%", operation, operation_count, progress);
     return;
   case UPDATE_STATUS_EMPTY:
+
     g_debug("update: the portal had nothing to install");
-    wig_update_monitor_set_state(self, WIG_UPDATE_STATE_NONE);
+    self->downloading = FALSE;
+    g_set_str(&self->remote_commit, self->local_commit);
     break;
   case UPDATE_STATUS_DONE:
     g_debug("update: downloaded, a restart will pick it up");
-    wig_update_monitor_set_state(self, WIG_UPDATE_STATE_READY);
+    self->downloading = FALSE;
+    g_set_str(&self->local_commit, self->remote_commit);
     break;
   case UPDATE_STATUS_FAILED: {
     const char *error_name = NULL;
@@ -108,19 +168,20 @@ static void wig_update_monitor_progress(GDBusConnection *connection, const char 
     g_warning("update: download failed: %s: %s", error_name ? error_name : "(unknown error)",
               error_message ? error_message : "");
 
+    self->downloading = FALSE;
     /* Refusal is a stored answer, not a transient failure, so offering the download again
      * would fail the same way until it is changed with
      * flatpak permission-set flatpak updates com.igalia.wig ask */
     if (g_strcmp0(error_name, WIG_DBUS_ERROR_ACCESS_DENIED) == 0)
-      wig_update_monitor_set_state(self, WIG_UPDATE_STATE_BLOCKED);
-    else
-      wig_update_monitor_set_state(self, WIG_UPDATE_STATE_AVAILABLE);
+      self->download_blocked = TRUE;
     break;
   }
   default:
     g_debug("update: unhandled install status %u", status);
-    break;
+    return;
   }
+
+  wig_update_monitor_refresh_state(self);
 }
 
 static void wig_update_monitor_update_finished(GObject *source, GAsyncResult *result, gpointer user_data)
@@ -135,20 +196,10 @@ static void wig_update_monitor_update_finished(GObject *source, GAsyncResult *re
     return;
 
   g_warning("update: the portal refused to download the update: %s", error->message);
-  wig_update_monitor_set_state(self, WIG_UPDATE_STATE_AVAILABLE);
+  self->downloading = FALSE;
+  wig_update_monitor_refresh_state(self);
 }
 
-/* The portal reports both kinds of update in one signal: a local commit that
- * differs from the running one is already deployed and only needs a restart,
- * while a newer remote commit still has to be pulled in. Pulling it in is left
- * to the user, so an update is only offered here.
- *
- * The signal fires on any change to either commit, in either direction, and the
- * three commits agreeing again is one of those changes, so the state is derived
- * from them rather than only ever raised. The portal reports the remote as the
- * local commit whenever it cannot reach the remote, which is exactly that case,
- * and leaving an offer standing there would leave it standing forever: nothing
- * else ever withdraws it. */
 static void wig_update_monitor_update_available(GDBusConnection *connection, const char *sender_name,
                                                 const char *object_path, const char *interface_name,
                                                 const char *signal_name, GVariant *parameters, gpointer user_data)
@@ -166,26 +217,15 @@ static void wig_update_monitor_update_available(GDBusConnection *connection, con
 
   g_debug("update: available, running %s, local %s, remote %s", running_commit, local_commit, remote_commit);
 
-  /* Restarting into a commit that is already deployed needs no permission and no
-   * download, so it is offered whatever the state, including one where downloading
-   * it here was refused and something else deployed it. */
-  if (g_strcmp0(local_commit, running_commit) != 0) {
-    wig_update_monitor_set_state(self, WIG_UPDATE_STATE_READY);
-    return;
-  }
+  g_set_str(&self->local_commit, local_commit);
+  g_set_str(&self->remote_commit, remote_commit);
 
-  /* A download already under way reports through Progress, so leave it alone. */
-  if (self->state == WIG_UPDATE_STATE_DOWNLOADING)
-    return;
+  /* Nothing left to fetch is what withdraws a refusal: the answer it was stored against
+   * no longer has anything to apply to. */
+  if (g_strcmp0(remote_commit, local_commit) == 0)
+    self->download_blocked = FALSE;
 
-  if (g_strcmp0(remote_commit, local_commit) != 0) {
-    /* Refusal is a stored answer, so offering this same download again would only
-     * fail the same way. It stands until the commits say there is nothing to fetch. */
-    if (self->state != WIG_UPDATE_STATE_BLOCKED)
-      wig_update_monitor_set_state(self, WIG_UPDATE_STATE_AVAILABLE);
-  } else {
-    wig_update_monitor_set_state(self, WIG_UPDATE_STATE_NONE);
-  }
+  wig_update_monitor_refresh_state(self);
 }
 
 static void wig_update_monitor_created(GObject *source, GAsyncResult *result, gpointer user_data)
@@ -205,10 +245,10 @@ static void wig_update_monitor_created(GObject *source, GAsyncResult *result, gp
 
   self->update_available_id = g_dbus_connection_signal_subscribe(
       connection, WIG_FLATPAK_PORTAL_BUS_NAME, WIG_FLATPAK_PORTAL_UPDATE_MONITOR_INTERFACE, "UpdateAvailable",
-      self->object_path, NULL, G_DBUS_SIGNAL_FLAGS_NONE, wig_update_monitor_update_available, self, NULL);
+      self->object_path, NULL, G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE, wig_update_monitor_update_available, self, NULL);
   self->progress_id = g_dbus_connection_signal_subscribe(
       connection, WIG_FLATPAK_PORTAL_BUS_NAME, WIG_FLATPAK_PORTAL_UPDATE_MONITOR_INTERFACE, "Progress",
-      self->object_path, NULL, G_DBUS_SIGNAL_FLAGS_NONE, wig_update_monitor_progress, self, NULL);
+      self->object_path, NULL, G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE, wig_update_monitor_progress, self, NULL);
 }
 
 static void wig_update_monitor_bus_ready(GObject *source, GAsyncResult *result, gpointer user_data)
@@ -267,7 +307,13 @@ static void wig_update_monitor_dispose(GObject *object)
     }
   }
 
+  if (self->updated_file_monitor)
+    g_file_monitor_cancel(self->updated_file_monitor);
+
   g_clear_pointer(&self->object_path, g_free);
+  g_clear_pointer(&self->local_commit, g_free);
+  g_clear_pointer(&self->remote_commit, g_free);
+  g_clear_object(&self->updated_file_monitor);
   g_clear_object(&self->connection);
   g_clear_object(&self->cancellable);
 
@@ -289,6 +335,9 @@ static void wig_update_monitor_class_init(WigUpdateMonitorClass *klass)
 static void wig_update_monitor_init(WigUpdateMonitor *self)
 {
   self->cancellable = g_cancellable_new();
+
+  wig_update_monitor_watch_updated_file(self);
+  wig_update_monitor_refresh_state(self);
 }
 
 WigUpdateMonitor *wig_update_monitor_new(void)
@@ -311,7 +360,8 @@ void wig_update_monitor_download(WigUpdateMonitor *self)
   if (self->state != WIG_UPDATE_STATE_AVAILABLE)
     return;
 
-  wig_update_monitor_set_state(self, WIG_UPDATE_STATE_DOWNLOADING);
+  self->downloading = TRUE;
+  wig_update_monitor_refresh_state(self);
   g_debug("update: asking the portal to download the update");
 
   GVariantBuilder options;
