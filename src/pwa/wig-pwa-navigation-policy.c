@@ -79,32 +79,7 @@ static char *normalize_path(const char *path)
   g_autofree char *web_path = g_strdup(path);
   g_strdelimit(web_path, "\\", '/');
   g_autofree char *encoded_path = g_uri_escape_string(web_path, "/%:@!$&'()*+,;=-._~[]|", FALSE);
-  gboolean absolute = encoded_path[0] == '/';
-  g_auto(GStrv) segments = g_strsplit(encoded_path, "/", -1);
-  g_autoptr(GPtrArray) normalized = g_ptr_array_new_with_free_func(g_free);
-  for (guint i = absolute ? 1 : 0; segments[i]; i++) {
-    if (wig_pwa_path_segment_is_dot(segments[i]))
-      continue;
-    if (wig_pwa_path_segment_is_double_dot(segments[i])) {
-      if (normalized->len)
-        g_ptr_array_remove_index(normalized, normalized->len - 1);
-      continue;
-    }
-    g_ptr_array_add(normalized, g_strdup(segments[i]));
-  }
-
-  gboolean needs_trailing_slash = g_str_has_suffix(encoded_path, "/")
-      || wig_pwa_path_segment_is_dot(segments[g_strv_length(segments) - 1])
-      || wig_pwa_path_segment_is_double_dot(segments[g_strv_length(segments) - 1]);
-  g_autoptr(GString) result = g_string_new(absolute ? "/" : NULL);
-  for (guint i = 0; i < normalized->len; i++) {
-    if (i)
-      g_string_append_c(result, '/');
-    g_string_append(result, g_ptr_array_index(normalized, i));
-  }
-  if (needs_trailing_slash && !g_str_has_suffix(result->str, "/"))
-    g_string_append_c(result, '/');
-  return g_string_free(g_steal_pointer(&result), FALSE);
+  return wig_pwa_path_remove_dot_segments(encoded_path);
 }
 
 static Scope *scope_new(const char *url, GError **error)
