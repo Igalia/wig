@@ -7,6 +7,7 @@ subdir('downloads')
 subdir('flatpak')
 subdir('mcp')
 subdir('web-process-extension')
+subdir('pwa')
 
 wig_compiled_schemas = custom_target(
     'gschemas.compiled',
@@ -42,7 +43,7 @@ wig_sources = files(
     'wig-utils.c',
     'wig-window-base.c',
     'wig-window.c',
-) + wig_bookmarks_sources + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_mcp_sources + wig_resources + wig_icon_resources
+) + wig_bookmarks_sources + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_mcp_sources + pwa_sources + wig_resources + wig_icon_resources
 
 wig_exe = executable(
     'wig',
@@ -70,6 +71,7 @@ wig_exe = executable(
         'flatpak',
         'mcp',
         'web-process-extension',
+        'pwa',
     ],
     c_args: [
         '-DG_LOG_DOMAIN="wig"',
