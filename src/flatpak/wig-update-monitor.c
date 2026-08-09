@@ -141,7 +141,14 @@ static void wig_update_monitor_update_finished(GObject *source, GAsyncResult *re
 /* The portal reports both kinds of update in one signal: a local commit that
  * differs from the running one is already deployed and only needs a restart,
  * while a newer remote commit still has to be pulled in. Pulling it in is left
- * to the user, so an update is only offered here. */
+ * to the user, so an update is only offered here.
+ *
+ * The signal fires on any change to either commit, in either direction, and the
+ * three commits agreeing again is one of those changes, so the state is derived
+ * from them rather than only ever raised. The portal reports the remote as the
+ * local commit whenever it cannot reach the remote, which is exactly that case,
+ * and leaving an offer standing there would leave it standing forever: nothing
+ * else ever withdraws it. */
 static void wig_update_monitor_update_available(GDBusConnection *connection, const char *sender_name,
                                                 const char *object_path, const char *interface_name,
                                                 const char *signal_name, GVariant *parameters, gpointer user_data)
@@ -159,14 +166,26 @@ static void wig_update_monitor_update_available(GDBusConnection *connection, con
 
   g_debug("update: available, running %s, local %s, remote %s", running_commit, local_commit, remote_commit);
 
+  /* Restarting into a commit that is already deployed needs no permission and no
+   * download, so it is offered whatever the state, including one where downloading
+   * it here was refused and something else deployed it. */
   if (g_strcmp0(local_commit, running_commit) != 0) {
     wig_update_monitor_set_state(self, WIG_UPDATE_STATE_READY);
     return;
   }
 
   /* A download already under way reports through Progress, so leave it alone. */
-  if (g_strcmp0(remote_commit, local_commit) != 0 && self->state != WIG_UPDATE_STATE_DOWNLOADING)
-    wig_update_monitor_set_state(self, WIG_UPDATE_STATE_AVAILABLE);
+  if (self->state == WIG_UPDATE_STATE_DOWNLOADING)
+    return;
+
+  if (g_strcmp0(remote_commit, local_commit) != 0) {
+    /* Refusal is a stored answer, so offering this same download again would only
+     * fail the same way. It stands until the commits say there is nothing to fetch. */
+    if (self->state != WIG_UPDATE_STATE_BLOCKED)
+      wig_update_monitor_set_state(self, WIG_UPDATE_STATE_AVAILABLE);
+  } else {
+    wig_update_monitor_set_state(self, WIG_UPDATE_STATE_NONE);
+  }
 }
 
 static void wig_update_monitor_created(GObject *source, GAsyncResult *result, gpointer user_data)
