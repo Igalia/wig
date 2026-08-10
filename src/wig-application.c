@@ -610,7 +610,12 @@ static void wig_application_startup(GApplication *application)
   webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
   webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
                                                            "wig");
-  app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, NULL);
+  app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, "enable-encrypted-media", TRUE,
+                                                        NULL);
+
+  const char *sparkle_widevine_path = g_getenv("SPARKLE_WIDEVINE_CDM_PATH");
+  if (sparkle_widevine_path && *sparkle_widevine_path)
+    webkit_web_context_add_path_to_sandbox(app->web_context, sparkle_widevine_path, TRUE);
 
   static const struct {
     const char *action;
