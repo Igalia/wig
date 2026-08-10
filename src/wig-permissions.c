@@ -37,6 +37,7 @@ static const WigPermissionInfo permission_infos[WIG_PERMISSION_N_KINDS] = {
   { "notification", "preferences-system-notifications-symbolic", "Notifications", "send you notifications" },
   { "clipboard", "edit-paste-symbolic", "Clipboard", "read your clipboard" },
   { "geolocation", "find-location-symbolic", "Location", "know your location" },
+  { "media-key-system", "video-x-generic-symbolic", "Protected Media", "play protected media" },
 };
 
 guint wig_permission_kind_index(WigPermissionKind kind)
@@ -76,6 +77,8 @@ WigPermissionKind wig_permission_kinds_for_request(WebKitPermissionRequest *requ
     return WIG_PERMISSION_NOTIFICATION;
   if (WEBKIT_IS_GEOLOCATION_PERMISSION_REQUEST(request))
     return WIG_PERMISSION_GEOLOCATION;
+  if (WEBKIT_IS_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(request))
+    return WIG_PERMISSION_MEDIA_KEY_SYSTEM;
 #if HAVE_CLIPBOARD_PERMISSION_SUPPORT
   if (WEBKIT_IS_CLIPBOARD_PERMISSION_REQUEST(request))
     return WIG_PERMISSION_CLIPBOARD;

@@ -34,9 +34,10 @@ typedef enum {
   WIG_PERMISSION_NOTIFICATION = 1 << 3,
   WIG_PERMISSION_CLIPBOARD = 1 << 4,
   WIG_PERMISSION_GEOLOCATION = 1 << 5,
+  WIG_PERMISSION_MEDIA_KEY_SYSTEM = 1 << 6,
 } WigPermissionKind;
 
-#define WIG_PERMISSION_N_KINDS 6
+#define WIG_PERMISSION_N_KINDS 7
 #define WIG_PERMISSION_ALL_KINDS ((WigPermissionKind)((1 << WIG_PERMISSION_N_KINDS) - 1))
 
 WigPermissionKind wig_permission_kinds_for_request(WebKitPermissionRequest *request);
