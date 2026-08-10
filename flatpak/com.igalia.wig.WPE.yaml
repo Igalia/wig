@@ -39,6 +39,17 @@ modules:
         url: https://github.com/libevent/libevent/releases/download/release-2.1.13-stable/libevent-2.1.13-stable.tar.gz
         sha256: f7e9383b8c0baa81b687e5b5eecc01beefaf1b19b64151d95ed61647fe7a315c
 
+  - name: sparkle-cdm
+    buildsystem: meson
+    config-opts:
+      - --buildtype=release
+      - -Dsample-player=disabled
+    sources:
+      - type: git
+        url: https://github.com/Sparkle-CDM/sparkle-cdm.git
+        branch: main
+        commit: 46187608255d7b4f4682392a6e5d2303e2f66671
+
   - name: webkitwpe
     buildsystem: cmake-ninja
     config-opts:
@@ -56,6 +67,8 @@ modules:
       # These are marked experimental but we want to test them.
       - -DENABLE_WEB_RTC=ON
       - -DENABLE_WK_WEB_EXTENSIONS=ON
+      - -DENABLE_ENCRYPTED_MEDIA=ON
+      - -DENABLE_THUNDER=ON
 
       # Unbuilt dependencies.
       - -DENABLE_SPEECH_SYNTHESIS=OFF
