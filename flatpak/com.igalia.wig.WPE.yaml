@@ -80,4 +80,4 @@ modules:
     sources:
       - type: git
         url: https://github.com/WebKit/WebKit.git
-        commit: b29eae826faaf0aff766c3a64a48b514fb0efb76
+        commit: 2ffd96d41f8e8ac0cd6caf4c9015a729c6b92eb5
