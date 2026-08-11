@@ -202,13 +202,14 @@ static void wig_tab_widget_snapshot_ready(GObject *source_object, GAsyncResult *
   g_autoptr(GError) error = NULL;
   g_autoptr(WebKitImage) image = webkit_web_view_get_snapshot_finish(WEBKIT_WEB_VIEW(source_object), result, &error);
 
+  /* The pointer can leave, or the tab be closed, while the snapshot is in
+   * flight; WebKit reports that as a failure rather than a cancellation. */
+  if (!self->snapshot_cancellable)
+    return;
+
   if (!image) {
     if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
       g_warning("Failed to get tab snapshot: %s", error->message);
-    return;
-  }
-
-  if (!self->snapshot_cancellable) {
     return;
   }
 
@@ -244,8 +245,11 @@ static void wig_tab_widget_snapshot_timeout(gpointer user_data)
   if (!web_view)
     return;
 
+  if (wig_tab_get_discarded(self->tab))
+    return;
+
   const char *uri = webkit_web_view_get_uri(web_view);
-  if (g_strcmp0(uri, "about:blank") == 0)
+  if (!uri || g_strcmp0(uri, "about:blank") == 0)
     return;
 
   if (gtk_widget_has_css_class(GTK_WIDGET(self), "active"))
