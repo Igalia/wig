@@ -30,11 +30,12 @@ struct _WigTabWidget {
 
   WigTab *tab;
 
+  GtkWidget *overlay;
+  GtkWidget *content;
   GtkWidget *favicon;
   GtkWidget *spinner;
   GtkWidget *audio_icon;
   GtkWidget *title_label;
-  GtkWidget *close_button;
   GtkWidget *context_menu_popover;
 
   GtkWidget *snapshot_popover;
@@ -60,7 +61,7 @@ static void wig_tab_widget_on_icon_changed(WigTabWidget *self, GParamSpec *pspec
       gtk_widget_set_halign(self->favicon, GTK_ALIGN_CENTER);
       gtk_widget_set_hexpand(self->favicon, FALSE);
       gtk_widget_add_css_class(self->favicon, "tab-favicon");
-      gtk_widget_insert_before(self->favicon, GTK_WIDGET(self), self->title_label);
+      gtk_widget_insert_before(self->favicon, self->content, self->title_label);
     }
     gtk_image_set_from_gicon(GTK_IMAGE(self->favicon), icon);
   } else {
@@ -79,7 +80,7 @@ static void wig_tab_widget_on_loading_changed(WigTabWidget *self, GParamSpec *ps
       gtk_widget_set_size_request(self->spinner, WIG_TAB_FAVICON_SIZE, WIG_TAB_FAVICON_SIZE);
       gtk_widget_set_halign(self->spinner, GTK_ALIGN_START);
       gtk_widget_add_css_class(self->spinner, "tab-favicon");
-      gtk_widget_insert_before(self->spinner, GTK_WIDGET(self), self->title_label);
+      gtk_widget_insert_before(self->spinner, self->content, self->title_label);
     }
     gtk_spinner_set_spinning(GTK_SPINNER(self->spinner), TRUE);
   } else {
@@ -115,7 +116,7 @@ static void wig_tab_widget_on_playing_audio_changed(WigTabWidget *self, GParamSp
       gtk_widget_set_hexpand(self->audio_icon, FALSE);
       gtk_widget_set_cursor(self->audio_icon, gdk_cursor_new_from_name("pointer", NULL));
       gtk_widget_add_css_class(self->audio_icon, "tab-audio");
-      gtk_widget_insert_before(self->audio_icon, GTK_WIDGET(self), self->title_label);
+      gtk_widget_insert_before(self->audio_icon, self->content, self->title_label);
 
       GtkGestureClick *gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
       g_signal_connect_object(gesture, "pressed", G_CALLBACK(wig_tab_widget_audio_icon_clicked), self,
@@ -288,11 +289,13 @@ static void wig_tab_widget_dispose(GObject *object)
   g_clear_object(&self->snapshot_cancellable);
   g_clear_object(&self->tab);
 
-  g_clear_pointer(&self->close_button, gtk_widget_unparent);
-  g_clear_pointer(&self->title_label, gtk_widget_unparent);
-  g_clear_pointer(&self->spinner, gtk_widget_unparent);
-  g_clear_pointer(&self->audio_icon, gtk_widget_unparent);
-  g_clear_pointer(&self->favicon, gtk_widget_unparent);
+  g_clear_pointer(&self->overlay, gtk_widget_unparent);
+  self->content = NULL;
+  self->title_label = NULL;
+  self->spinner = NULL;
+  self->audio_icon = NULL;
+  self->favicon = NULL;
+
   g_clear_pointer(&self->context_menu_popover, gtk_widget_unparent);
   if (self->snapshot_popover) {
     g_signal_handlers_disconnect_by_func(self->snapshot_popover, wig_tab_widget_snapshot_popover_closed, self);
@@ -308,24 +311,36 @@ static void wig_tab_widget_close_clicked(GtkButton *button, WigTabWidget *self)
 
 static void wig_tab_widget_init(WigTabWidget *self)
 {
-  GtkLayoutManager *layout = gtk_widget_get_layout_manager(GTK_WIDGET(self));
-  gtk_box_layout_set_spacing(GTK_BOX_LAYOUT(layout), 0);
+  self->overlay = gtk_overlay_new();
+  gtk_widget_set_parent(self->overlay, GTK_WIDGET(self));
+
+  self->content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_add_css_class(self->content, "tab-content");
+  gtk_overlay_set_child(GTK_OVERLAY(self->overlay), self->content);
 
   self->title_label = gtk_label_new("New Tab");
   gtk_label_set_single_line_mode(GTK_LABEL(self->title_label), TRUE);
   gtk_label_set_xalign(GTK_LABEL(self->title_label), 0.0f);
   gtk_label_set_ellipsize(GTK_LABEL(self->title_label), PANGO_ELLIPSIZE_END);
   gtk_widget_set_hexpand(self->title_label, TRUE);
-  gtk_widget_set_parent(self->title_label, GTK_WIDGET(self));
+  gtk_box_append(GTK_BOX(self->content), self->title_label);
 
-  self->close_button = gtk_button_new_from_icon_name("window-close-symbolic");
-  gtk_widget_add_css_class(self->close_button, "flat");
-  gtk_widget_add_css_class(self->close_button, "circular");
-  gtk_widget_add_css_class(self->close_button, "tab-close");
-  gtk_widget_set_valign(self->close_button, GTK_ALIGN_CENTER);
-  gtk_widget_set_focusable(self->close_button, FALSE);
-  gtk_widget_set_parent(self->close_button, GTK_WIDGET(self));
-  g_signal_connect(self->close_button, "clicked", G_CALLBACK(wig_tab_widget_close_clicked), self);
+  /* The button floats over the title rather than taking space from it; the fade
+   * box paints the tab's own background back over the text running underneath. */
+  GtkWidget *close_fade = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_add_css_class(close_fade, "tab-close-fade");
+  gtk_widget_set_halign(close_fade, GTK_ALIGN_END);
+  gtk_widget_set_valign(close_fade, GTK_ALIGN_FILL);
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->overlay), close_fade);
+
+  GtkWidget *close_button = gtk_button_new_from_icon_name("window-close-symbolic");
+  gtk_widget_add_css_class(close_button, "flat");
+  gtk_widget_add_css_class(close_button, "circular");
+  gtk_widget_add_css_class(close_button, "tab-close");
+  gtk_widget_set_valign(close_button, GTK_ALIGN_CENTER);
+  gtk_widget_set_focusable(close_button, FALSE);
+  gtk_box_append(GTK_BOX(close_fade), close_button);
+  g_signal_connect(close_button, "clicked", G_CALLBACK(wig_tab_widget_close_clicked), self);
 
   GtkEventController *motion = gtk_event_controller_motion_new();
   g_signal_connect(motion, "enter", G_CALLBACK(wig_tab_widget_hover_enter), self);
@@ -339,7 +354,7 @@ static void wig_tab_widget_class_init(WigTabWidgetClass *klass)
   gobject_class->dispose = wig_tab_widget_dispose;
 
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
-  gtk_widget_class_set_layout_manager_type(widget_class, GTK_TYPE_BOX_LAYOUT);
+  gtk_widget_class_set_layout_manager_type(widget_class, GTK_TYPE_BIN_LAYOUT);
   gtk_widget_class_set_css_name(widget_class, "wig-tab");
 
   signals[SIGNAL_CLOSE_REQUESTED] = g_signal_new("close-requested", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0,

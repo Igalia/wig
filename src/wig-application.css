@@ -130,7 +130,7 @@ wig-tab .tab-audio {
 
 
 wig-tab .tab-close {
-  padding: 6px 6px 6px 0px;
+  padding: 6px 0px 6px 0px;
   min-width: 0;
   min-height: 0;
 }
@@ -139,6 +139,40 @@ wig-tab .tab-close:hover,
 wig-tab .tab-close:active {
   background: transparent;
   box-shadow: none;
+}
+
+/* The close button is overlaid on the title, which runs on underneath it: the
+ * gradient repaints the tab's own background over that text, so it has to match
+ * what wig-tab draws in every state.  Both layouts sit on the window
+ * background.  The ramp has to be short enough that the fade still clears the
+ * favicon once a tab bar tab is squeezed to its minimum width. */
+wig-tab .tab-close-fade {
+  padding-left: 20px;
+  background-image: linear-gradient(to right,
+                                    alpha(@window_bg_color, 0),
+                                    @window_bg_color 20px);
+}
+
+wig-tab:hover .tab-close-fade {
+  background-image: linear-gradient(to right,
+                                    alpha(mix(@window_bg_color, @headerbar_fg_color, 0.15), 0),
+                                    mix(@window_bg_color, @headerbar_fg_color, 0.15) 20px);
+}
+
+wig-tab.active .tab-close-fade {
+  background-image: linear-gradient(to right,
+                                    alpha(mix(@window_bg_color, @headerbar_fg_color, 0.3), 0),
+                                    mix(@window_bg_color, @headerbar_fg_color, 0.3) 20px);
+}
+
+/* Only the sidebar hides the button; the tab bar always shows it. */
+wig-tab-sidebar wig-tab .tab-close-fade {
+  opacity: 0;
+}
+
+wig-tab-sidebar wig-tab:hover .tab-close-fade,
+wig-tab-sidebar wig-tab.active .tab-close-fade {
+  opacity: 1;
 }
 
 
