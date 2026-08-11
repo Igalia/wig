@@ -1125,13 +1125,15 @@ static WigWindow *wig_window_find_owner(WigApplication *app, guint32 tab_id)
   return NULL;
 }
 
-/* tab.move-to(uu): move tab_id to this window at insert_index.
- * If the tab already lives here, this is a reorder. */
+/* tab.move-to(uub): move tab_id to this window at insert_index, pinned or not
+ * according to where it was dropped.  If the tab already lives here, this is a
+ * reorder. */
 static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, GVariant *parameter)
 {
   WigWindow *dst = WIG_WINDOW(widget);
   guint32 tab_id, insert_index;
-  g_variant_get(parameter, "(uu)", &tab_id, &insert_index);
+  gboolean pinned;
+  g_variant_get(parameter, "(uub)", &tab_id, &insert_index, &pinned);
 
   WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(dst)));
   WigWindow *src = wig_window_find_owner(app, tab_id);
@@ -1143,7 +1145,10 @@ static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, G
     return;
 
   if (src == dst) {
-    /* Same window — reorder only. */
+    /* Same window — reorder only.  Pinning first moves the tab into the block it
+     * was dropped in, so the index below is applied within that block. */
+    wig_tab_list_set_pinned(dst->tab_list, tab, pinned);
+
     guint current = wig_tab_list_index_of(dst->tab_list, tab);
     guint target = (guint)insert_index;
     if (target != current && target != current + 1)
@@ -1162,6 +1167,7 @@ static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, G
   guint n = wig_tab_list_get_n_tabs(dst->tab_list);
   guint pos = MIN((guint)insert_index, n);
   wig_tab_list_attach(dst->tab_list, owned_tab);
+  wig_tab_list_set_pinned(dst->tab_list, owned_tab, pinned);
   g_object_unref(tab_widget);
   /* attach appends; reorder if not at end */
   if (pos < n)
@@ -1440,7 +1446,7 @@ static void wig_window_class_init(WigWindowClass *klass)
 
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
   gtk_widget_class_install_action(widget_class, "tab.detach", "u", wig_window_detach_tab);
-  gtk_widget_class_install_action(widget_class, "tab.move-to", "(uu)", wig_window_move_tab_to);
+  gtk_widget_class_install_action(widget_class, "tab.move-to", "(uub)", wig_window_move_tab_to);
 }
 
 WigWindow *wig_window_new(WigApplication *application)

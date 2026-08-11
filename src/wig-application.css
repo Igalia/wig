@@ -129,6 +129,21 @@ wig-tab-sidebar .pinned-separator {
   margin: 4px 10px;
 }
 
+/* While a tab is being dragged the pinned area is shown even when it holds no
+ * tabs, since dropping into it is what pins one; it needs a size to aim at. */
+wig-tab-bar.tab-drag-active .pinned-tabs {
+  min-width: 44px;
+}
+
+wig-tab-sidebar.tab-drag-active .pinned-tabs {
+  min-height: 44px;
+}
+
+.tab-drag-active .pinned-tabs {
+  background-color: alpha(@headerbar_fg_color, 0.08);
+  border-radius: 6px;
+}
+
 wig-tab:hover {
   background-color: alpha(@headerbar_fg_color, 0.15);
   border-radius: 6px;
