@@ -62,7 +62,8 @@ WigSessionWindow *wig_session_window_new(guint window_id)
 
 /* Takes ownership of @state. A view that never loaded anything has no state and
  * is not worth reopening, so it is dropped rather than kept as a blank tab. */
-void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionState *state, gboolean was_focused)
+void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionState *state, gboolean was_focused,
+                                gboolean pinned)
 {
   g_assert(self != NULL);
 
@@ -72,6 +73,7 @@ void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionStat
   WigSessionTab *tab = g_new0(WigSessionTab, 1);
   tab->state = state;
   tab->was_focused = was_focused;
+  tab->pinned = pinned;
   self->tabs = g_slist_append(self->tabs, tab);
 }
 
@@ -107,6 +109,8 @@ static gboolean wig_session_tab_to_key_file(GKeyFile *key_file, const WigSession
   const guint8 *data = g_bytes_get_data(bytes, &size);
   g_autofree char *state = g_base64_encode(data, size);
   g_key_file_set_boolean(key_file, group, "Focused", tab->was_focused);
+  if (tab->pinned)
+    g_key_file_set_boolean(key_file, group, "Pinned", TRUE);
   g_key_file_set_string(key_file, group, "State", state);
   return TRUE;
 }
@@ -144,9 +148,10 @@ static gboolean wig_session_window_to_key_file(GKeyFile *key_file, const WigSess
 }
 
 static WebKitWebViewSessionState *wig_session_tab_state_from_key_file(GKeyFile *key_file, const char *prefix, int index,
-                                                                      gboolean *was_focused)
+                                                                      gboolean *was_focused, gboolean *pinned)
 {
   *was_focused = FALSE;
+  *pinned = FALSE;
 
   g_autofree char *group = wig_session_group_name(prefix, (guint)index);
   g_autoptr(GError) error = NULL;
@@ -171,6 +176,7 @@ static WebKitWebViewSessionState *wig_session_tab_state_from_key_file(GKeyFile *
   }
 
   *was_focused = wig_key_file_get_boolean(key_file, group, "Focused", FALSE);
+  *pinned = wig_key_file_get_boolean(key_file, group, "Pinned", FALSE);
   return state;
 }
 
@@ -214,9 +220,10 @@ static WigSessionWindow *wig_session_window_from_key_file(GKeyFile *key_file, co
     g_hash_table_add(seen_tabs, tab_key);
 
     gboolean was_focused;
+    gboolean pinned;
     WebKitWebViewSessionState *state = wig_session_tab_state_from_key_file(key_file, tab_prefix, tab_indexes[i],
-                                                                           &was_focused);
-    wig_session_window_add_tab(window, state, was_focused);
+                                                                           &was_focused, &pinned);
+    wig_session_window_add_tab(window, state, was_focused, pinned);
   }
   return window;
 }

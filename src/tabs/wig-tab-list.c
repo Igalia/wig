@@ -22,10 +22,14 @@
 
 #include "wig-tab-list.h"
 
+static void wig_tab_list_reorder(WigTabList *, WigTab *, guint);
+static guint wig_tab_list_clamp_to_block(WigTabList *, WigTab *, guint);
+
 static void on_action_reload(GSimpleAction *, GVariant *, gpointer);
 static void on_action_mute(GSimpleAction *, GVariant *, gpointer);
 static void on_action_duplicate(GSimpleAction *, GVariant *, gpointer);
 static void on_action_copy_link(GSimpleAction *, GVariant *, gpointer);
+static void on_action_pin(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close_to_left(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close_to_right(GSimpleAction *, GVariant *, gpointer);
@@ -99,6 +103,7 @@ static void wig_tab_list_init(WigTabList *self)
     { "mute", on_action_mute, "u", NULL, NULL },
     { "duplicate", on_action_duplicate, "u", NULL, NULL },
     { "copy-link", on_action_copy_link, "u", NULL, NULL },
+    { "pin", on_action_pin, "u", NULL, NULL },
     { "close", on_action_close, "u", NULL, NULL },
     { "close-to-left", on_action_close_to_left, "u", NULL, NULL },
     { "close-to-right", on_action_close_to_right, "u", NULL, NULL },
@@ -220,25 +225,76 @@ void wig_tab_list_attach(WigTabList *self, WigTab *tab)
   g_signal_emit(self, signals[SIGNAL_TAB_ADDED], 0, tab, pos);
   if (self->tabs->len == 1)
     wig_tab_list_set_active(self, tab);
+
+  /* A tab keeps its pin when it moves to another window, so it has to land in
+   * that window's pinned block rather than at the end. */
+  wig_tab_list_reorder(self, tab, wig_tab_list_clamp_to_block(self, tab, pos));
+}
+
+/* Move @tab to @final_index, the index it ends up at once it has been taken out
+ * of the array. */
+static void wig_tab_list_reorder(WigTabList *self, WigTab *tab, guint final_index)
+{
+  guint old_index = wig_tab_list_index_of(self, tab);
+  if (old_index == GTK_INVALID_LIST_POSITION || old_index == final_index)
+    return;
+
+  g_autoptr(WigTab) alive_tab = g_object_ref(tab);
+  g_ptr_array_remove_index(self->tabs, old_index);
+  g_ptr_array_insert(self->tabs, (gint)final_index, g_steal_pointer(&alive_tab));
+  g_signal_emit(self, signals[SIGNAL_TAB_MOVED], 0, tab, old_index, final_index);
+}
+
+/* Pinned tabs occupy the front of the list, so a tab can only be reordered
+ * within its own block however far a drop or a move asks it to travel. */
+static guint wig_tab_list_clamp_to_block(WigTabList *self, WigTab *tab, guint index)
+{
+  guint n_pinned = wig_tab_list_get_n_pinned(self);
+  if (wig_tab_get_pinned(tab))
+    return MIN(index, n_pinned - 1);
+  return CLAMP(index, n_pinned, self->tabs->len - 1);
 }
 
 void wig_tab_list_move(WigTabList *self, WigTab *tab, guint new_index)
 {
   guint old_index = wig_tab_list_index_of(self, tab);
-  if (old_index == GTK_INVALID_LIST_POSITION || old_index == new_index)
+  if (old_index == GTK_INVALID_LIST_POSITION)
     return;
 
-  g_autoptr(WigTab) alive_tab = g_object_ref(tab);
-  g_ptr_array_remove_index(self->tabs, old_index);
-  if (old_index < new_index)
-    new_index--;
-  g_ptr_array_insert(self->tabs, (gint)new_index, g_steal_pointer(&alive_tab));
-  g_signal_emit(self, signals[SIGNAL_TAB_MOVED], 0, tab, old_index, new_index);
+  /* @new_index counts the tab itself, so dropping past its own position lands
+   * one slot earlier once it is taken out. */
+  guint final_index = new_index > old_index ? new_index - 1 : new_index;
+  final_index = MIN(final_index, self->tabs->len - 1);
+  wig_tab_list_reorder(self, tab, wig_tab_list_clamp_to_block(self, tab, final_index));
+}
+
+void wig_tab_list_set_pinned(WigTabList *self, WigTab *tab, gboolean pinned)
+{
+  if (wig_tab_list_index_of(self, tab) == GTK_INVALID_LIST_POSITION)
+    return;
+  if (wig_tab_get_pinned(tab) == pinned)
+    return;
+
+  wig_tab_set_pinned(tab, pinned);
+
+  /* Join the end of the pinned block, or the start of the unpinned one. */
+  guint n_pinned = wig_tab_list_get_n_pinned(self);
+  wig_tab_list_reorder(self, tab, pinned ? n_pinned - 1 : n_pinned);
 }
 
 guint wig_tab_list_get_n_tabs(WigTabList *self)
 {
   return self->tabs->len;
+}
+
+guint wig_tab_list_get_n_pinned(WigTabList *self)
+{
+  guint n = 0;
+  for (guint i = 0; i < self->tabs->len; i++) {
+    if (wig_tab_get_pinned(g_ptr_array_index(self->tabs, i)))
+      n++;
+  }
+  return n;
 }
 
 WigTab *wig_tab_list_get_nth(WigTabList *self, guint i)
@@ -360,6 +416,24 @@ static void on_action_copy_link(GSimpleAction *action, GVariant *parameter, gpoi
   }
 }
 
+static void on_action_pin(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+
+  /* The clicked tab decides the direction for a mixed selection. */
+  gboolean pinned = !wig_tab_get_pinned(tab);
+  if (wig_tab_get_selected(tab)) {
+    g_autoptr(GPtrArray) selected = wig_tab_list_collect_selected(self);
+    for (guint i = 0; i < selected->len; i++)
+      wig_tab_list_set_pinned(self, g_ptr_array_index(selected, i), pinned);
+  } else {
+    wig_tab_list_set_pinned(self, tab, pinned);
+  }
+}
+
 static void on_action_close(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigTabList *self = WIG_TAB_LIST(user_data);
@@ -382,8 +456,11 @@ static void on_action_close_to_left(GSimpleAction *action, GVariant *parameter, 
     return;
   guint pos = wig_tab_list_index_of(self, tab);
   g_autoptr(GPtrArray) tabs = g_ptr_array_new();
-  for (guint i = 0; i < pos; i++)
-    g_ptr_array_add(tabs, wig_tab_list_get_nth(self, i));
+  for (guint i = 0; i < pos; i++) {
+    WigTab *t = wig_tab_list_get_nth(self, i);
+    if (!wig_tab_get_pinned(t))
+      g_ptr_array_add(tabs, t);
+  }
   wig_tab_list_close_many(self, tabs);
 }
 
@@ -396,8 +473,11 @@ static void on_action_close_to_right(GSimpleAction *action, GVariant *parameter,
   guint pos = wig_tab_list_index_of(self, tab);
   guint n = wig_tab_list_get_n_tabs(self);
   g_autoptr(GPtrArray) tabs = g_ptr_array_new();
-  for (guint i = pos + 1; i < n; i++)
-    g_ptr_array_add(tabs, wig_tab_list_get_nth(self, i));
+  for (guint i = pos + 1; i < n; i++) {
+    WigTab *t = wig_tab_list_get_nth(self, i);
+    if (!wig_tab_get_pinned(t))
+      g_ptr_array_add(tabs, t);
+  }
   wig_tab_list_close_many(self, tabs);
 }
 
@@ -411,7 +491,7 @@ static void on_action_close_others(GSimpleAction *action, GVariant *parameter, g
   g_autoptr(GPtrArray) tabs = g_ptr_array_new();
   for (guint i = 0; i < n; i++) {
     WigTab *t = wig_tab_list_get_nth(self, i);
-    if (t != tab)
+    if (t != tab && !wig_tab_get_pinned(t))
       g_ptr_array_add(tabs, t);
   }
   wig_tab_list_close_many(self, tabs);

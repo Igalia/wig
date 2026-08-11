@@ -122,17 +122,18 @@ static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *we
   return NULL;
 }
 
-static void wig_window_save_tab_to_history(WigWindow *win, WebKitWebView *web_view)
+static void wig_window_save_tab_to_history(WigWindow *win, WigTab *tab)
 {
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
   WigSessionWindow *closed = wig_session_window_new(wig_window_base_get_id(WIG_WINDOW_BASE(win)));
-  wig_session_window_add_tab(closed, webkit_web_view_get_session_state(web_view), win->current_web_view == web_view);
+  wig_session_window_add_tab(closed, webkit_web_view_get_session_state(web_view), win->current_web_view == web_view,
+                             wig_tab_get_pinned(tab));
   wig_session_push_closed_window(wig_application_get_session(wig_application_get()), closed);
 }
 
 static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *win)
 {
-  WebKitWebView *web_view = wig_tab_get_web_view(tab);
-  wig_window_save_tab_to_history(win, web_view);
+  wig_window_save_tab_to_history(win, tab);
 
   if (wig_tab_list_get_n_tabs(list) == 1) {
     gtk_window_destroy(GTK_WINDOW(win));
@@ -391,14 +392,14 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
   for (guint i = 0; i < n_tabs; i++) {
     WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
     WebKitWebView *web_view = wig_tab_get_web_view(tab);
-    wig_session_window_add_tab(captured, webkit_web_view_get_session_state(web_view),
-                               web_view == win->current_web_view);
+    wig_session_window_add_tab(captured, webkit_web_view_get_session_state(web_view), web_view == win->current_web_view,
+                               wig_tab_get_pinned(tab));
   }
 
   return captured;
 }
 
-WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved)
+WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved, gboolean pinned_only)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
   g_return_val_if_fail(saved != NULL, NULL);
@@ -434,11 +435,16 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
   WigTab *focused_tab = NULL;
   for (const GSList *l = saved->tabs; l; l = l->next) {
     const WigSessionTab *saved_tab = l->data;
+    if (pinned_only && !saved_tab->pinned)
+      continue;
+
     g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
     webkit_web_view_restore_session_state(web_view, saved_tab->state);
 
     WigTab *tab = wig_window_add_tab_for_view(win, web_view);
     wig_tab_mark_discarded(tab);
+    if (saved_tab->pinned)
+      wig_tab_list_set_pinned(win->tab_list, tab, TRUE);
     if (saved_tab->was_focused || !focused_tab)
       focused_tab = tab;
   }
@@ -468,7 +474,7 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
   if (!closed)
     return;
 
-  WigWindow *target_win = wig_window_restore(app, closed);
+  WigWindow *target_win = wig_window_restore(app, closed, FALSE);
   if (target_win != win)
     gtk_window_present(GTK_WINDOW(target_win));
 }
@@ -1063,6 +1069,11 @@ static void wig_window_tab_added(WigTabList *list, WigTab *tab, guint position, 
   wig_session_queue_save(wig_application_get_session(wig_application_get()));
 }
 
+static void wig_window_tab_moved(WigTabList *list, WigTab *tab, guint old_index, guint new_index, WigWindow *win)
+{
+  wig_session_queue_save(wig_application_get_session(wig_application_get()));
+}
+
 static void wig_window_tab_removed(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
 {
   wig_window_detach_web_view(win, wig_tab_get_web_view(tab));
@@ -1317,6 +1328,7 @@ static void wig_window_constructed(GObject *object)
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(win->tab_list, "tab-added", G_CALLBACK(wig_window_tab_added), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "tab-removed", G_CALLBACK(wig_window_tab_removed), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "tab-moved", G_CALLBACK(wig_window_tab_moved), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "reload-tab", G_CALLBACK(wig_window_tab_reload), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "mute-tab", G_CALLBACK(wig_window_tab_mute), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "duplicate-tab", G_CALLBACK(wig_window_tab_duplicate), win, G_CONNECT_DEFAULT);

@@ -30,16 +30,27 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   guint tab_id = wig_tab_get_id(tab);
   guint pos = wig_tab_list_index_of(list, tab);
   guint n_tabs = wig_tab_list_get_n_tabs(list);
-  gboolean has_left = pos > 0;
-  gboolean has_right = pos < n_tabs - 1;
 
   guint n_selected = 0;
+  guint n_closable_left = 0;
+  guint n_closable_right = 0;
+  guint n_closable_others = 0;
   for (guint i = 0; i < n_tabs; i++) {
-    if (wig_tab_get_selected(wig_tab_list_get_nth(list, i)))
+    WigTab *other = wig_tab_list_get_nth(list, i);
+    if (wig_tab_get_selected(other))
       n_selected++;
+    if (wig_tab_get_pinned(other) || other == tab)
+      continue;
+    n_closable_others++;
+    if (i < pos)
+      n_closable_left++;
+    else
+      n_closable_right++;
   }
   gboolean multi_selected = n_selected > 1;
-  gboolean has_others_not_selected = (n_tabs - n_selected) > 0;
+  gboolean has_left = n_closable_left > 0;
+  gboolean has_right = n_closable_right > 0;
+  gboolean has_others_not_selected = n_closable_others > 0 && (n_tabs - n_selected) > 0;
 
   GSimpleActionGroup *group = wig_tab_list_get_action_group(list);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-to-left")),
@@ -66,6 +77,7 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   APPEND_TAB_ITEM(section1, "Mute Tab", "mute");
   APPEND_TAB_ITEM(section1, "Duplicate Tab", "duplicate");
   APPEND_TAB_ITEM(section1, "Copy Link", "copy-link");
+  APPEND_TAB_ITEM(section1, wig_tab_get_pinned(tab) ? "Unpin Tab" : "Pin Tab", "pin");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section1));
 
   g_autoptr(GMenu) section2 = g_menu_new();

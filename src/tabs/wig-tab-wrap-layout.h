@@ -24,32 +24,11 @@
 
 #include <gtk/gtk.h>
 
-#include "wig-tab-list.h"
-#include "wig-tab-widget.h"
-
 G_BEGIN_DECLS
 
-#define WIG_TYPE_TAB_LIST_VIEW (wig_tab_list_view_get_type())
-G_DECLARE_DERIVABLE_TYPE(WigTabListView, wig_tab_list_view, WIG, TAB_LIST_VIEW, GtkWidget)
+#define WIG_TYPE_TAB_WRAP_LAYOUT (wig_tab_wrap_layout_get_type())
+G_DECLARE_FINAL_TYPE(WigTabWrapLayout, wig_tab_wrap_layout, WIG, TAB_WRAP_LAYOUT, GtkLayoutManager)
 
-struct _WigTabListViewClass {
-  GtkWidgetClass parent_class;
-
-  /* Called after a WigTabWidget is created and inserted into the box, allowing
-   * subclasses to perform additional setup (e.g. set width on the bar). */
-  void (*tab_widget_added)(WigTabListView *self, WigTabWidget *tab_widget, guint position);
-};
-
-/* Called by subclass _new functions after g_object_new to wire up the list and
- * the boxes, connect signals, and replay any already-existing tabs.
- *
- * Pinned tabs live in @pinned_box, the rest in @tab_box; @separator sits between
- * the two and, like @pinned_box, is hidden while no tab is pinned. */
-void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *pinned_box, GtkWidget *separator,
-                             GtkBox *tab_box);
-
-WigTabList *wig_tab_list_view_get_list(WigTabListView *self);
-GtkBox *wig_tab_list_view_get_tab_box(WigTabListView *self);
-GSList *wig_tab_list_view_get_tab_widgets(WigTabListView *self);
+GtkLayoutManager *wig_tab_wrap_layout_new(void);
 
 G_END_DECLS

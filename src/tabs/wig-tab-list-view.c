@@ -24,8 +24,10 @@
 
 typedef struct {
   WigTabList *list;
+  GtkBox *pinned_box;
+  GtkWidget *separator;
   GtkBox *tab_box;
-  GSList *tab_widgets;
+  GSList *tab_widgets; /* WigTabWidget*, in list order: pinned tabs first */
 
   double drag_hot_x;
   double drag_hot_y;
@@ -309,6 +311,46 @@ static gboolean wig_tab_list_view_box_drop(GtkDropTarget *target, const GValue *
   return TRUE;
 }
 
+/* Put every tab widget in the box its tab belongs to, in list order. The list
+ * keeps pinned tabs at the front, so walking it in order fills the pinned box
+ * and then the regular one, whatever it was that changed. */
+static void wig_tab_list_view_sync_placement(WigTabListView *self)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  GtkWidget *prev_pinned = NULL;
+  GtkWidget *prev_regular = NULL;
+  gboolean any_pinned = FALSE;
+
+  for (GSList *l = priv->tab_widgets; l; l = g_slist_next(l)) {
+    GtkWidget *widget = GTK_WIDGET(l->data);
+    gboolean pinned = wig_tab_get_pinned(wig_tab_widget_get_tab(WIG_TAB_WIDGET(widget)));
+    GtkBox *box = pinned ? priv->pinned_box : priv->tab_box;
+    GtkWidget **prev = pinned ? &prev_pinned : &prev_regular;
+    GtkWidget *parent = gtk_widget_get_parent(widget);
+
+    if (parent == GTK_WIDGET(box)) {
+      gtk_box_reorder_child_after(box, widget, *prev);
+    } else {
+      /* The box it is leaving holds the only reference to it. */
+      g_autoptr(GtkWidget) held = parent ? g_object_ref(widget) : NULL;
+      if (parent)
+        gtk_box_remove(GTK_BOX(parent), widget);
+      gtk_box_insert_child_after(box, widget, *prev);
+    }
+
+    *prev = widget;
+    any_pinned |= pinned;
+  }
+
+  gtk_widget_set_visible(GTK_WIDGET(priv->pinned_box), any_pinned);
+  gtk_widget_set_visible(priv->separator, any_pinned);
+}
+
+static void wig_tab_list_view_tab_pinned_changed(WigTab *tab, GParamSpec *pspec, WigTabListView *self)
+{
+  wig_tab_list_view_sync_placement(self);
+}
+
 static void wig_tab_list_view_tab_added(WigTabList *list, WigTab *tab, guint position, WigTabListView *self)
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
@@ -319,6 +361,8 @@ static void wig_tab_list_view_tab_added(WigTabList *list, WigTab *tab, guint pos
   g_signal_connect_object(tab_widget, "close-requested", G_CALLBACK(wig_tab_list_view_close_requested), self,
                           G_CONNECT_DEFAULT);
   g_signal_connect_object(tab, "notify::selected", G_CALLBACK(wig_tab_list_view_tab_selected_changed), tab_widget,
+                          G_CONNECT_DEFAULT);
+  g_signal_connect_object(tab, "notify::pinned", G_CALLBACK(wig_tab_list_view_tab_pinned_changed), self,
                           G_CONNECT_DEFAULT);
 
   GtkGestureClick *gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
@@ -352,9 +396,8 @@ static void wig_tab_list_view_tab_added(WigTabList *list, WigTab *tab, guint pos
   g_signal_connect_object(drop_target, "drop", G_CALLBACK(wig_tab_list_view_tab_drop), self, G_CONNECT_DEFAULT);
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(drop_target));
 
-  GtkWidget *prev_sibling = position > 0 ? GTK_WIDGET(g_slist_nth_data(priv->tab_widgets, position - 1)) : NULL;
   priv->tab_widgets = g_slist_insert(priv->tab_widgets, tab_widget, (gint)position);
-  gtk_box_insert_child_after(priv->tab_box, widget, prev_sibling);
+  wig_tab_list_view_sync_placement(self);
 
   if (wig_tab_widget_get_tab(tab_widget) == wig_tab_list_get_active(priv->list))
     gtk_widget_add_css_class(widget, "active");
@@ -372,13 +415,9 @@ static void wig_tab_list_view_tab_moved(WigTabList *list, WigTab *tab, guint old
   GSList *link = g_slist_nth(priv->tab_widgets, old_index);
   GtkWidget *widget = GTK_WIDGET(link->data);
 
-  /* Reorder tab_widgets GSList. */
   priv->tab_widgets = g_slist_delete_link(priv->tab_widgets, link);
   priv->tab_widgets = g_slist_insert(priv->tab_widgets, widget, (gint)new_index);
-
-  /* Reorder in the box: insert after the widget now at new_index - 1, or at start. */
-  GtkWidget *prev = new_index > 0 ? GTK_WIDGET(g_slist_nth_data(priv->tab_widgets, new_index - 1)) : NULL;
-  gtk_box_reorder_child_after(priv->tab_box, widget, prev);
+  wig_tab_list_view_sync_placement(self);
 }
 
 static void wig_tab_list_view_tab_removed(WigTabList *list, WigTab *tab, guint position, WigTabListView *self)
@@ -387,7 +426,8 @@ static void wig_tab_list_view_tab_removed(WigTabList *list, WigTab *tab, guint p
   GSList *link = g_slist_nth(priv->tab_widgets, position);
   WigTabWidget *tab_widget = WIG_TAB_WIDGET(link->data);
   priv->tab_widgets = g_slist_delete_link(priv->tab_widgets, link);
-  gtk_box_remove(priv->tab_box, GTK_WIDGET(tab_widget));
+  gtk_box_remove(GTK_BOX(gtk_widget_get_parent(GTK_WIDGET(tab_widget))), GTK_WIDGET(tab_widget));
+  wig_tab_list_view_sync_placement(self);
 }
 
 /* ---------- drop line rendering ------------------------------------------ */
@@ -470,12 +510,18 @@ static void wig_tab_list_view_class_init(WigTabListViewClass *klass)
   widget_class->snapshot = wig_tab_list_view_snapshot;
 }
 
-void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *tab_box)
+void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *pinned_box, GtkWidget *separator,
+                             GtkBox *tab_box)
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
 
   priv->list = g_object_ref(list);
+  priv->pinned_box = pinned_box;
+  priv->separator = separator;
   priv->tab_box = tab_box;
+
+  gtk_widget_set_visible(GTK_WIDGET(pinned_box), FALSE);
+  gtk_widget_set_visible(separator, FALSE);
 
   g_signal_connect_object(list, "tab-added", G_CALLBACK(wig_tab_list_view_tab_added), self, G_CONNECT_DEFAULT);
   g_signal_connect_object(list, "tab-removed", G_CALLBACK(wig_tab_list_view_tab_removed), self, G_CONNECT_DEFAULT);

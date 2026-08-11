@@ -699,19 +699,38 @@ static WigSessionWindow *steal_focused_session_window(GSList **windows)
   return window;
 }
 
-static WigWindow *wig_application_restore_session(WigApplication *app)
+static gboolean wig_session_window_has_pinned_tab(const WigSessionWindow *window)
+{
+  for (const GSList *l = window->tabs; l; l = l->next) {
+    if (((const WigSessionTab *)l->data)->pinned)
+      return TRUE;
+  }
+  return FALSE;
+}
+
+static WigWindow *wig_application_restore_session(WigApplication *app, gboolean pinned_only)
 {
   GSList *saved = wig_session_take_restored_windows(app->session);
   g_autoptr(WigSessionWindow) focused_saved = steal_focused_session_window(&saved);
-  if (!focused_saved)
+  if (!focused_saved) {
+    g_slist_free_full(saved, (GDestroyNotify)wig_session_window_free);
     return NULL;
+  }
 
   wig_session_set_restoring(app->session, TRUE);
 
-  WigWindow *focused = wig_window_restore(app, focused_saved);
+  WigWindow *focused = NULL;
+  if (!pinned_only || wig_session_window_has_pinned_tab(focused_saved))
+    focused = wig_window_restore(app, focused_saved, pinned_only);
 
-  for (GSList *l = saved; l; l = l->next)
-    wig_window_restore(app, l->data);
+  for (GSList *l = saved; l; l = l->next) {
+    if (pinned_only && !wig_session_window_has_pinned_tab(l->data))
+      continue;
+
+    WigWindow *win = wig_window_restore(app, l->data, pinned_only);
+    if (!focused)
+      focused = win;
+  }
 
   wig_session_set_restoring(app->session, FALSE);
 
@@ -725,13 +744,18 @@ static void wig_application_activate(GApplication *application)
   WigWindow *win = wig_application_find_browser_window(app);
   gboolean fresh = FALSE;
 
-  if (!win && g_settings_get_boolean(app->settings, "restore-tabs"))
-    win = wig_application_restore_session(app);
-
   if (!win) {
-    win = wig_window_new(app);
-    wig_application_add_new_tab_with_uri(app, win, "https://wpewebkit.org");
-    fresh = TRUE;
+    gboolean restore_tabs = g_settings_get_boolean(app->settings, "restore-tabs");
+    win = wig_application_restore_session(app, !restore_tabs);
+
+    /* A window restored for its pinned tabs alone is still a fresh start, so it
+     * gets the tab one would have opened with. */
+    if (!win || !restore_tabs) {
+      if (!win)
+        win = wig_window_new(app);
+      wig_application_add_new_tab_with_uri(app, win, "https://wpewebkit.org");
+      fresh = TRUE;
+    }
   }
 
   gtk_window_present(GTK_WINDOW(win));
@@ -744,8 +768,8 @@ static void wig_application_open(GApplication *application, GFile **files, gint 
   WigApplication *app = WIG_APPLICATION(application);
   WigWindow *win = wig_application_find_browser_window(app);
 
-  if (!win && g_settings_get_boolean(app->settings, "restore-tabs"))
-    win = wig_application_restore_session(app);
+  if (!win)
+    win = wig_application_restore_session(app, !g_settings_get_boolean(app->settings, "restore-tabs"));
 
   if (!win)
     win = wig_window_new(app);

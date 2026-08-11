@@ -3,5 +3,6 @@
   <gresource prefix="/com/igalia/wig/icons/scalable/actions/">
     <file preprocess="xml-stripblanks">sliders-horizontal-symbolic.svg</file>
     <file preprocess="xml-stripblanks">camera-small-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">web-browser-symbolic.svg</file>
   </gresource>
 </gresources>

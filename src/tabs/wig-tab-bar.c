@@ -30,6 +30,8 @@
 struct _WigTabBar {
   WigTabListView parent;
 
+  GtkWidget *pinned_box;
+  GtkWidget *separator;
   GtkWidget *scrolled_window;
   GtkWidget *new_tab_button;
   GtkWidget *scroll_left_button;
@@ -98,8 +100,10 @@ static void wig_tab_bar_scroll_right_clicked(GtkButton *button, WigTabBar *self)
  * the strip into overflow and keep them stuck on. */
 static gboolean wig_tab_bar_is_scrollable(WigTabBar *self)
 {
-  int width = gtk_widget_get_width(GTK_WIDGET(self)) - wig_tab_bar_child_width(self->new_tab_button);
-  guint n = wig_tab_list_get_n_tabs(wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self)));
+  int width = gtk_widget_get_width(GTK_WIDGET(self)) - wig_tab_bar_child_width(self->new_tab_button)
+      - wig_tab_bar_child_width(self->pinned_box) - wig_tab_bar_child_width(self->separator);
+  WigTabList *list = wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self));
+  guint n = wig_tab_list_get_n_tabs(list) - wig_tab_list_get_n_pinned(list);
   GtkWidget *tab_box = GTK_WIDGET(wig_tab_list_view_get_tab_box(WIG_TAB_LIST_VIEW(self)));
   return (int)n * wig_tab_strip_layout_child_min_width(tab_box) > width;
 }
@@ -164,6 +168,10 @@ static gboolean wig_tab_bar_scroll_to_index(WigTabBar *self, int index)
   WigTabList *list = wig_tab_list_view_get_list(WIG_TAB_LIST_VIEW(self));
   guint n = wig_tab_list_get_n_tabs(list);
   if (index < 0 || (guint)index >= n)
+    return TRUE;
+
+  /* Pinned tabs are outside the strip and always in view. */
+  if (wig_tab_get_pinned(wig_tab_list_get_nth(list, (guint)index)))
     return TRUE;
 
   GtkWidget *target = GTK_WIDGET(
@@ -302,6 +310,8 @@ static void wig_tab_bar_dispose(GObject *object)
   WigTabBar *self = WIG_TAB_BAR(object);
   g_clear_handle_id(&self->relayout_idle_id, g_source_remove);
   g_clear_handle_id(&self->settle_idle_id, g_source_remove);
+  g_clear_pointer(&self->pinned_box, gtk_widget_unparent);
+  g_clear_pointer(&self->separator, gtk_widget_unparent);
   g_clear_pointer(&self->scroll_left_button, gtk_widget_unparent);
   g_clear_pointer(&self->new_tab_button, gtk_widget_unparent);
   g_clear_pointer(&self->scroll_right_button, gtk_widget_unparent);
@@ -341,7 +351,16 @@ GtkWidget *wig_tab_bar_new(WigTabList *list)
   WigTabBar *self = WIG_TAB_BAR(g_object_new(WIG_TYPE_TAB_BAR, NULL));
   gtk_widget_set_hexpand(GTK_WIDGET(self), TRUE);
 
-  /* Leftmost child: the "<" scroll button, shown only while scrollable. */
+  /* Pinned tabs sit left of the scrollable strip, always in view. */
+  self->pinned_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_add_css_class(self->pinned_box, "pinned-tabs");
+  gtk_widget_set_parent(self->pinned_box, GTK_WIDGET(self));
+
+  self->separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+  gtk_widget_add_css_class(self->separator, "pinned-separator");
+  gtk_widget_set_parent(self->separator, GTK_WIDGET(self));
+
+  /* The "<" scroll button, shown only while scrollable. */
   self->scroll_left_button = gtk_button_new_from_icon_name("pan-start-symbolic");
   gtk_widget_add_css_class(self->scroll_left_button, "flat");
   gtk_widget_set_visible(self->scroll_left_button, FALSE);
@@ -390,7 +409,7 @@ GtkWidget *wig_tab_bar_new(WigTabList *list)
   g_signal_connect_object(list, "notify::active-tab", G_CALLBACK(wig_tab_bar_active_tab_changed), self,
                           G_CONNECT_SWAPPED);
 
-  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, tab_box);
+  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, GTK_BOX(self->pinned_box), self->separator, tab_box);
 
   return GTK_WIDGET(self);
 }

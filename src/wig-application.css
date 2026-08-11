@@ -109,6 +109,26 @@ wig-tab-sidebar wig-tab {
   min-width: 0;
 }
 
+/* A pinned tab is its favicon and nothing else, so it drops the width a title
+ * would need; WIG_TAB_FAVICON_SIZE plus this padding is its whole width. */
+wig-tab.pinned {
+  min-width: 0;
+  padding: 0px 8px;
+}
+
+wig-tab.pinned .tab-favicon,
+wig-tab.pinned .tab-audio {
+  margin: 6px 0px;
+}
+
+wig-tab-bar .pinned-separator {
+  margin: 8px 4px;
+}
+
+wig-tab-sidebar .pinned-separator {
+  margin: 4px 10px;
+}
+
 wig-tab:hover {
   background-color: alpha(@headerbar_fg_color, 0.15);
   border-radius: 6px;

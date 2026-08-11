@@ -36,6 +36,7 @@ struct _WigTabWidget {
   GtkWidget *spinner;
   GtkWidget *audio_icon;
   GtkWidget *title_label;
+  GtkWidget *close_fade;
   GtkWidget *context_menu_popover;
 
   GtkWidget *snapshot_popover;
@@ -53,7 +54,15 @@ static void wig_tab_widget_on_icon_changed(WigTabWidget *self, GParamSpec *pspec
   if (self->spinner)
     return;
 
+  /* A pinned tab is nothing but its icon, so it needs one even when the site
+   * offers none. */
+  g_autoptr(GIcon) fallback = NULL;
   GIcon *icon = wig_tab_get_icon(tab);
+  if (!icon && wig_tab_get_pinned(tab)) {
+    fallback = g_themed_icon_new("web-browser-symbolic");
+    icon = fallback;
+  }
+
   if (icon) {
     if (!self->favicon) {
       self->favicon = gtk_image_new();
@@ -128,6 +137,23 @@ static void wig_tab_widget_on_playing_audio_changed(WigTabWidget *self, GParamSp
   } else {
     g_clear_pointer(&self->audio_icon, gtk_widget_unparent);
   }
+}
+
+static void wig_tab_widget_on_pinned_changed(WigTabWidget *self, GParamSpec *pspec, WigTab *tab)
+{
+  gboolean pinned = wig_tab_get_pinned(tab);
+
+  /* A pinned tab is reduced to its favicon, and cannot be closed by a stray
+   * click where its close button would have been. */
+  gtk_widget_set_visible(self->title_label, !pinned);
+  gtk_widget_set_visible(self->close_fade, !pinned);
+
+  if (pinned)
+    gtk_widget_add_css_class(GTK_WIDGET(self), "pinned");
+  else
+    gtk_widget_remove_css_class(GTK_WIDGET(self), "pinned");
+
+  wig_tab_widget_on_icon_changed(self, NULL, tab);
 }
 
 static void wig_tab_widget_snapshot_popover_closed(GtkPopover *popover, WigTabWidget *self)
@@ -331,11 +357,11 @@ static void wig_tab_widget_init(WigTabWidget *self)
 
   /* The button floats over the title rather than taking space from it; the fade
    * box paints the tab's own background back over the text running underneath. */
-  GtkWidget *close_fade = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_widget_add_css_class(close_fade, "tab-close-fade");
-  gtk_widget_set_halign(close_fade, GTK_ALIGN_END);
-  gtk_widget_set_valign(close_fade, GTK_ALIGN_FILL);
-  gtk_overlay_add_overlay(GTK_OVERLAY(self->overlay), close_fade);
+  self->close_fade = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_add_css_class(self->close_fade, "tab-close-fade");
+  gtk_widget_set_halign(self->close_fade, GTK_ALIGN_END);
+  gtk_widget_set_valign(self->close_fade, GTK_ALIGN_FILL);
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->overlay), self->close_fade);
 
   GtkWidget *close_button = gtk_button_new_from_icon_name("window-close-symbolic");
   gtk_widget_add_css_class(close_button, "flat");
@@ -343,7 +369,7 @@ static void wig_tab_widget_init(WigTabWidget *self)
   gtk_widget_add_css_class(close_button, "tab-close");
   gtk_widget_set_valign(close_button, GTK_ALIGN_CENTER);
   gtk_widget_set_focusable(close_button, FALSE);
-  gtk_box_append(GTK_BOX(close_fade), close_button);
+  gtk_box_append(GTK_BOX(self->close_fade), close_button);
   g_signal_connect(close_button, "clicked", G_CALLBACK(wig_tab_widget_close_clicked), self);
 
   GtkEventController *motion = gtk_event_controller_motion_new();
@@ -388,8 +414,10 @@ GtkWidget *wig_tab_widget_new(WigTab *tab)
   g_signal_connect_object(tab, "notify::playing-audio", G_CALLBACK(wig_tab_widget_on_playing_audio_changed), self,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(tab, "notify::muted", G_CALLBACK(wig_tab_widget_on_muted_changed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(tab, "notify::pinned", G_CALLBACK(wig_tab_widget_on_pinned_changed), self, G_CONNECT_SWAPPED);
   wig_tab_widget_on_loading_changed(self, NULL, tab);
   wig_tab_widget_on_playing_audio_changed(self, NULL, tab);
+  wig_tab_widget_on_pinned_changed(self, NULL, tab);
 
   return GTK_WIDGET(self);
 }

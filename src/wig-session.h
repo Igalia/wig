@@ -32,6 +32,7 @@ G_DECLARE_FINAL_TYPE(WigSession, wig_session, WIG, SESSION, GObject)
 typedef struct {
   WebKitWebViewSessionState *state;
   gboolean was_focused;
+  gboolean pinned;
 } WigSessionTab;
 
 typedef struct {
@@ -48,7 +49,8 @@ typedef struct {
 } WigSessionWindow;
 
 WigSessionWindow *wig_session_window_new(guint window_id);
-void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionState *state, gboolean was_focused);
+void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionState *state, gboolean was_focused,
+                                gboolean pinned);
 void wig_session_window_free(WigSessionWindow *self);
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigSessionWindow, wig_session_window_free)
 

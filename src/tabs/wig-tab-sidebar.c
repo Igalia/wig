@@ -22,9 +22,13 @@
 
 #include "wig-tab-sidebar.h"
 
+#include "wig-tab-wrap-layout.h"
+
 struct _WigTabSidebar {
   WigTabListView parent;
 
+  GtkWidget *pinned_box;
+  GtkWidget *separator;
   GtkWidget *scrolled_window;
   GtkWidget *new_tab_button;
 };
@@ -43,6 +47,8 @@ static void wig_tab_sidebar_dispose(GObject *object)
   // FIXME: Why do we need to manually unparent?
   g_clear_pointer(&self->new_tab_button, gtk_widget_unparent);
   g_clear_pointer(&self->scrolled_window, gtk_widget_unparent);
+  g_clear_pointer(&self->separator, gtk_widget_unparent);
+  g_clear_pointer(&self->pinned_box, gtk_widget_unparent);
   G_OBJECT_CLASS(wig_tab_sidebar_parent_class)->dispose(object);
 }
 
@@ -71,6 +77,17 @@ GtkWidget *wig_tab_sidebar_new(WigTabList *list)
 
   GtkBox *tab_box = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0));
 
+  /* Pinned tabs are favicon-sized, so they sit in rows above the tab list
+   * rather than taking a full-width row each. */
+  self->pinned_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_layout_manager(self->pinned_box, wig_tab_wrap_layout_new());
+  gtk_widget_add_css_class(self->pinned_box, "pinned-tabs");
+  gtk_widget_set_parent(self->pinned_box, GTK_WIDGET(self));
+
+  self->separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_widget_add_css_class(self->separator, "pinned-separator");
+  gtk_widget_set_parent(self->separator, GTK_WIDGET(self));
+
   self->scrolled_window = gtk_scrolled_window_new();
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(self->scrolled_window), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(self->scrolled_window), TRUE);
@@ -92,7 +109,7 @@ GtkWidget *wig_tab_sidebar_new(WigTabList *list)
                           G_CONNECT_DEFAULT);
   gtk_widget_set_parent(self->new_tab_button, GTK_WIDGET(self));
 
-  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, tab_box);
+  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, GTK_BOX(self->pinned_box), self->separator, tab_box);
 
   return GTK_WIDGET(self);
 }
