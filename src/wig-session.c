@@ -43,6 +43,7 @@ struct _WigSession {
   guint save_timeout_id;
   gboolean quitting;
   gboolean restoring;
+  gboolean restore_on_next_start;
 };
 
 G_DEFINE_FINAL_TYPE(WigSession, wig_session, G_TYPE_OBJECT)
@@ -283,6 +284,8 @@ static void wig_session_write(WigSession *self, GSList *open_windows)
 
   g_autoptr(GKeyFile) key_file = g_key_file_new();
   g_key_file_set_integer(key_file, WIG_SESSION_GROUP, "Version", WIG_SESSION_FORMAT_VERSION);
+  if (self->restore_on_next_start)
+    g_key_file_set_boolean(key_file, WIG_SESSION_GROUP, "RestoreOnNextStart", TRUE);
 
   guint n_open = 0;
   guint n_open_tabs = 0;
@@ -385,6 +388,8 @@ void wig_session_load(WigSession *self)
     return;
   }
 
+  self->restore_on_next_start = wig_key_file_get_boolean(key_file, WIG_SESSION_GROUP, "RestoreOnNextStart", FALSE);
+
   g_clear_pointer(&self->restored_windows, wig_session_window_list_free);
   self->restored_windows = wig_session_window_list_from_key_file(key_file, "Windows", "Window", "Tab", TRUE);
 
@@ -415,6 +420,21 @@ void wig_session_set_quitting(WigSession *self)
   g_debug("session: quitting, the saved state is now final");
   self->quitting = TRUE;
   g_clear_handle_id(&self->save_timeout_id, g_source_remove);
+}
+
+void wig_session_set_restore_on_next_start(WigSession *self)
+{
+  g_debug("session: the next start restores this session");
+  self->restore_on_next_start = TRUE;
+}
+
+/* Reading it consumes it: the launch after the restart is an ordinary one. */
+gboolean wig_session_take_restore_on_next_start(WigSession *self)
+{
+  gboolean restore = self->restore_on_next_start;
+
+  self->restore_on_next_start = FALSE;
+  return restore;
 }
 
 /* Windows and tabs appearing one at a time as a session is restored look exactly

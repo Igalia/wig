@@ -288,6 +288,7 @@ static void wig_application_restart_to_update_action(GSimpleAction *action, GVar
     return;
   }
 
+  wig_session_set_restore_on_next_start(app->session);
   g_application_quit(G_APPLICATION(app));
 }
 
@@ -738,6 +739,13 @@ static WigWindow *wig_application_restore_session(WigApplication *app, gboolean 
   return focused;
 }
 
+static gboolean wig_application_should_restore_tabs(WigApplication *app)
+{
+  gboolean restarted = wig_session_take_restore_on_next_start(app->session);
+
+  return restarted || g_settings_get_boolean(app->settings, "restore-tabs");
+}
+
 static void wig_application_activate(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
@@ -745,7 +753,7 @@ static void wig_application_activate(GApplication *application)
   gboolean fresh = FALSE;
 
   if (!win) {
-    gboolean restore_tabs = g_settings_get_boolean(app->settings, "restore-tabs");
+    gboolean restore_tabs = wig_application_should_restore_tabs(app);
     win = wig_application_restore_session(app, !restore_tabs);
 
     /* A window restored for its pinned tabs alone is still a fresh start, so it
@@ -769,7 +777,7 @@ static void wig_application_open(GApplication *application, GFile **files, gint 
   WigWindow *win = wig_application_find_browser_window(app);
 
   if (!win)
-    win = wig_application_restore_session(app, !g_settings_get_boolean(app->settings, "restore-tabs"));
+    win = wig_application_restore_session(app, !wig_application_should_restore_tabs(app));
 
   if (!win)
     win = wig_window_new(app);

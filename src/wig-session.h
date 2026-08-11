@@ -69,6 +69,9 @@ void wig_session_queue_save(WigSession *self);
 void wig_session_save(WigSession *self);
 void wig_session_set_quitting(WigSession *self);
 
+void wig_session_set_restore_on_next_start(WigSession *self);
+gboolean wig_session_take_restore_on_next_start(WigSession *self);
+
 void wig_session_push_closed_window(WigSession *self, WigSessionWindow *window);
 WigSessionWindow *wig_session_pop_closed_window(WigSession *self);
 
