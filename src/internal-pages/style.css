@@ -360,6 +360,16 @@ li a:hover {
   font-style: italic;
 }
 
+.error-banner {
+  padding: 0.6rem 1rem;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 0.875em;
+  word-break: break-word;
+}
+
 /* === History page === */
 
 .search-form {

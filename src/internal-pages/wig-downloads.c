@@ -23,6 +23,7 @@
 #include "wig-downloads.h"
 
 #include "wig-application.h"
+#include "wig-internal-page.h"
 
 static char *format_bytes(guint64 bytes)
 {
@@ -34,6 +35,7 @@ TmplScope *handle_downloads_uri(WebKitURISchemeRequest *request, GPtrArray *down
   const char *full_uri = webkit_uri_scheme_request_get_uri(request);
   g_autoptr(GUri) parsed = g_uri_parse(full_uri, G_URI_FLAGS_NONE, NULL);
   const char *query = parsed ? g_uri_get_query(parsed) : NULL;
+  g_autofree char *error_message = NULL;
 
   if (query) {
     g_autoptr(GHashTable) params = g_uri_parse_params(query, -1, "&", G_URI_PARAMS_NONE, NULL);
@@ -61,9 +63,10 @@ TmplScope *handle_downloads_uri(WebKitURISchemeRequest *request, GPtrArray *down
           if (dest) {
             g_autoptr(GFile) file = g_file_new_for_path(dest);
             g_autoptr(GError) err = NULL;
-            if (!g_file_trash(file, NULL, &err))
+            if (!g_file_trash(file, NULL, &err)) {
               g_warning("downloads: trash '%s': %s", dest, err->message);
-            else
+              error_message = wig_internal_page_html_escape(err->message);
+            } else
               g_debug("downloads: trashed '%s'", dest);
           }
         }
@@ -161,6 +164,7 @@ TmplScope *handle_downloads_uri(WebKitURISchemeRequest *request, GPtrArray *down
   tmpl_scope_set_variant(scope, "items", g_variant_builder_end(&items_builder));
   tmpl_scope_set_boolean(scope, "has_downloads", has_downloads);
   tmpl_scope_set_boolean(scope, "has_completed", has_completed);
+  tmpl_scope_set_string(scope, "error_message", error_message ? error_message : "");
 
   return g_steal_pointer(&scope);
 }

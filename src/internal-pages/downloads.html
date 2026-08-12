@@ -11,6 +11,10 @@
 <body>
   <h1>Downloads</h1>
 
+  {{if (error_message)}}
+  <p class='error-banner'>Could not move the file to the trash: {{error_message}}</p>
+  {{end}}
+
   <div class='toolbar'>
     <a href='wig:downloads' class='btn'>Refresh</a>
     {{if (has_completed)}}<a href='wig:downloads?clear=1' class='btn btn-danger'>Clear completed</a>{{end}}
