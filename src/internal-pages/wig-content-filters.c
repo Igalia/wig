@@ -76,8 +76,7 @@ static void finish_request(FiltersState *state, char **identifiers)
     tmpl_scope_set_string(scope, "error_message", "");
 
   g_autofree char *html = wig_internal_page_render("/com/igalia/wig/internal-pages/content-filters.html", scope);
-  g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_data(g_steal_pointer(&html), -1, g_free);
-  webkit_uri_scheme_request_finish(state->request, stream, -1, "text/html; charset=utf-8");
+  wig_internal_page_finish_request(state->request, g_steal_pointer(&html));
   filters_state_free(state);
 }
 

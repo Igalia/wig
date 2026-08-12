@@ -27,6 +27,8 @@
 
 char *wig_internal_page_render(const char *resource_path, TmplScope *scope);
 
+void wig_internal_page_finish_request(WebKitURISchemeRequest *request, char *html);
+
 char *wig_internal_page_html_escape(const char *text);
 
 /**

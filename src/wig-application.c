@@ -443,8 +443,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
     return;
   }
 
-  g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_data(g_steal_pointer(&html), -1, g_free);
-  webkit_uri_scheme_request_finish(request, stream, -1, "text/html; charset=utf-8");
+  wig_internal_page_finish_request(request, g_steal_pointer(&html));
 }
 
 static void wig_application_init(WigApplication *app)

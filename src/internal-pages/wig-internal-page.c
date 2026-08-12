@@ -22,6 +22,8 @@
 
 #include "wig-internal-page.h"
 
+#include <libsoup/soup.h>
+
 static const char *error_page = "<!DOCTYPE html><html><body>Error loading page.</body></html>";
 
 char *wig_internal_page_render(const char *resource_path, TmplScope *scope)
@@ -49,6 +51,19 @@ char *wig_internal_page_render(const char *resource_path, TmplScope *scope)
   }
 
   return html;
+}
+
+void wig_internal_page_finish_request(WebKitURISchemeRequest *request, char *html)
+{
+  g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_data(html, -1, g_free);
+  g_autoptr(WebKitURISchemeResponse) response = webkit_uri_scheme_response_new(stream, -1);
+  webkit_uri_scheme_response_set_content_type(response, "text/html; charset=utf-8");
+
+  g_autoptr(SoupMessageHeaders) headers = soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE);
+  soup_message_headers_append(headers, "Cache-Control", "no-store");
+  webkit_uri_scheme_response_set_http_headers(response, g_steal_pointer(&headers));
+
+  webkit_uri_scheme_request_finish_with_response(request, response);
 }
 
 /**

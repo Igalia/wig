@@ -103,8 +103,7 @@ static void finish_request(WebKitURISchemeRequest *request, GPtrArray *scripts)
   tmpl_scope_set_boolean(scope, "has_scripts", scripts->len > 0);
 
   g_autofree char *html = wig_internal_page_render("/com/igalia/wig/internal-pages/user-scripts.html", scope);
-  g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_data(g_steal_pointer(&html), -1, g_free);
-  webkit_uri_scheme_request_finish(request, stream, -1, "text/html; charset=utf-8");
+  wig_internal_page_finish_request(request, g_steal_pointer(&html));
 }
 
 typedef struct {
