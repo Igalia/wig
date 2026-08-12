@@ -48,7 +48,7 @@ modules:
       - type: git
         url: https://github.com/Sparkle-CDM/sparkle-cdm.git
         branch: main
-        commit: 46187608255d7b4f4682392a6e5d2303e2f66671
+        commit: cd42026a420554e311d191c9560e09c9a7119162
 
   - name: libsoup
     buildsystem: meson
