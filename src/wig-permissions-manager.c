@@ -464,6 +464,27 @@ void wig_permissions_manager_visit(WigPermissionsManager *self, const char *orig
   wig_permissions_manager_queue_save(self);
 }
 
+GList *wig_permissions_manager_list_origins(WigPermissionsManager *self, WigPermissionKind kind,
+                                            WebKitPermissionState state)
+{
+  GList *origins = NULL;
+
+  GHashTableIter iter;
+  gpointer value;
+  g_hash_table_iter_init(&iter, self->origins);
+  while (g_hash_table_iter_next(&iter, NULL, &value)) {
+    WigPermissionOrigin *record = value;
+    if (wig_permissions_get_state(record->permissions, kind) != state)
+      continue;
+
+    WebKitSecurityOrigin *origin = webkit_security_origin_new_for_uri(record->origin);
+    if (origin)
+      origins = g_list_prepend(origins, origin);
+  }
+
+  return origins;
+}
+
 void wig_permissions_manager_handle_request(WigPermissionsManager *self, const char *origin,
                                             WebKitPermissionRequest *request, WigPermissionRequestPopover *popover)
 {

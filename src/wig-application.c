@@ -355,6 +355,18 @@ static void on_download_started(WebKitNetworkSession *session, WebKitDownload *d
   g_signal_connect(download, "failed", G_CALLBACK(on_download_failed), record);
 }
 
+static void wig_application_initialize_notification_permissions(WigApplication *app)
+{
+  g_autolist(WebKitSecurityOrigin) allowed = wig_permissions_manager_list_origins(
+      app->permissions_manager, WIG_PERMISSION_NOTIFICATION, WEBKIT_PERMISSION_STATE_GRANTED);
+  g_autolist(WebKitSecurityOrigin) denied = wig_permissions_manager_list_origins(
+      app->permissions_manager, WIG_PERMISSION_NOTIFICATION, WEBKIT_PERMISSION_STATE_DENIED);
+
+  g_debug("permissions: notifications allowed for %u origin(s), denied for %u", g_list_length(allowed),
+          g_list_length(denied));
+  webkit_web_context_initialize_notification_permissions(app->web_context, allowed, denied);
+}
+
 static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpointer user_data)
 {
   WigApplication *app = WIG_APPLICATION(user_data);
@@ -608,6 +620,8 @@ static void wig_application_startup(GApplication *application)
   g_autofree char *filters_dir = g_build_filename(data_dir, "content-filters", NULL);
   app->content_filter_store = webkit_user_content_filter_store_new(filters_dir);
   app->web_context = webkit_web_context_new();
+  g_signal_connect_swapped(app->web_context, "initialize-notification-permissions",
+                           G_CALLBACK(wig_application_initialize_notification_permissions), app);
   webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
   webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
                                                            "wig");
