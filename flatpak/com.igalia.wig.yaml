@@ -15,6 +15,8 @@ finish-args:
   - --socket=fallback-x11
   - --socket=pulseaudio
   - --socket=wayland
+  - --filesystem=/opt/google/chrome/WidevineCdm/_platform_specific/linux_x64/:ro
+  - --env=SPARKLE_WIDEVINE_CDM_PATH=/opt/google/chrome/WidevineCdm/_platform_specific/linux_x64/libwidevinecdm.so
 
 cleanup:
   - /include
@@ -47,6 +49,13 @@ modules:
         url: https://github.com/Igalia/wpe-platform-gtk.git
         branch: main
         commit: be2f50845a1bb4d55b4a2e20142b84a32974d585
+
+  - name: sparkle-widevine
+    buildsystem: meson
+    sources:
+      - type: git
+        url: https://github.com/TingPing/sparkle-widevine.git
+        branch: main
 
   - name: wig
     buildsystem: meson
