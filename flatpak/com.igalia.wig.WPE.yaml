@@ -50,6 +50,21 @@ modules:
         branch: main
         commit: 46187608255d7b4f4682392a6e5d2303e2f66671
 
+  - name: libsoup
+    buildsystem: meson
+    config-opts:
+      - --buildtype=release
+      - -Dintrospection=disabled
+      - -Dvapi=disabled
+      - -Ddocs=disabled
+      - -Dtests=false
+      - -Dsysprof=disabled
+    sources:
+      - type: git
+        url: https://gitlab.gnome.org/GNOME/libsoup.git
+        branch: master
+        commit: f2af6b499cf23075ad73e065370cbb2e4eaceb6a
+
   - name: webkitwpe
     buildsystem: cmake-ninja
     config-opts:
