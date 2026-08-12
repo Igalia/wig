@@ -23,6 +23,82 @@
 #include "wig-features.h"
 #include "wig-internal-page.h"
 
+#define WIG_FEATURE_OVERRIDES_KEY "feature-overrides"
+
+static WebKitFeature *find_feature(WebKitFeatureList *features, const char *identifier)
+{
+  for (gsize i = 0; i < webkit_feature_list_get_length(features); i++) {
+    WebKitFeature *feature = webkit_feature_list_get(features, i);
+    if (g_str_equal(webkit_feature_get_identifier(feature), identifier))
+      return feature;
+  }
+  return NULL;
+}
+
+static void apply_feature_mode(WebKitSettings *web_settings, GSettings *settings, WebKitFeature *feature,
+                               const char *mode)
+{
+  gboolean permanent = g_str_equal(mode, "permanent");
+  if (!permanent && !g_str_equal(mode, "default") && !g_str_equal(mode, "session")) {
+    g_warning("features: unknown mode '%s'", mode);
+    return;
+  }
+
+  const char *identifier = webkit_feature_get_identifier(feature);
+  gboolean enabled = g_str_equal(mode, "default") ? webkit_feature_get_default_value(feature)
+                                                  : !webkit_feature_get_default_value(feature);
+
+  g_debug("features: %s %s (%s)", identifier, enabled ? "enabled" : "disabled", mode);
+  webkit_settings_set_feature_enabled(web_settings, feature, enabled);
+
+  /* A dictionary can only be written whole, so the other overrides are carried
+   * over and this feature is left out unless it is being kept for good. */
+  GVariantBuilder builder;
+  g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sb}"));
+
+  g_autoptr(GVariant) overrides = g_settings_get_value(settings, WIG_FEATURE_OVERRIDES_KEY);
+  GVariantIter iter;
+  const char *key;
+  gboolean value;
+  g_variant_iter_init(&iter, overrides);
+  while (g_variant_iter_next(&iter, "{&sb}", &key, &value)) {
+    if (!g_str_equal(key, identifier))
+      g_variant_builder_add(&builder, "{sb}", key, value);
+  }
+
+  if (permanent)
+    g_variant_builder_add(&builder, "{sb}", identifier, enabled);
+
+  g_settings_set_value(settings, WIG_FEATURE_OVERRIDES_KEY, g_variant_builder_end(&builder));
+}
+
+void wig_features_apply_overrides(WebKitSettings *web_settings, GSettings *settings)
+{
+  g_autoptr(GVariant) overrides = g_settings_get_value(settings, WIG_FEATURE_OVERRIDES_KEY);
+  g_autoptr(WebKitFeatureList) experimental = webkit_settings_get_experimental_features();
+  g_autoptr(WebKitFeatureList) development = webkit_settings_get_development_features();
+
+  GVariantIter iter;
+  const char *identifier;
+  gboolean enabled;
+  g_variant_iter_init(&iter, overrides);
+  while (g_variant_iter_next(&iter, "{&sb}", &identifier, &enabled)) {
+    WebKitFeature *feature = find_feature(experimental, identifier);
+    if (!feature)
+      feature = find_feature(development, identifier);
+
+    /* Features come and go between WebKit versions, so an override can outlive
+     * the feature it names. */
+    if (!feature) {
+      g_debug("features: no feature named '%s' to override", identifier);
+      continue;
+    }
+
+    g_debug("features: %s %s (permanent)", identifier, enabled ? "enabled" : "disabled");
+    webkit_settings_set_feature_enabled(web_settings, feature, enabled);
+  }
+}
+
 static const char *feature_status_string(WebKitFeatureStatus status)
 {
   switch (status) {
@@ -47,7 +123,8 @@ static const char *feature_status_string(WebKitFeatureStatus status)
   }
 }
 
-TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *settings, gboolean developer)
+TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *web_settings, GSettings *settings,
+                               gboolean developer)
 {
   g_autoptr(WebKitFeatureList) features = developer ? webkit_settings_get_development_features()
                                                     : webkit_settings_get_experimental_features();
@@ -59,21 +136,19 @@ TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *
   if (query) {
     g_autoptr(GHashTable) params = g_uri_parse_params(query, -1, "&", G_URI_PARAMS_NONE, NULL);
     if (params) {
-      const char *toggle = g_hash_table_lookup(params, "toggle");
-      const char *enabled_str = g_hash_table_lookup(params, "enabled");
-      if (toggle && enabled_str) {
-        gboolean enabled = g_str_equal(enabled_str, "true") || g_str_equal(enabled_str, "1");
-        for (gsize i = 0; i < webkit_feature_list_get_length(features); i++) {
-          WebKitFeature *feature = webkit_feature_list_get(features, i);
-          if (g_str_equal(webkit_feature_get_identifier(feature), toggle)) {
-            g_debug("Setting feature %s to %d", toggle, enabled);
-            webkit_settings_set_feature_enabled(settings, feature, enabled);
-            break;
-          }
-        }
+      const char *identifier = g_hash_table_lookup(params, "feature");
+      const char *mode = g_hash_table_lookup(params, "mode");
+      if (identifier && mode) {
+        WebKitFeature *feature = find_feature(features, identifier);
+        if (feature)
+          apply_feature_mode(web_settings, settings, feature, mode);
+        else
+          g_warning("features: no feature named '%s'", identifier);
       }
     }
   }
+
+  g_autoptr(GVariant) overrides = g_settings_get_value(settings, WIG_FEATURE_OVERRIDES_KEY);
 
   /* Group features by category. */
   g_autoptr(GHashTable) cat_features = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
@@ -118,10 +193,18 @@ TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *
       g_variant_builder_add(
           &feat_builder, "{sv}", "details",
           g_variant_new_take_string(wig_internal_page_html_escape(webkit_feature_get_details(feature))));
-      g_variant_builder_add(&feat_builder, "{sv}", "default",
-                            g_variant_new_boolean(webkit_feature_get_default_value(feature)));
-      g_variant_builder_add(&feat_builder, "{sv}", "enabled",
-                            g_variant_new_boolean(webkit_settings_get_feature_enabled(settings, feature)));
+      gboolean default_value = webkit_feature_get_default_value(feature);
+      gboolean stored_value;
+      gboolean permanent = g_variant_lookup(overrides, webkit_feature_get_identifier(feature), "b", &stored_value);
+      gboolean is_default = !permanent && webkit_settings_get_feature_enabled(web_settings, feature) == default_value;
+
+      g_variant_builder_add(&feat_builder, "{sv}", "default_label",
+                            g_variant_new_string(default_value ? "enabled" : "disabled"));
+      g_variant_builder_add(&feat_builder, "{sv}", "override_label",
+                            g_variant_new_string(default_value ? "Disabled" : "Enabled"));
+      g_variant_builder_add(&feat_builder, "{sv}", "mode_default", g_variant_new_boolean(is_default));
+      g_variant_builder_add(&feat_builder, "{sv}", "mode_session", g_variant_new_boolean(!is_default && !permanent));
+      g_variant_builder_add(&feat_builder, "{sv}", "mode_permanent", g_variant_new_boolean(permanent));
       g_variant_builder_add_value(&feats_builder, g_variant_builder_end(&feat_builder));
     }
 

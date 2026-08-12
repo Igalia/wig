@@ -19,6 +19,12 @@
       <description>Whether tabs are listed in a bar above the page or in a sidebar beside it.</description>
     </key>
 
+    <key name="feature-overrides" type="a{sb}">
+      <default>{}</default>
+      <summary>Feature Overrides</summary>
+      <description>WebKit feature identifiers mapped to the value they are forced to on startup. Features left out of this list keep whatever value WebKit defaults them to.</description>
+    </key>
+
     <key name="search-engine" type="s">
       <default>'https://duckduckgo.com/?q=%s'</default>
       <summary>Search Engine</summary>

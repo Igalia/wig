@@ -407,10 +407,10 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   if (g_str_equal(uri, "wig:about"))
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/about.html", NULL);
   else if (g_str_has_prefix(uri, "wig:features")) {
-    scope = handle_features_uri(request, app->web_settings, FALSE);
+    scope = handle_features_uri(request, app->web_settings, app->settings, FALSE);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/features.html", scope);
   } else if (g_str_has_prefix(uri, "wig:developer-features")) {
-    scope = handle_features_uri(request, app->web_settings, TRUE);
+    scope = handle_features_uri(request, app->web_settings, app->settings, TRUE);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/features.html", scope);
   } else if (g_str_has_prefix(uri, "wig:memory-pressure")) {
     scope = handle_memory_pressure_uri(request, app->memory_pressure_settings);
@@ -627,6 +627,7 @@ static void wig_application_startup(GApplication *application)
                                                            "wig");
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, "enable-encrypted-media", TRUE,
                                                         NULL);
+  wig_features_apply_overrides(app->web_settings, app->settings);
 
   const char *sparkle_widevine_path = g_getenv("SPARKLE_WIDEVINE_CDM_PATH");
   if (sparkle_widevine_path && *sparkle_widevine_path)

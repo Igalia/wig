@@ -25,4 +25,6 @@
 #include <tmpl-glib.h>
 #include <wpe/webkit.h>
 
-TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *settings, gboolean developer);
+TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *web_settings, GSettings *settings,
+                               gboolean developer);
+void wig_features_apply_overrides(WebKitSettings *web_settings, GSettings *settings);

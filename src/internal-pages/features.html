@@ -3,7 +3,7 @@
 
 <head>
   <meta charset='utf-8'>
-  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-{{nonce}}'; style-src 'nonce-{{nonce}}'; connect-src wig:; base-uri 'none'; form-action 'none'">
   <title>{{title}}</title>
   <link rel='stylesheet' href='wig:resources/style.css' nonce='{{nonce}}'>
 </head>
@@ -18,11 +18,17 @@
     <ul>
     {{for feature in category.features}}
       <li>
-        <label for="{{feature.identifier}}">
+        <label for='mode-{{feature.identifier}}'>
           <span class='name'>{{feature.name}}</span>
           <span class='status' data-status='{{feature.status}}'>{{feature.status}}</span>
         </label>
-        <input type='checkbox' id='{{feature.identifier}}' {{if (feature.enabled)}}checked{{end}}>
+        <div class='setting-select feature-mode'>
+          <select id='mode-{{feature.identifier}}' data-feature='{{feature.identifier}}'>
+            <option value='default'{{if (feature.mode_default)}} selected{{end}}>Default ({{feature.default_label}})</option>
+            <option value='session'{{if (feature.mode_session)}} selected{{end}}>{{feature.override_label}} until restart</option>
+            <option value='permanent'{{if (feature.mode_permanent)}} selected{{end}}>{{feature.override_label}} permanently</option>
+          </select>
+        </div>
         <p class='details'>{{feature.details}}</p>
       </li>
     {{end}}
@@ -32,8 +38,14 @@
 
   <script nonce='{{nonce}}'>
     document.addEventListener('change', function(e) {
-      if (e.target.type === 'checkbox')
-        location.href = location.href.split('?')[0] + '?toggle=' + e.target.id + '&enabled=' + e.target.checked;
+      if (!e.target.matches('select[data-feature]'))
+        return;
+
+      const url = location.href.split('?')[0] + '?feature=' + encodeURIComponent(e.target.dataset.feature)
+        + '&mode=' + e.target.value;
+      // Requesting the change instead of navigating to it leaves the page, and the
+      // place the reader had scrolled to, alone.
+      fetch(url, { mode: 'no-cors' }).catch(() => { location.href = url; });
     });
     if (location.search)
       history.replaceState({}, '', location.href.split('?')[0]);
