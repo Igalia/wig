@@ -443,8 +443,10 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
 
     WigTab *tab = wig_window_add_tab_for_view(win, web_view);
     wig_tab_mark_discarded(tab);
-    if (saved_tab->pinned)
+    if (saved_tab->pinned) {
       wig_tab_list_set_pinned(win->tab_list, tab, TRUE);
+      wig_tab_load_discarded(tab);
+    }
     if (saved_tab->was_focused || !focused_tab)
       focused_tab = tab;
   }
