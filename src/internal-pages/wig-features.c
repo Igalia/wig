@@ -155,11 +155,17 @@ TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *
                                                              (GDestroyNotify)g_ptr_array_unref);
   g_autoptr(GPtrArray) cat_order = g_ptr_array_new_with_free_func(g_free);
 
+  gboolean present_statuses[WEBKIT_FEATURE_STATUS_MATURE + 1] = { FALSE };
+
   for (gsize i = 0; i < webkit_feature_list_get_length(features); i++) {
     WebKitFeature *feature = webkit_feature_list_get(features, i);
     const char *cat_name = webkit_feature_get_category(feature);
     if (!cat_name || !*cat_name)
       cat_name = "Other";
+
+    WebKitFeatureStatus status = webkit_feature_get_status(feature);
+    if (status <= WEBKIT_FEATURE_STATUS_MATURE)
+      present_statuses[status] = TRUE;
 
     GPtrArray *feat_list = g_hash_table_lookup(cat_features, cat_name);
     if (!feat_list) {
@@ -168,6 +174,19 @@ TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *
       g_ptr_array_add(cat_order, g_strdup(cat_name));
     }
     g_ptr_array_add(feat_list, feature);
+  }
+
+  /* Listed least to most stable, the order the statuses are declared in. */
+  GVariantBuilder statuses_builder;
+  g_variant_builder_init(&statuses_builder, G_VARIANT_TYPE("aa{sv}"));
+  for (WebKitFeatureStatus status = WEBKIT_FEATURE_STATUS_EMBEDDER; status <= WEBKIT_FEATURE_STATUS_MATURE; status++) {
+    if (!present_statuses[status])
+      continue;
+
+    GVariantBuilder status_builder;
+    g_variant_builder_init(&status_builder, G_VARIANT_TYPE("a{sv}"));
+    g_variant_builder_add(&status_builder, "{sv}", "name", g_variant_new_string(feature_status_string(status)));
+    g_variant_builder_add_value(&statuses_builder, g_variant_builder_end(&status_builder));
   }
 
   GVariantBuilder cats_builder;
@@ -219,6 +238,7 @@ TmplScope *handle_features_uri(WebKitURISchemeRequest *request, WebKitSettings *
   g_autoptr(TmplScope) scope = tmpl_scope_new();
   tmpl_scope_set_string(scope, "title", developer ? "Developer Features" : "Experimental Features");
   tmpl_scope_set_variant(scope, "categories", g_variant_builder_end(&cats_builder));
+  tmpl_scope_set_variant(scope, "statuses", g_variant_builder_end(&statuses_builder));
 
   return g_steal_pointer(&scope);
 }

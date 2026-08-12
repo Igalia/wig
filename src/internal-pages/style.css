@@ -152,6 +152,66 @@ li {
   border-bottom: 1px solid var(--border);
 }
 
+/* The grid display would otherwise win over the [hidden] the search filters with. */
+li[hidden] {
+  display: none;
+}
+
+#filter-button {
+  anchor-name: --filter-button;
+}
+
+#filter-button[data-active] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--btn-bg));
+}
+
+#filter-menu {
+  position: absolute;
+  position-anchor: --filter-button;
+  position-area: bottom span-left;
+  position-try-fallbacks: flip-block;
+  inset: auto;
+  margin: 0;
+  margin-block-start: 0.35rem;
+  min-width: 11rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.4rem;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
+  color: var(--text);
+}
+
+.filter-heading {
+  margin: 0.5rem 0 0.15rem;
+  padding-inline: 0.4rem;
+  font-size: 0.7em;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.3rem 0.4rem;
+  cursor: pointer;
+}
+
+.filter-option:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.filter-option input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 li label {
   grid-column: 1;
   grid-row: 1;

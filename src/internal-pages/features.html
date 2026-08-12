@@ -12,6 +12,27 @@
   <h1>{{title}}</h1>
   <p class='desc'>These features are experimental and may change or be removed.</p>
 
+  <div class='search-form'>
+    <input type='search' id='feature-search' placeholder='Search features' autofocus>
+    <button type='button' class='btn' id='filter-button' popovertarget='filter-menu'>Filter</button>
+  </div>
+
+  <div id='filter-menu' popover>
+    <label class='filter-option'>
+      <input type='checkbox' id='filter-non-default'>
+      <span>Non-default</span>
+    </label>
+    <p class='filter-heading'>Status</p>
+    {{for status in statuses}}
+    <label class='filter-option'>
+      <input type='checkbox' data-status='{{status.name}}'>
+      <span class='status' data-status='{{status.name}}'>{{status.name}}</span>
+    </label>
+    {{end}}
+  </div>
+
+  <p class='empty' id='no-matches' hidden>No features match.</p>
+
   {{for category in categories}}
   <section class='category'>
     <h2>{{category.name}}</h2>
@@ -37,6 +58,53 @@
   {{end}}
 
   <script nonce='{{nonce}}'>
+    const search = document.getElementById('feature-search');
+    const noMatches = document.getElementById('no-matches');
+    const filterButton = document.getElementById('filter-button');
+    const nonDefaultOnly = document.getElementById('filter-non-default');
+    const statusBoxes = Array.from(document.querySelectorAll('#filter-menu input[data-status]'));
+    const categories = document.querySelectorAll('.category');
+    const rows = Array.from(document.querySelectorAll('li'), function(row) {
+      const select = row.querySelector('select');
+      return {
+        element: row,
+        select: select,
+        status: row.querySelector('.status').dataset.status,
+        text: (row.querySelector('.name').textContent + ' ' + select.dataset.feature + ' '
+          + row.querySelector('.details').textContent).toLowerCase(),
+      };
+    });
+
+    function filter() {
+      const query = search.value.trim().toLowerCase();
+      const statuses = statusBoxes.filter(box => box.checked).map(box => box.dataset.status);
+      let matched = 0;
+      for (const row of rows) {
+        row.element.hidden = !((query === '' || row.text.includes(query))
+          && (!nonDefaultOnly.checked || row.select.value !== 'default')
+          && (statuses.length === 0 || statuses.includes(row.status)));
+        if (!row.element.hidden)
+          matched++;
+      }
+      for (const category of categories)
+        category.hidden = !category.querySelector('li:not([hidden])');
+      noMatches.hidden = matched > 0;
+
+      const active = statuses.length + (nonDefaultOnly.checked ? 1 : 0);
+      filterButton.textContent = active ? 'Filter (' + active + ')' : 'Filter';
+      filterButton.toggleAttribute('data-active', active > 0);
+    }
+
+    search.addEventListener('input', filter);
+    search.addEventListener('keydown', function(e) {
+      if (e.key !== 'Escape' || !search.value)
+        return;
+      search.value = '';
+      filter();
+    });
+
+    document.getElementById('filter-menu').addEventListener('change', filter);
+
     document.addEventListener('change', function(e) {
       if (!e.target.matches('select[data-feature]'))
         return;
@@ -46,6 +114,8 @@
       // Requesting the change instead of navigating to it leaves the page, and the
       // place the reader had scrolled to, alone.
       fetch(url, { mode: 'no-cors' }).catch(() => { location.href = url; });
+      // A feature that just went back to its default drops out of a non-default filter.
+      filter();
     });
     if (location.search)
       history.replaceState({}, '', location.href.split('?')[0]);
