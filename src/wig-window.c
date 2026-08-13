@@ -948,7 +948,13 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
     return TRUE;
   }
 
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  /* Applied per navigation rather than at construction so a changed setting
+   * takes effect without reopening the tab. */
+  webkit_policy_decision_use_with_policies(decision, wig_application_get_website_policies(wig_application_get()));
+#else
   webkit_policy_decision_use(decision);
+#endif
   return TRUE;
 }
 

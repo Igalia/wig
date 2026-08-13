@@ -57,6 +57,9 @@ struct _WigApplication {
   WebKitUserContentFilterStore *content_filter_store;
 
   GSettings *settings;
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  WebKitWebsitePolicies *website_policies;
+#endif
   WebKitWebView *settings_view; /* weak */
 
   WigSession *session;
@@ -459,8 +462,30 @@ static void wig_application_init(WigApplication *app)
   app->permissions_manager = wig_permissions_manager_new(state_dir);
 }
 
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+static void wig_application_update_website_policies(WigApplication *app)
+{
+  int policy = g_settings_get_enum(app->settings, "https-navigation-policy");
+  g_autoptr(WebKitWebsitePolicies) policies = webkit_website_policies_new_with_policies("https-navigation-policy",
+                                                                                        policy, NULL);
+  g_set_object(&app->website_policies, policies);
+}
+
+WebKitWebsitePolicies *wig_application_get_website_policies(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  return app->website_policies;
+}
+#endif
+
 static void wig_application_settings_changed(GSettings *settings, const char *key, WigApplication *app)
 {
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  if (g_str_equal(key, "https-navigation-policy"))
+    wig_application_update_website_policies(app);
+#endif
+
   if (!app->settings_view || webkit_web_view_is_loading(app->settings_view)
       || !uri_is_settings_page(webkit_web_view_get_uri(app->settings_view)))
     return;
@@ -563,6 +588,9 @@ static void wig_application_startup(GApplication *application)
   app->settings = wig_settings_new();
   g_signal_connect_object(app->settings, "changed", G_CALLBACK(wig_application_settings_changed), app,
                           G_CONNECT_DEFAULT);
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  wig_application_update_website_policies(app);
+#endif
 
   g_autoptr(GAction) tab_layout_action = g_settings_create_action(app->settings, "tab-layout");
   g_action_map_add_action(G_ACTION_MAP(application), tab_layout_action);
@@ -624,6 +652,8 @@ static void wig_application_startup(GApplication *application)
   webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
   webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
                                                            "wig");
+  webkit_security_manager_register_uri_scheme_as_secure(webkit_web_context_get_security_manager(app->web_context),
+                                                        "wig");
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, "enable-encrypted-media", TRUE,
                                                         NULL);
   wig_features_apply_overrides(app->web_settings, app->settings);
@@ -680,6 +710,9 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
   g_clear_pointer(&app->downloads, g_ptr_array_unref);
   g_clear_weak_pointer(&app->settings_view);
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  g_clear_object(&app->website_policies);
+#endif
   g_clear_object(&app->settings);
   g_clear_object(&app->user_content_manager);
   g_clear_pointer(&app->user_scripts, g_ptr_array_unref);

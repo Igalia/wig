@@ -69,6 +69,16 @@ static void handle_settings_change(WebKitURISchemeRequest *request, GSettings *s
       g_warning("settings: invalid value '%s' for '%s'", value, key);
       return;
     }
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  } else if (g_str_equal(key, "https-navigation-policy")) {
+    if (g_str_equal(value, "keep-as-requested") || g_str_equal(value, "https-first")
+        || g_str_equal(value, "https-only"))
+      changed = g_settings_set_string(settings, key, value);
+    else {
+      g_warning("settings: invalid value '%s' for '%s'", value, key);
+      return;
+    }
+#endif
   } else if (g_str_equal(key, "search-engine")) {
     if (!strstr(value, "%s")) {
       g_warning("settings: invalid value '%s' for '%s'", value, key);
@@ -96,6 +106,17 @@ TmplScope *handle_settings_uri(WebKitURISchemeRequest *request, GSettings *setti
   tmpl_scope_set_boolean(scope, "tab_layout_horizontal", g_str_equal(tab_layout, "horizontal"));
   tmpl_scope_set_boolean(scope, "tab_layout_vertical", g_str_equal(tab_layout, "vertical"));
   tmpl_scope_set_string(scope, "search_engine", escaped_search_engine);
+  tmpl_scope_set_boolean(scope, "https_navigation_supported", HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT);
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  g_autofree char *https_policy = g_settings_get_string(settings, "https-navigation-policy");
+  tmpl_scope_set_boolean(scope, "https_keep_as_requested", g_str_equal(https_policy, "keep-as-requested"));
+  tmpl_scope_set_boolean(scope, "https_first", g_str_equal(https_policy, "https-first"));
+  tmpl_scope_set_boolean(scope, "https_only", g_str_equal(https_policy, "https-only"));
+#else
+  tmpl_scope_set_boolean(scope, "https_keep_as_requested", TRUE);
+  tmpl_scope_set_boolean(scope, "https_first", FALSE);
+  tmpl_scope_set_boolean(scope, "https_only", FALSE);
+#endif
   return g_steal_pointer(&scope);
 }
 
@@ -118,10 +139,17 @@ void update_settings_page(WebKitWebView *web_view, GSettings *settings)
                         g_variant_new_int32(g_settings_get_boolean(settings, "restore-tabs")));
   g_variant_builder_add(&arguments, "{sv}", "tabLayout", g_variant_new_string(tab_layout));
   g_variant_builder_add(&arguments, "{sv}", "searchEngine", g_variant_new_string(search_engine));
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  g_autofree char *https_policy = g_settings_get_string(settings, "https-navigation-policy");
+#else
+  g_autofree char *https_policy = g_strdup("keep-as-requested");
+#endif
+  g_variant_builder_add(&arguments, "{sv}", "httpsNavigationPolicy", g_variant_new_string(https_policy));
   g_autoptr(GVariant) args = g_variant_ref_sink(g_variant_builder_end(&arguments));
 
   static const char function[] = "if (!window.wigSettings) return false;"
-                                 "window.wigSettings.update(restoreTabs, tabLayout, searchEngine);"
+                                 "window.wigSettings.update(restoreTabs, tabLayout, searchEngine,"
+                                 "                          httpsNavigationPolicy);"
                                  "return true;";
   webkit_web_view_call_async_javascript_function(web_view, function, -1, args, NULL, WIG_SETTINGS_PAGE_URI, NULL,
                                                  update_settings_page_finished, NULL);

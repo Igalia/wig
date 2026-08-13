@@ -37,6 +37,23 @@
       </div>
     </div>
 
+    {{if (https_navigation_supported)}}
+    <div class='setting-row'>
+      <div class='setting-text'>
+        <label class='setting-name' for='https-navigation-policy'>HTTPS Navigation</label>
+        <p class='setting-desc'>Upgrade addresses typed as http to https. HTTPS-First quietly falls back to http when
+          the secure load fails; HTTPS-Only shows an error instead.</p>
+      </div>
+      <div class='setting-control setting-select'>
+        <select id='https-navigation-policy'>
+          <option value='keep-as-requested' {{if (https_keep_as_requested)}}selected{{end}}>Off</option>
+          <option value='https-first' {{if (https_first)}}selected{{end}}>HTTPS-First</option>
+          <option value='https-only' {{if (https_only)}}selected{{end}}>HTTPS-Only</option>
+        </select>
+      </div>
+    </div>
+    {{end}}
+
     <div class='setting-row'>
       <div class='setting-text'>
         <label class='setting-name' for='search-engine'>Search Engine</label>
@@ -59,6 +76,7 @@
     const restoreTabs = document.querySelector('#restore-tabs');
     const tabLayout = document.querySelector('#tab-layout');
     const searchEngine = document.querySelector('#search-engine');
+    const httpsNavigationPolicy = document.querySelector('#https-navigation-policy');
 
     function setSearchEngine(value) {
       const custom = searchEngine.querySelector('option[data-custom]');
@@ -75,10 +93,12 @@
     setSearchEngine(searchEngine.dataset.current);
 
     window.wigSettings = {
-      update(restoreTabsValue, tabLayoutValue, searchEngineValue) {
+      update(restoreTabsValue, tabLayoutValue, searchEngineValue, httpsNavigationPolicyValue) {
         restoreTabs.checked = restoreTabsValue !== 0;
         tabLayout.value = tabLayoutValue;
         setSearchEngine(searchEngineValue);
+        if (httpsNavigationPolicy)
+          httpsNavigationPolicy.value = httpsNavigationPolicyValue;
       }
     };
 
@@ -90,6 +110,8 @@
         value = tabLayout.value;
       else if (e.target === searchEngine)
         value = searchEngine.value;
+      else if (e.target === httpsNavigationPolicy)
+        value = httpsNavigationPolicy.value;
       else
         return;
 

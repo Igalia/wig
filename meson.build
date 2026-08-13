@@ -120,6 +120,13 @@ config_h.set10(
         dependencies: wpe_webkit_dep,
     ),
 )
+config_h.set10(
+    'HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT',
+    cc.has_function(
+        'webkit_website_policies_get_https_navigation_policy',
+        dependencies: wpe_webkit_dep,
+    ),
+)
 configure_file(output: 'config.h', configuration: config_h)
 add_project_arguments(
     '-include',
