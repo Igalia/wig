@@ -1,0 +1,26 @@
+id: com.igalia.SparkleCDM.Module.clearkey
+branch: master
+runtime: com.igalia.wig.WPE
+runtime-version: master
+sdk: org.gnome.Sdk//50
+build-extension: true
+appstream-compose: false
+separate-locales: false
+
+build-options:
+  prefix: /app/lib/sparkle-cdm/clearkey
+
+modules:
+  - name: sparkle-cdm-clearkey
+    buildsystem: meson
+    no-make-install: true
+    config-opts:
+      - --buildtype=release
+      - -Dsample-player=disabled
+      - -Dclearkey-module=enabled
+    post-install:
+      - install -Dm755 src/clearkey/libsparkle-cdm-clearkey.so -t ${FLATPAK_DEST}
+    sources:
+      - type: git
+        url: https://github.com/Sparkle-CDM/sparkle-cdm.git
+        commit: cd42026a420554e311d191c9560e09c9a7119162

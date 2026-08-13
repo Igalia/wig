@@ -628,9 +628,8 @@ static void wig_application_startup(GApplication *application)
                                                         NULL);
   wig_features_apply_overrides(app->web_settings, app->settings);
 
-  const char *sparkle_widevine_path = g_getenv("SPARKLE_WIDEVINE_CDM_PATH");
-  if (sparkle_widevine_path && *sparkle_widevine_path)
-    webkit_web_context_add_path_to_sandbox(app->web_context, sparkle_widevine_path, TRUE);
+  g_autofree char *widevine_path = g_build_filename(g_get_user_cache_dir(), "widevine", NULL);
+  webkit_web_context_add_path_to_sandbox(app->web_context, widevine_path, TRUE);
 
   static const struct {
     const char *action;

@@ -13,6 +13,14 @@ build-options:
   no-debuginfo: true
 command: /app/libexec/wpe-webkit-2.0/MiniBrowser
 
+add-extensions:
+  com.igalia.SparkleCDM.Module:
+    version: master
+    subdirectories: true
+    merge-dirs: '.'
+    directory: lib/sparkle-cdm
+    autodelete: true
+
 modules:
   - name: unifdef
     no-autogen: true
@@ -44,10 +52,10 @@ modules:
     config-opts:
       - --buildtype=release
       - -Dsample-player=disabled
+      - -Dclearkey-module=disabled
     sources:
       - type: git
         url: https://github.com/Sparkle-CDM/sparkle-cdm.git
-        branch: main
         commit: cd42026a420554e311d191c9560e09c9a7119162
 
   - name: libsoup
@@ -62,7 +70,6 @@ modules:
     sources:
       - type: git
         url: https://gitlab.gnome.org/GNOME/libsoup.git
-        branch: master
         commit: f2af6b499cf23075ad73e065370cbb2e4eaceb6a
 
   - name: webkitwpe
