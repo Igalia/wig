@@ -53,6 +53,8 @@ modules:
       - --buildtype=release
       - -Dsample-player=disabled
       - -Dclearkey-module=disabled
+    post-install:
+      - mkdir -p ${FLATPAK_DEST}/lib/sparkle-cdm
     sources:
       - type: git
         url: https://github.com/Sparkle-CDM/sparkle-cdm.git
