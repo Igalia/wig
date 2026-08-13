@@ -43,12 +43,15 @@ static void favicon_loaded(GObject *source, GAsyncResult *result, gpointer user_
   g_autoptr(WebKitImageList) images = webkit_favicon_database_get_page_icons_finish(WEBKIT_FAVICON_DATABASE(source),
                                                                                     result, &error);
   if (!images) {
+    g_debug("favicon: lookup failed: %s", error->message);
     g_task_return_error(task, g_steal_pointer(&error));
     return;
   }
 
   FaviconRequest *request = g_task_get_task_data(task);
   GIcon *icon = wig_util_best_page_icon(images, request->size);
+  g_debug("favicon: lookup of %s returned %" G_GSIZE_FORMAT " image(s), best=%s", request->page_uri,
+          webkit_image_list_get_length(images), icon ? "yes" : "no");
   if (!icon) {
     g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "No favicon is stored for %s", request->page_uri);
     return;

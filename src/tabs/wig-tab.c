@@ -38,6 +38,7 @@ struct _WigTab {
   GIcon *icon;
   char *title;
   gboolean discarded;
+  gboolean restoring_icon;
   gboolean pinned;
   gboolean loading;
   gboolean playing_audio;
@@ -236,7 +237,11 @@ static void wig_tab_on_title_changed(WigTab *self)
 static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
 {
   if (load_event == WEBKIT_LOAD_STARTED) {
-    wig_tab_set_icon(self, NULL);
+    /* A restored tab is loading the very page its stored favicon belongs to, so
+     * that icon stays until the page reports its own. */
+    if (!self->restoring_icon)
+      wig_tab_set_icon(self, NULL);
+    self->restoring_icon = FALSE;
     wig_tab_set_hovered_link(self, NULL, NULL);
   }
 
@@ -272,7 +277,11 @@ static void discarded_favicon_loaded(GObject *source, GAsyncResult *result, gpoi
     return;
   }
 
-  if (self->discarded)
+  g_debug("tab %u: restored favicon arrived, discarded=%d has-icon=%d", self->id, self->discarded, self->icon != NULL);
+
+  /* The lookup outlives the tab being loaded, so a favicon the page has already
+   * reported for itself wins over the stored one. */
+  if (!self->icon)
     wig_tab_set_icon(self, G_ICON(icon));
 }
 
@@ -281,8 +290,12 @@ static void wig_tab_load_discarded_favicon(WigTab *self, const char *uri)
   WebKitNetworkSession *session = webkit_web_view_get_network_session(self->web_view);
   WebKitWebsiteDataManager *data_manager = webkit_network_session_get_website_data_manager(session);
   WebKitFaviconDatabase *database = webkit_website_data_manager_get_favicon_database(data_manager);
-  if (!database)
+  if (!database) {
+    g_debug("tab %u: no favicon database, cannot restore favicon for %s", self->id, uri);
     return;
+  }
+
+  g_debug("tab %u: requesting stored favicon for %s", self->id, uri);
 
   wig_favicon_get_async(database, uri, WIG_TAB_FAVICON_SIZE, NULL, discarded_favicon_loaded, g_object_ref(self));
 }
@@ -447,6 +460,7 @@ void wig_tab_mark_discarded(WigTab *self)
   self->discarded = TRUE;
 
 #if HAVE_FAVICON_SUPPORT
+  self->restoring_icon = TRUE;
   wig_tab_load_discarded_favicon(self, webkit_back_forward_list_item_get_uri(item));
 #endif
 
