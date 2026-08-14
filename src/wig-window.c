@@ -201,6 +201,8 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
                                          WebKitPolicyDecisionType decision_type, WebKitWebView *web_view);
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation,
                                                  WebKitWebView *opener);
+static void wig_window_web_process_terminated(WigWindow *win, WebKitWebProcessTerminationReason reason,
+                                              WebKitWebView *web_view);
 
 static void wig_window_attach_web_view(WigWindow *win, WebKitWebView *web_view)
 {
@@ -214,6 +216,7 @@ static void wig_window_attach_web_view(WigWindow *win, WebKitWebView *web_view)
   g_signal_group_connect_swapped(signals, "close", G_CALLBACK(wig_window_close_tab), win);
   g_signal_group_connect_swapped(signals, "decide-policy", G_CALLBACK(wig_window_decide_policy), win);
   g_signal_group_connect_swapped(signals, "create", G_CALLBACK(wig_window_web_view_create), win);
+  g_signal_group_connect_swapped(signals, "web-process-terminated", G_CALLBACK(wig_window_web_process_terminated), win);
   g_signal_group_set_target(signals, web_view);
   g_hash_table_insert(win->web_view_signal_groups, web_view, g_steal_pointer(&signals_object));
 }
@@ -652,6 +655,15 @@ static void wig_window_clear_load_progress(WigWindow *win)
 {
   gtk_entry_set_progress_fraction(GTK_ENTRY(win->url_entry), 0);
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
+}
+
+/* No further progress notifications arrive for a dead process, so the fraction
+ * left in the entry would stay there for good. */
+static void wig_window_web_process_terminated(WigWindow *win, WebKitWebProcessTerminationReason reason,
+                                              WebKitWebView *web_view)
+{
+  if (web_view == win->current_web_view)
+    wig_window_clear_load_progress(win);
 }
 
 static void wig_window_update_load_progress(WigWindow *win)

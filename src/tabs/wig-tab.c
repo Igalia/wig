@@ -23,6 +23,7 @@
 #include "wig-tab.h"
 
 #include "wig-auth-dialog.h"
+#include "wig-crash-page.h"
 #include "wig-favicon.h"
 #include "wig-script-dialog.h"
 #include "wig-utils.h"
@@ -34,6 +35,8 @@ struct _WigTab {
   guint id;
   WebKitWebView *web_view;
   GtkWidget *view_overlay;
+  GtkWidget *web_view_widget;
+  GtkWidget *crash_page;
   GtkWidget *status_label;
   GIcon *icon;
   char *title;
@@ -64,6 +67,42 @@ static gboolean wig_tab_on_authenticate(WigTab *self, WebKitAuthenticationReques
 {
   wig_auth_dialog_show(GTK_OVERLAY(self->view_overlay), request);
   return TRUE;
+}
+
+static void wig_tab_clear_crash_page(WigTab *self)
+{
+  if (!self->crash_page)
+    return;
+
+  gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), self->crash_page);
+  self->crash_page = NULL;
+  gtk_widget_set_visible(self->web_view_widget, TRUE);
+}
+
+static void wig_tab_crash_page_reload(WigTab *self)
+{
+  wig_tab_clear_crash_page(self);
+  webkit_web_view_reload(self->web_view);
+}
+
+/* WebKit leaves the load state untouched when the web process dies, so a tab
+ * that was mid-load keeps claiming it is loading until something reloads it. */
+static void wig_tab_on_web_process_terminated(WigTab *self, WebKitWebProcessTerminationReason reason)
+{
+  g_warning("tab %u: web process terminated (reason %d) while showing %s", self->id, reason,
+            webkit_web_view_get_uri(self->web_view));
+
+  g_object_set(self, "loading", FALSE, NULL);
+  wig_tab_set_hovered_link(self, NULL, NULL);
+
+  wig_tab_clear_crash_page(self);
+  self->crash_page = wig_crash_page_new(self->web_view, reason, self->id);
+  g_signal_connect_object(self->crash_page, "reload", G_CALLBACK(wig_tab_crash_page_reload), self, G_CONNECT_SWAPPED);
+
+  /* The dead view keeps its last frame and would still take input, so it is
+   * hidden rather than unparented: reloading needs it back. */
+  gtk_widget_set_visible(self->web_view_widget, FALSE);
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), self->crash_page);
 }
 
 G_DEFINE_FINAL_TYPE(WigTab, wig_tab, G_TYPE_OBJECT)
@@ -169,6 +208,8 @@ static void wig_tab_dispose(GObject *object)
     g_signal_handlers_disconnect_by_data(self->web_view, self);
   g_clear_object(&self->web_view);
   g_clear_object(&self->view_overlay);
+  self->web_view_widget = NULL;
+  self->crash_page = NULL;
   G_OBJECT_CLASS(wig_tab_parent_class)->dispose(object);
 }
 
@@ -243,6 +284,7 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
       wig_tab_set_icon(self, NULL);
     self->restoring_icon = FALSE;
     wig_tab_set_hovered_link(self, NULL, NULL);
+    wig_tab_clear_crash_page(self);
   }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
@@ -353,9 +395,9 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   WigTab *self = WIG_TAB(g_object_new(WIG_TYPE_TAB, NULL));
   self->web_view = g_object_ref(web_view);
 
-  GtkWidget *web_view_widget = wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)));
+  self->web_view_widget = wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)));
   self->view_overlay = g_object_ref_sink(gtk_overlay_new());
-  gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), web_view_widget);
+  gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), self->web_view_widget);
 
   self->status_label = gtk_label_new(NULL);
   gtk_label_set_ellipsize(GTK_LABEL(self->status_label), PANGO_ELLIPSIZE_END);
@@ -380,6 +422,8 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_signal_connect_object(web_view, "load-changed", G_CALLBACK(wig_tab_on_load_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "script-dialog", G_CALLBACK(wig_tab_on_script_dialog), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "authenticate", G_CALLBACK(wig_tab_on_authenticate), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "web-process-terminated", G_CALLBACK(wig_tab_on_web_process_terminated), self,
+                          G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-playing-audio", self, "playing-audio", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-muted", self, "muted",

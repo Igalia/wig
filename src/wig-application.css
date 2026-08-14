@@ -132,6 +132,14 @@ wig-download-row .download-detail.cancelled {
   color: @error_color;
 }
 
+wig-crash-page {
+  background-color: @window_bg_color;
+}
+
+wig-crash-page .crash-detail-value {
+  font-family: monospace;
+}
+
 wig-search-bar .search-bar-box {
   background-color: @window_bg_color;
   border-top: 1px solid alpha(@borders, 0.5);
