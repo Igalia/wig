@@ -12,4 +12,5 @@ wig_tab_sources = files(
     'wig-tab-widget.c',
     'wig-tab-wrap-layout.c',
     'wig-tab.c',
+    'wig-tls-error-page.c',
 )

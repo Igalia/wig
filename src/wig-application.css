@@ -140,6 +140,14 @@ wig-crash-page .crash-detail-value {
   font-family: monospace;
 }
 
+wig-tls-error-page {
+  background-color: @window_bg_color;
+}
+
+wig-tls-error-page .tls-detail-value {
+  font-family: monospace;
+}
+
 wig-search-bar .search-bar-box {
   background-color: @window_bg_color;
   border-top: 1px solid alpha(@borders, 0.5);

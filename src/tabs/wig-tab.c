@@ -26,6 +26,7 @@
 #include "wig-crash-page.h"
 #include "wig-favicon.h"
 #include "wig-script-dialog.h"
+#include "wig-tls-error-page.h"
 #include "wig-utils.h"
 #include "wpe-view-gtk.h"
 
@@ -37,6 +38,7 @@ struct _WigTab {
   GtkWidget *view_overlay;
   GtkWidget *web_view_widget;
   GtkWidget *crash_page;
+  GtkWidget *tls_error_page;
   GtkWidget *status_label;
   GIcon *icon;
   char *title;
@@ -69,20 +71,71 @@ static gboolean wig_tab_on_authenticate(WigTab *self, WebKitAuthenticationReques
   return TRUE;
 }
 
-static void wig_tab_clear_crash_page(WigTab *self)
+static void wig_tab_show_error_page(WigTab *self, GtkWidget *page)
 {
-  if (!self->crash_page)
+  gtk_widget_set_visible(self->web_view_widget, FALSE);
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), page);
+}
+
+static void wig_tab_clear_error_page(WigTab *self)
+{
+  GtkWidget *page = self->crash_page ? self->crash_page : self->tls_error_page;
+  if (!page)
     return;
 
-  gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), self->crash_page);
+  gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), page);
   self->crash_page = NULL;
+  self->tls_error_page = NULL;
   gtk_widget_set_visible(self->web_view_widget, TRUE);
 }
 
 static void wig_tab_crash_page_reload(WigTab *self)
 {
-  wig_tab_clear_crash_page(self);
+  wig_tab_clear_error_page(self);
   webkit_web_view_reload(self->web_view);
+}
+
+static void wig_tab_tls_error_page_go_back(WigTab *self)
+{
+  wig_tab_clear_error_page(self);
+  webkit_web_view_go_back(self->web_view);
+}
+
+static void wig_tab_tls_error_page_proceed(WigTab *self)
+{
+  WigTlsErrorPage *page = WIG_TLS_ERROR_PAGE(self->tls_error_page);
+  g_autofree char *uri = g_strdup(wig_tls_error_page_get_uri(page));
+  g_autofree char *host = g_strdup(wig_tls_error_page_get_host(page));
+  g_autoptr(GTlsCertificate) certificate = g_object_ref(wig_tls_error_page_get_certificate(page));
+
+  g_warning("tab %u: allowing untrusted certificate for %s", self->id, host);
+
+  webkit_network_session_allow_tls_certificate_for_host(webkit_web_view_get_network_session(self->web_view),
+                                                        certificate, host);
+
+  wig_tab_clear_error_page(self);
+  webkit_web_view_load_uri(self->web_view, uri);
+}
+
+static gboolean wig_tab_on_load_failed_with_tls_errors(WigTab *self, const char *failing_uri,
+                                                       GTlsCertificate *certificate, GTlsCertificateFlags errors)
+{
+  g_warning("tab %u: TLS errors (0x%x) loading %s", self->id, errors, failing_uri);
+
+  g_object_set(self, "loading", FALSE, NULL);
+  wig_tab_set_hovered_link(self, NULL, NULL);
+
+  wig_tab_clear_error_page(self);
+  self->tls_error_page = wig_tls_error_page_new(failing_uri, certificate, errors,
+                                                webkit_web_view_can_go_back(self->web_view));
+  g_signal_connect_object(self->tls_error_page, "proceed", G_CALLBACK(wig_tab_tls_error_page_proceed), self,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(self->tls_error_page, "go-back", G_CALLBACK(wig_tab_tls_error_page_go_back), self,
+                          G_CONNECT_SWAPPED);
+
+  wig_tab_show_error_page(self, self->tls_error_page);
+
+  return TRUE;
 }
 
 /* WebKit leaves the load state untouched when the web process dies, so a tab
@@ -95,14 +148,11 @@ static void wig_tab_on_web_process_terminated(WigTab *self, WebKitWebProcessTerm
   g_object_set(self, "loading", FALSE, NULL);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
-  wig_tab_clear_crash_page(self);
+  wig_tab_clear_error_page(self);
   self->crash_page = wig_crash_page_new(self->web_view, reason, self->id);
   g_signal_connect_object(self->crash_page, "reload", G_CALLBACK(wig_tab_crash_page_reload), self, G_CONNECT_SWAPPED);
 
-  /* The dead view keeps its last frame and would still take input, so it is
-   * hidden rather than unparented: reloading needs it back. */
-  gtk_widget_set_visible(self->web_view_widget, FALSE);
-  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), self->crash_page);
+  wig_tab_show_error_page(self, self->crash_page);
 }
 
 G_DEFINE_FINAL_TYPE(WigTab, wig_tab, G_TYPE_OBJECT)
@@ -210,6 +260,7 @@ static void wig_tab_dispose(GObject *object)
   g_clear_object(&self->view_overlay);
   self->web_view_widget = NULL;
   self->crash_page = NULL;
+  self->tls_error_page = NULL;
   G_OBJECT_CLASS(wig_tab_parent_class)->dispose(object);
 }
 
@@ -284,7 +335,7 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
       wig_tab_set_icon(self, NULL);
     self->restoring_icon = FALSE;
     wig_tab_set_hovered_link(self, NULL, NULL);
-    wig_tab_clear_crash_page(self);
+    wig_tab_clear_error_page(self);
   }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
@@ -424,6 +475,8 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_signal_connect_object(web_view, "authenticate", G_CALLBACK(wig_tab_on_authenticate), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "web-process-terminated", G_CALLBACK(wig_tab_on_web_process_terminated), self,
                           G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "load-failed-with-tls-errors", G_CALLBACK(wig_tab_on_load_failed_with_tls_errors),
+                          self, G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-playing-audio", self, "playing-audio", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-muted", self, "muted",
