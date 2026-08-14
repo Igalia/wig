@@ -92,8 +92,11 @@ window > .titlebar:not(.flat) {
   padding: 8px 12px;
 }
 
+/* Same height and padding as a row, so the popover keeps its size when this
+ * label gives way to the first download. */
 .downloads-empty {
-  padding: 24px;
+  min-height: 62px;
+  padding: 8px 12px;
 }
 
 /* Fixed height: the progress bar only exists while a download is running, and

@@ -41,6 +41,7 @@ struct _WigDownloadsButton {
   GtkWidget *error_label;
   GtkWidget *empty_label;
   GtkWidget *list;
+  GtkWidget *scroller;
   WigDownloadsPaintable *paintable;
 
   WigDownloadsManager *manager;
@@ -91,7 +92,11 @@ static void wig_downloads_button_sync_list(WigDownloadsButton *self)
     gtk_box_prepend(GTK_BOX(self->list), row);
   }
 
-  gtk_widget_set_visible(self->empty_label, wig_downloads_manager_is_empty(self->manager));
+  /* An empty scroller still asks for room for its scrollbar, which would make
+   * the empty popover taller than the one-row popover it turns into. */
+  gboolean empty = wig_downloads_manager_is_empty(self->manager);
+  gtk_widget_set_visible(self->empty_label, empty);
+  gtk_widget_set_visible(self->scroller, !empty);
   gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager));
 }
 
@@ -211,12 +216,12 @@ static GtkWidget *wig_downloads_button_build_list(WigDownloadsButton *self)
   self->list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_add_css_class(self->list, "downloads-list");
 
-  GtkWidget *scroller = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroller), TRUE);
-  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scroller), LIST_HEIGHT);
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), self->list);
-  gtk_box_append(GTK_BOX(content), scroller);
+  self->scroller = gtk_scrolled_window_new();
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(self->scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(self->scroller), TRUE);
+  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(self->scroller), LIST_HEIGHT);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(self->scroller), self->list);
+  gtk_box_append(GTK_BOX(content), self->scroller);
 
   return content;
 }
