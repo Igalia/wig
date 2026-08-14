@@ -22,6 +22,8 @@
 
 #include "wig-tls-error-page.h"
 
+#include "wig-page-details.h"
+
 #include <adwaita.h>
 
 struct _WigTlsErrorPage {
@@ -94,24 +96,6 @@ static void wig_tls_error_page_proceed_clicked(WigTlsErrorPage *self)
 static void wig_tls_error_page_go_back_clicked(WigTlsErrorPage *self)
 {
   g_signal_emit(self, signals[GO_BACK_SIGNAL], 0);
-}
-
-static void wig_tls_error_page_add_detail(GtkGrid *grid, int row, const char *name, const char *value)
-{
-  GtkWidget *name_label = gtk_label_new(name);
-  gtk_label_set_xalign(GTK_LABEL(name_label), 1.0f);
-  gtk_widget_add_css_class(name_label, "dim-label");
-  gtk_widget_set_valign(name_label, GTK_ALIGN_START);
-  gtk_grid_attach(grid, name_label, 0, row, 1, 1);
-
-  GtkWidget *value_label = gtk_label_new(value);
-  gtk_label_set_xalign(GTK_LABEL(value_label), 0.0f);
-  gtk_label_set_selectable(GTK_LABEL(value_label), TRUE);
-  gtk_label_set_wrap(GTK_LABEL(value_label), TRUE);
-  gtk_label_set_wrap_mode(GTK_LABEL(value_label), PANGO_WRAP_WORD_CHAR);
-  gtk_widget_set_hexpand(value_label, TRUE);
-  gtk_widget_add_css_class(value_label, "tls-detail-value");
-  gtk_grid_attach(grid, value_label, 1, row, 1, 1);
 }
 
 static void wig_tls_error_page_dispose(GObject *object)
@@ -191,12 +175,9 @@ GtkWidget *wig_tls_error_page_new(const char *failing_uri, GTlsCertificate *cert
 
   GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
 
-  GtkWidget *grid = gtk_grid_new();
-  gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
-  gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
-  gtk_widget_add_css_class(grid, "tls-details");
+  GtkWidget *grid = wig_page_details_new();
   for (guint i = 0; i < G_N_ELEMENTS(details); i++)
-    wig_tls_error_page_add_detail(GTK_GRID(grid), (int)i, details[i].name, details[i].value);
+    wig_page_details_add(grid, (int)i, details[i].name, details[i].value);
   gtk_box_append(GTK_BOX(content), grid);
 
   GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);

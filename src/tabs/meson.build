@@ -1,7 +1,9 @@
 wig_tab_sources = files(
     'wig-auth-dialog.c',
     'wig-crash-page.c',
+    'wig-error-page.c',
     'wig-modal-dialog.c',
+    'wig-page-details.c',
     'wig-script-dialog.c',
     'wig-tab-bar.c',
     'wig-tab-context-menu.c',

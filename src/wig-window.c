@@ -64,6 +64,7 @@ struct _WigWindow {
   GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
   GSignalGroup *active_web_view_signals;
+  GSignalGroup *active_tab_signals;
   GHashTable *web_view_signal_groups;
 };
 
@@ -646,6 +647,16 @@ static void wig_window_tab_copy_link(WigTabList *list, guint tab_id, WigWindow *
 static void wig_window_update_url(WigWindow *win)
 {
   const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
+
+  /* A load that failed before committing leaves the view without a URI, so the
+   * address the tab is showing an error page for stands in for it. */
+  g_autoptr(WigTab) tab = NULL;
+  if (win->current_web_view && (!url || !*url)) {
+    tab = wig_window_get_tab_for_web_view(win, win->current_web_view);
+    if (tab)
+      url = wig_tab_get_error_uri(tab);
+  }
+
   win->suppress_entry_completion = TRUE;
   gtk_editable_set_text(GTK_EDITABLE(win->url_entry), url ? url : "");
   win->suppress_entry_completion = FALSE;
@@ -1110,6 +1121,7 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
   WebKitWebView *web_view = tab ? wig_tab_get_web_view(tab) : NULL;
   g_set_object(&win->current_web_view, web_view);
   g_signal_group_set_target(win->active_web_view_signals, web_view);
+  g_signal_group_set_target(win->active_tab_signals, tab);
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), web_view);
 
   if (tab)
@@ -1425,8 +1437,11 @@ static void wig_window_dispose(GObject *object)
   g_clear_pointer(&win->entry_completion_popover, gtk_widget_unparent);
   if (win->active_web_view_signals)
     g_signal_group_set_target(win->active_web_view_signals, NULL);
+  if (win->active_tab_signals)
+    g_signal_group_set_target(win->active_tab_signals, NULL);
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), NULL);
   g_clear_object(&win->active_web_view_signals);
+  g_clear_object(&win->active_tab_signals);
   g_clear_pointer(&win->web_view_signal_groups, g_hash_table_unref);
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
 }
@@ -1450,6 +1465,9 @@ static void wig_window_init(WigWindow *win)
                                  G_CALLBACK(wig_window_web_view_context_menu), win);
   g_signal_group_connect_swapped(win->active_web_view_signals, "mouse-target-changed",
                                  G_CALLBACK(wig_window_on_mouse_target_changed), win);
+  win->active_tab_signals = g_signal_group_new(WIG_TYPE_TAB);
+  g_signal_group_connect_swapped(win->active_tab_signals, "notify::error-uri", G_CALLBACK(wig_window_update_url), win);
+
   win->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
 }
 

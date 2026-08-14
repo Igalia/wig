@@ -132,19 +132,13 @@ wig-download-row .download-detail.cancelled {
   color: @error_color;
 }
 
-wig-crash-page {
+wig-crash-page,
+wig-tls-error-page,
+wig-error-page {
   background-color: @window_bg_color;
 }
 
-wig-crash-page .crash-detail-value {
-  font-family: monospace;
-}
-
-wig-tls-error-page {
-  background-color: @window_bg_color;
-}
-
-wig-tls-error-page .tls-detail-value {
+.page-detail-value {
   font-family: monospace;
 }
 
