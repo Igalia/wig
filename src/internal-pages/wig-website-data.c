@@ -193,8 +193,7 @@ static void on_initial_fetch_for_remove_done(GObject *source, GAsyncResult *res,
     return;
   }
 
-  webkit_website_data_manager_remove(state->manager, state->fetch_types, g_steal_pointer(&to_remove), NULL,
-                                     on_remove_done, state);
+  webkit_website_data_manager_remove(state->manager, state->fetch_types, to_remove, NULL, on_remove_done, state);
 }
 
 void handle_website_data_uri(WebKitURISchemeRequest *request, WebKitWebsiteDataManager *manager)
