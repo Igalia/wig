@@ -1053,6 +1053,12 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
   g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
   g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, "popup.open-in-new-tab",
                                                  "Open Link in New Tab");
+  if (webkit_hit_test_result_context_is_editable(hit_test_result)) {
+    g_autoptr(GMenu) section = g_menu_new();
+    g_menu_append(section, "Insert Emoji…", "win.insert-emoji");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+  }
+
   if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
     return FALSE;
 
