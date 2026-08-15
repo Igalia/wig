@@ -251,7 +251,7 @@ static gboolean query_permission_state(WebKitWebView *web_view, WebKitPermission
   else
     return FALSE;
 
-  g_autoptr(WebKitSecurityOrigin) security_origin = webkit_permission_state_query_get_security_origin(query);
+  WebKitSecurityOrigin *security_origin = webkit_permission_state_query_get_security_origin(query);
   g_autofree char *origin = webkit_security_origin_to_string(security_origin);
   if (!origin)
     return FALSE;
