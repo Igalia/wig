@@ -22,9 +22,16 @@
 
 #pragma once
 
+#include <adwaita.h>
 #include <wpe/webkit.h>
 
-void handle_content_filters_uri(WebKitURISchemeRequest *request, WebKitUserContentManager *manager,
-                                WebKitUserContentFilterStore *store);
+G_BEGIN_DECLS
+
+#define WIG_TYPE_SETTINGS_FILTERS (wig_settings_filters_get_type())
+G_DECLARE_FINAL_TYPE(WigSettingsFilters, wig_settings_filters, WIG, SETTINGS_FILTERS, GtkWidget)
+
+GtkWidget *wig_settings_filters_new(void);
 
 void wig_content_filters_load_saved(WebKitUserContentManager *manager, WebKitUserContentFilterStore *store);
+
+G_END_DECLS

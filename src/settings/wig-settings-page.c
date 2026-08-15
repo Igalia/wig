@@ -24,6 +24,7 @@
 
 #include "wig-application.h"
 #include "wig-settings-features.h"
+#include "wig-settings-filters.h"
 #include "wig-settings-rows.h"
 #include "wig-settings-search.h"
 
@@ -88,6 +89,7 @@ char *wig_settings_page_moved_uri(const char *uri)
   } moved[] = {
     { "wig:features", WIG_SETTINGS_PAGE_URI "/features" },
     { "wig:developer-features", WIG_SETTINGS_PAGE_URI "/developer-features" },
+    { "wig:content-filters", WIG_SETTINGS_PAGE_URI "/content-filters" },
   };
 
   if (!uri)
@@ -232,6 +234,12 @@ static void wig_settings_page_add_features_panes(WigSettingsPage *self)
                                       "applications-engineering-symbolic");
 }
 
+static void wig_settings_page_add_filters_pane(WigSettingsPage *self)
+{
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_filters_new(), "content-filters",
+                                      "Filters", "security-high-symbolic");
+}
+
 static char *wig_settings_page_first_pane(WigSettingsPage *self)
 {
   g_autoptr(GtkSelectionModel) pages = adw_view_stack_get_pages(ADW_VIEW_STACK(self->stack));
@@ -349,6 +357,7 @@ static void wig_settings_page_init(WigSettingsPage *self)
   wig_settings_page_add_browsing_pane(self, settings);
   wig_settings_page_add_content_pane(self, settings);
   wig_settings_page_add_features_panes(self);
+  wig_settings_page_add_filters_pane(self);
   g_signal_connect_object(stack, "notify::visible-child-name", G_CALLBACK(wig_settings_page_visible_pane_changed), self,
                           G_CONNECT_SWAPPED);
 

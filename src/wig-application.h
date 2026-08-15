@@ -59,6 +59,7 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app);
 WigHistoryStore *wig_application_get_history_store(WigApplication *app);
 WigDownloadsManager *wig_application_get_downloads_manager(WigApplication *app);
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri);
+gboolean wig_application_open_uri(WigApplication *app, GtkWindow *win, const char *uri);
 gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore);
 
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
@@ -67,6 +68,8 @@ gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWeb
 
 GSettings *wig_application_get_settings(WigApplication *app);
 WebKitSettings *wig_application_get_web_settings(WigApplication *app);
+WebKitUserContentManager *wig_application_get_user_content_manager(WigApplication *app);
+WebKitUserContentFilterStore *wig_application_get_content_filter_store(WigApplication *app);
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
 WebKitWebsitePolicies *wig_application_get_website_policies(WigApplication *app);
 #endif

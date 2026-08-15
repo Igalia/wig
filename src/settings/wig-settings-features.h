@@ -33,9 +33,6 @@ typedef enum {
   WIG_FEATURES_DEVELOPMENT,
 } WigFeaturesKind;
 
-/* A pane listing what WebKit can be asked to turn on or off. There are hundreds
- * of them, so the rows are built the first time the pane is looked at rather
- * than when the settings are opened. */
 #define WIG_TYPE_SETTINGS_FEATURES (wig_settings_features_get_type())
 G_DECLARE_FINAL_TYPE(WigSettingsFeatures, wig_settings_features, WIG, SETTINGS_FEATURES, GtkWidget)
 
@@ -44,7 +41,6 @@ GtkWidget *wig_settings_features_new(WigFeaturesKind kind);
 void wig_settings_features_index(WigFeaturesKind kind, WigSettingsSearch *search, const char *pane,
                                  const char *pane_title);
 
-/* Puts back the overrides that were kept for good, at startup. */
 void wig_features_apply_overrides(WebKitSettings *web_settings, GSettings *settings);
 
 G_END_DECLS

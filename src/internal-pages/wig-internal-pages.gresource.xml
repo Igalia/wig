@@ -6,7 +6,6 @@
     <file>history.html</file>
     <file>memory-pressure.html</file>
     <file>website-data.html</file>
-    <file>content-filters.html</file>
     <file>user-scripts.html</file>
     <file>user-styles.html</file>
   </gresource>

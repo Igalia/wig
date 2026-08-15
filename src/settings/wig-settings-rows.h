@@ -28,9 +28,6 @@ G_BEGIN_DECLS
 
 GtkWidget *wig_settings_switch_row_new(GSettings *settings, const char *key, const char *title, const char *subtitle);
 
-/* @nicks holds the value stored for each of @labels, in the same order, and ends
- * with NULL. It reaches the binding as its user data, which is why it is not
- * const all the way down. */
 GtkWidget *wig_settings_combo_row_new(GSettings *settings, const char *key, const char *title, const char *subtitle,
                                       const char **nicks, const char *const *labels);
 

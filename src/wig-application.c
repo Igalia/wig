@@ -25,13 +25,13 @@
 #include <errno.h>
 #include <tmpl-glib.h>
 
-#include "wig-content-filters.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
 #include "wig-history.h"
 #include "wig-internal-page.h"
 #include "wig-memory-pressure.h"
 #include "wig-settings-features.h"
+#include "wig-settings-filters.h"
 #include "wig-settings-page.h"
 #include "wig-settings.h"
 #include "wig-user-scripts.h"
@@ -102,6 +102,30 @@ static WigWindow *wig_application_find_browser_window(WigApplication *app)
   }
 
   return NULL;
+}
+
+gboolean wig_application_open_uri(WigApplication *app, GtkWindow *win, const char *uri)
+{
+  const char *scheme = uri ? g_uri_peek_scheme(uri) : NULL;
+
+  if (g_strcmp0(scheme, "http") != 0 && g_strcmp0(scheme, "https") != 0) {
+    g_warning("wig: refusing to open '%s'", uri ? uri : "(null)");
+    return FALSE;
+  }
+
+  if (!WIG_IS_WINDOW(win))
+    win = GTK_WINDOW(wig_application_find_browser_window(app));
+
+  if (!win) {
+    g_warning("wig: no window to open '%s' in", uri);
+    return FALSE;
+  }
+
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
+  wig_window_add_web_view(WIG_WINDOW(win), web_view);
+  webkit_web_view_load_uri(web_view, uri);
+
+  return TRUE;
 }
 
 gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore)
@@ -392,9 +416,6 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
     return; // async
   } else if (g_str_has_prefix(uri, "wig:user-styles")) {
     handle_user_styles_uri(request, app->user_content_manager, app->user_style_sheets);
-    return; // async
-  } else if (g_str_has_prefix(uri, "wig:content-filters")) {
-    handle_content_filters_uri(request, app->user_content_manager, app->content_filter_store);
     return; // async
   } else {
     g_autoptr(GError) not_found = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found");
@@ -969,6 +990,16 @@ GSettings *wig_application_get_settings(WigApplication *app)
 WebKitSettings *wig_application_get_web_settings(WigApplication *app)
 {
   return app->web_settings;
+}
+
+WebKitUserContentManager *wig_application_get_user_content_manager(WigApplication *app)
+{
+  return app->user_content_manager;
+}
+
+WebKitUserContentFilterStore *wig_application_get_content_filter_store(WigApplication *app)
+{
+  return app->content_filter_store;
 }
 
 WigSession *wig_application_get_session(WigApplication *app)
