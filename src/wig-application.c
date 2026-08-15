@@ -23,12 +23,10 @@
 #include "wig-application.h"
 
 #include <errno.h>
-#include <tmpl-glib.h>
 
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
 #include "wig-history-page.h"
-#include "wig-internal-page.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
 #include "wig-settings-page.h"
@@ -358,56 +356,6 @@ static void wig_application_initialize_notification_permissions(WigApplication *
   webkit_web_context_initialize_notification_permissions(app->web_context, allowed, denied);
 }
 
-static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpointer user_data)
-{
-  const char *uri = webkit_uri_scheme_request_get_uri(request);
-
-  g_debug("wig: scheme handler called for '%s'", uri);
-
-  WebKitWebView *web_view = webkit_uri_scheme_request_get_web_view(request);
-  const char *current_uri = webkit_web_view_get_uri(web_view);
-  const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
-  if (g_strcmp0(current_scheme, "wig") != 0) {
-    g_warning("wig: rejecting cross-origin request for '%s' from '%s'", uri, current_uri);
-    g_autoptr(GError) denied = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                                                   "Cross-origin access to wig: URIs is not allowed");
-    webkit_uri_scheme_request_finish_error(request, denied);
-    return;
-  }
-
-  if (g_str_has_prefix(uri, "wig:resources/")) {
-    const char *name = uri + strlen("wig:resources/");
-    g_autofree char *res_path = g_strconcat("/com/igalia/wig/internal-pages/", name, NULL);
-    g_autoptr(GError) error = NULL;
-    g_autoptr(GBytes) bytes = g_resources_lookup_data(res_path, G_RESOURCE_LOOKUP_FLAGS_NONE, &error);
-    if (!bytes) {
-      webkit_uri_scheme_request_finish_error(request, error);
-      return;
-    }
-    gsize size;
-    gconstpointer data = g_bytes_get_data(bytes, &size);
-    g_autofree char *mime_type = g_content_type_guess(name, data, size, NULL);
-    g_autoptr(GInputStream) stream = g_memory_input_stream_new_from_bytes(bytes);
-    webkit_uri_scheme_request_finish(request, stream, (goffset)size, mime_type);
-    return;
-  }
-
-  g_autofree char *html = NULL;
-  if (g_str_equal(uri, "wig:about"))
-    html = wig_internal_page_render("/com/igalia/wig/internal-pages/about.html", NULL);
-  else if (uri_is_settings_page(uri) || uri_is_history_page(uri)) {
-    /* These are widgets the tab shows over this document, which only has to
-     * commit so the address behaves like any other. */
-    html = g_strdup("<!DOCTYPE html>");
-  } else {
-    g_autoptr(GError) not_found = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found");
-    webkit_uri_scheme_request_finish_error(request, not_found);
-    return;
-  }
-
-  wig_internal_page_finish_request(request, g_steal_pointer(&html));
-}
-
 static void wig_user_script_record_free(WigUserScriptRecord *record)
 {
   g_free(record->source);
@@ -629,11 +577,8 @@ static void wig_application_startup(GApplication *application)
   app->web_context = webkit_web_context_new();
   g_signal_connect_swapped(app->web_context, "initialize-notification-permissions",
                            G_CALLBACK(wig_application_initialize_notification_permissions), app);
-  webkit_web_context_register_uri_scheme(app->web_context, "wig", wig_application_about_scheme_cb, app, NULL);
-  webkit_security_manager_register_uri_scheme_as_no_access(webkit_web_context_get_security_manager(app->web_context),
-                                                           "wig");
-  webkit_security_manager_register_uri_scheme_as_secure(webkit_web_context_get_security_manager(app->web_context),
-                                                        "wig");
+  webkit_security_manager_register_uri_scheme_as_empty_document(
+      webkit_web_context_get_security_manager(app->web_context), "wig");
   wig_application_enable_spell_checking(app);
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, "enable-encrypted-media", TRUE,
                                                         NULL);

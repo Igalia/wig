@@ -24,20 +24,6 @@ inherit-extensions:
   - com.igalia.SparkleCDM.Module
 
 modules:
-  - name: template-glib
-    buildsystem: meson
-    cleanup:
-      - /include
-      - /lib/pkgconfig
-    config-opts:
-      - --buildtype=release
-      - -Dintrospection=disabled
-      - -Dvapi=false
-    sources:
-      - type: archive
-        url: https://github.com/GNOME/template-glib/archive/d853e3fcf16838993d2de4ce5fc213edfe63818d.tar.gz
-        sha256: 91a4670a2039f4db735f2b2218debf680d41a9d5001efa3e25f146f23edb2f7d
-
   - name: wpe-platform-gtk
     buildsystem: meson
     cleanup:
@@ -59,7 +45,6 @@ modules:
       - type: dir
         path: ..
         skip:
-          - subprojects/template-glib
           - subprojects/wpe-platform-gtk
           - .flatpak-builder
           - .git

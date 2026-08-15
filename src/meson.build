@@ -1,5 +1,4 @@
 subdir('history')
-subdir('internal-pages')
 subdir('settings')
 subdir('tabs')
 subdir('entry')
@@ -39,7 +38,7 @@ wig_sources = files(
     'wig-utils.c',
     'wig-window-base.c',
     'wig-window.c',
-) + internal_pages_sources + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_resources + wig_icon_resources
+) + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_resources + wig_icon_resources
 
 executable(
     'wig',
@@ -50,12 +49,10 @@ executable(
         adw_dep,
         libpsl_dep,
         sqlite_dep,
-        template_glib_dep,
     ],
     include_directories: [
         '.',
         'history',
-        'internal-pages',
         'settings',
         'tabs',
         'entry',

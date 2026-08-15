@@ -14,16 +14,6 @@ wpe_webkit_dep = dependency('wpe-webkit-2.0', version: '>= 2.51.3')
 adw_dep = dependency('libadwaita-1', version: '>= 1.6')
 libpsl_dep = dependency('libpsl')
 sqlite_dep = dependency('sqlite3')
-template_glib_dep = dependency(
-    'template-glib-1.0',
-    version: '>= 3.41.0',
-    allow_fallback: true,
-    default_options: [
-        'package_subdir=' + meson.project_name(),
-        'vapi=false',
-        'introspection=disabled',
-    ],
-)
 
 cc = meson.get_compiler('c')
 global_cflags = []
