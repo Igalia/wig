@@ -181,7 +181,7 @@ void wig_auth_dialog_show(GtkOverlay *overlay, WebKitAuthenticationRequest *requ
   data->password_entry = wig_auth_dialog_add_field(GTK_GRID(grid), 1, "Password", data);
   gtk_entry_set_visibility(GTK_ENTRY(data->password_entry), FALSE);
 
-  WebKitCredential *proposed = webkit_authentication_request_get_proposed_credential(request);
+  g_autoptr(WebKitCredential) proposed = webkit_authentication_request_get_proposed_credential(request);
   const char *proposed_username = proposed ? webkit_credential_get_username(proposed) : NULL;
   const char *proposed_password = proposed ? webkit_credential_get_password(proposed) : NULL;
   if (proposed_username)
