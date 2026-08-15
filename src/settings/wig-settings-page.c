@@ -198,7 +198,7 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
 static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings *settings)
 {
   Pane pane;
-  wig_settings_page_new_pane(self, &pane, "content", "Content", "text-x-generic-symbolic");
+  wig_settings_page_new_pane(self, &pane, "content", "Page Content", "text-x-generic-symbolic");
 
   pane_add(&pane,
            wig_settings_switch_row_new(settings, "enable-javascript", "JavaScript", "Run the scripts a page carries."));
@@ -234,39 +234,39 @@ static void wig_settings_page_add_features_pane(WigSettingsPage *self, WigFeatur
 
 static void wig_settings_page_add_features_panes(WigSettingsPage *self)
 {
-  wig_settings_page_add_features_pane(self, WIG_FEATURES_EXPERIMENTAL, "features", "Features",
+  wig_settings_page_add_features_pane(self, WIG_FEATURES_EXPERIMENTAL, "features", "Experimental Features",
                                       "applications-science-symbolic");
-  wig_settings_page_add_features_pane(self, WIG_FEATURES_DEVELOPMENT, "developer-features", "Developer",
+  wig_settings_page_add_features_pane(self, WIG_FEATURES_DEVELOPMENT, "developer-features", "Developer Features",
                                       "applications-engineering-symbolic");
 }
 
 static void wig_settings_page_add_memory_pane(WigSettingsPage *self)
 {
-  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_memory_new(), "memory-limits", "Memory",
-                                      "drive-harddisk-symbolic");
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_memory_new(), "memory-limits",
+                                      "Memory Limits", "drive-harddisk-symbolic");
   wig_settings_memory_index(WIG_SETTINGS_SEARCH(self->search), "memory-limits", "Memory Limits");
 }
 
 static void wig_settings_page_add_filters_pane(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_filters_new(), "content-filters",
-                                      "Filters", "security-high-symbolic");
+                                      "Content Filters", "security-high-symbolic");
 }
 
 static void wig_settings_page_add_user_content_panes(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack),
                                       wig_settings_user_content_new(WIG_USER_CONTENT_SCRIPTS), "user-scripts",
-                                      "Scripts", "application-x-executable-symbolic");
+                                      "User Scripts", "application-x-executable-symbolic");
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack),
-                                      wig_settings_user_content_new(WIG_USER_CONTENT_STYLES), "user-styles", "Styles",
-                                      "preferences-desktop-appearance-symbolic");
+                                      wig_settings_user_content_new(WIG_USER_CONTENT_STYLES), "user-styles",
+                                      "User Styles", "preferences-desktop-appearance-symbolic");
 }
 
 static void wig_settings_page_add_website_data_pane(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_website_data_new(), "website-data",
-                                      "Data", "network-server-symbolic");
+                                      "Website Data", "network-server-symbolic");
   wig_settings_website_data_index(WIG_SETTINGS_SEARCH(self->search), "website-data", "Website Data");
 }
 
