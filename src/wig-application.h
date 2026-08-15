@@ -66,6 +66,7 @@ void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView
 gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 
 GSettings *wig_application_get_settings(WigApplication *app);
+WebKitSettings *wig_application_get_web_settings(WigApplication *app);
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
 WebKitWebsitePolicies *wig_application_get_website_policies(WigApplication *app);
 #endif

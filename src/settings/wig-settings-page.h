@@ -36,4 +36,6 @@ GtkWidget *wig_settings_page_new(const char *uri);
 
 gboolean uri_is_settings_page(const char *uri);
 
+char *wig_settings_page_moved_uri(const char *uri);
+
 G_END_DECLS

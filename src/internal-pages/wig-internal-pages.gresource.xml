@@ -3,7 +3,6 @@
   <gresource prefix="/com/igalia/wig/internal-pages">
     <file>style.css</file>
     <file>about.html</file>
-    <file>features.html</file>
     <file>history.html</file>
     <file>memory-pressure.html</file>
     <file>website-data.html</file>

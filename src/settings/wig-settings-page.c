@@ -23,6 +23,7 @@
 #include "wig-settings-page.h"
 
 #include "wig-application.h"
+#include "wig-settings-features.h"
 #include "wig-settings-rows.h"
 #include "wig-settings-search.h"
 
@@ -74,6 +75,34 @@ gboolean uri_is_settings_page(const char *uri)
 {
   g_autoptr(GUri) parsed = NULL;
   return settings_uri_pane(uri, &parsed) != NULL;
+}
+
+/* The feature lists used to be pages of their own, and the addresses they were
+ * reached by are kept working. */
+char *wig_settings_page_moved_uri(const char *uri)
+{
+  static const struct {
+    const char *from;
+    const char *to;
+  } moved[] = {
+    { "wig:features", WIG_SETTINGS_PAGE_URI "/features" },
+    { "wig:developer-features", WIG_SETTINGS_PAGE_URI "/developer-features" },
+  };
+
+  if (!uri)
+    return NULL;
+
+  g_autoptr(GUri) parsed = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
+  if (!parsed || g_strcmp0(g_uri_get_scheme(parsed), "wig") != 0)
+    return NULL;
+
+  for (guint i = 0; i < G_N_ELEMENTS(moved); i++) {
+    /* The path alone, so a query left over from the old page is dropped. */
+    if (g_str_equal(g_uri_get_path(parsed), moved[i].from + strlen("wig:")))
+      return g_strdup(moved[i].to);
+  }
+
+  return NULL;
 }
 
 static char *wig_settings_page_pane_for_uri(const char *uri)
@@ -175,6 +204,16 @@ static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings 
            wig_settings_switch_row_new(settings, "zoom-text-only", "Zoom Text Only",
                                        "Resize only the text when zooming, leaving images and layout at "
                                        "their own size."));
+}
+
+/* The feature lists are pages of their own rather than rows in a group, so they
+ * go in beside the panes rather than through one. */
+static void wig_settings_page_add_features_panes(WigSettingsPage *self)
+{
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_features_new(WIG_FEATURES_EXPERIMENTAL),
+                                      "features", "Features", "applications-science-symbolic");
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_features_new(WIG_FEATURES_DEVELOPMENT),
+                                      "developer-features", "Developer", "applications-engineering-symbolic");
 }
 
 static char *wig_settings_page_first_pane(WigSettingsPage *self)
@@ -290,6 +329,7 @@ static void wig_settings_page_init(WigSettingsPage *self)
   self->stack = stack;
   wig_settings_page_add_browsing_pane(self, settings);
   wig_settings_page_add_content_pane(self, settings);
+  wig_settings_page_add_features_panes(self);
   g_signal_connect_object(stack, "notify::visible-child-name", G_CALLBACK(wig_settings_page_visible_pane_changed), self,
                           G_CONNECT_SWAPPED);
 

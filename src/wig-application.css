@@ -332,3 +332,14 @@ wig-tab.selected {
   box-shadow: 0 0 6px 2px alpha(@accent_color, 0.6);
   border-radius: 6px;
 }
+
+
+/* How far along a WebKit feature is, tinted with the colour the status class
+ * gives the label. */
+.wig-feature-status {
+  border-radius: 6px;
+  padding: 2px 7px;
+  background: alpha(currentColor, 0.15);
+  font-weight: 700;
+  text-transform: uppercase;
+}

@@ -27,6 +27,7 @@
 #include "wig-downloads-button.h"
 #include "wig-entry-completion-popover.h"
 #include "wig-search-bar.h"
+#include "wig-settings-page.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
 #include "wig-tab-sidebar.h"
@@ -992,6 +993,15 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
           frame_name ? frame_name : "(null)");
 
   const char *target_scheme = request_uri ? g_uri_peek_scheme(request_uri) : NULL;
+
+  g_autofree char *moved_uri = wig_settings_page_moved_uri(request_uri);
+  if (moved_uri) {
+    g_debug("wig: '%s' now lives at '%s'", request_uri, moved_uri);
+    webkit_policy_decision_ignore(decision);
+    webkit_web_view_load_uri(web_view, moved_uri);
+    return TRUE;
+  }
+
   if (g_strcmp0(target_scheme, "wig") == 0
       && !wig_application_take_internal_navigation(wig_application_get(), web_view, request_uri)) {
     const char *current_uri = webkit_web_view_get_uri(web_view);

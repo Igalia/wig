@@ -25,18 +25,18 @@
 #include <errno.h>
 #include <tmpl-glib.h>
 
-#include "internal-pages/wig-content-filters.h"
-#include "internal-pages/wig-features.h"
-#include "internal-pages/wig-history.h"
-#include "internal-pages/wig-internal-page.h"
-#include "internal-pages/wig-memory-pressure.h"
-#include "internal-pages/wig-user-scripts.h"
-#include "internal-pages/wig-user-styles.h"
-#include "internal-pages/wig-website-data.h"
-#include "settings/wig-settings-page.h"
+#include "wig-content-filters.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
+#include "wig-history.h"
+#include "wig-internal-page.h"
+#include "wig-memory-pressure.h"
+#include "wig-settings-features.h"
+#include "wig-settings-page.h"
 #include "wig-settings.h"
+#include "wig-user-scripts.h"
+#include "wig-user-styles.h"
+#include "wig-website-data.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 
@@ -373,13 +373,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   g_autoptr(TmplScope) scope = NULL;
   if (g_str_equal(uri, "wig:about"))
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/about.html", NULL);
-  else if (g_str_has_prefix(uri, "wig:features")) {
-    scope = handle_features_uri(request, app->web_settings, app->settings, FALSE);
-    html = wig_internal_page_render("/com/igalia/wig/internal-pages/features.html", scope);
-  } else if (g_str_has_prefix(uri, "wig:developer-features")) {
-    scope = handle_features_uri(request, app->web_settings, app->settings, TRUE);
-    html = wig_internal_page_render("/com/igalia/wig/internal-pages/features.html", scope);
-  } else if (g_str_has_prefix(uri, "wig:memory-pressure")) {
+  else if (g_str_has_prefix(uri, "wig:memory-pressure")) {
     scope = handle_memory_pressure_uri(request, app->memory_pressure_settings);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/memory-pressure.html", scope);
   } else if (g_str_has_prefix(uri, "wig:website-data")) {
@@ -970,6 +964,11 @@ GSettings *wig_application_get_settings(WigApplication *app)
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->settings;
+}
+
+WebKitSettings *wig_application_get_web_settings(WigApplication *app)
+{
+  return app->web_settings;
 }
 
 WigSession *wig_application_get_session(WigApplication *app)
