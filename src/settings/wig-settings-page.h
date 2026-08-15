@@ -32,7 +32,7 @@ G_BEGIN_DECLS
 #define WIG_TYPE_SETTINGS_PAGE (wig_settings_page_get_type())
 G_DECLARE_FINAL_TYPE(WigSettingsPage, wig_settings_page, WIG, SETTINGS_PAGE, WigNativePage)
 
-GtkWidget *wig_settings_page_new(void);
+GtkWidget *wig_settings_page_new(const char *uri);
 
 gboolean uri_is_settings_page(const char *uri);
 

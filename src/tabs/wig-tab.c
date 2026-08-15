@@ -557,8 +557,9 @@ static void wig_tab_native_page_title_changed(WigTab *self, GParamSpec *pspec, W
   wig_tab_set_title(self, wig_native_page_get_title(page));
 }
 
-/* The page says where it is, which the view follows so the entry, history and
- * session see an ordinary navigation. */
+/* The page moves around inside itself by changing the address it is at, which
+ * the view follows so the entry, history and session see an ordinary
+ * navigation. */
 static void wig_tab_native_page_uri_changed(WigTab *self, GParamSpec *pspec, WigNativePage *page)
 {
   const char *uri = wig_native_page_get_uri(page);
@@ -593,6 +594,24 @@ static void wig_tab_clear_native_page(WigTab *self)
   gtk_widget_set_visible(self->web_view_widget, TRUE);
 }
 
+/* A native page answers to every address of the page it is, panes included, so
+ * moving between them is the page taking a new address rather than a new page. */
+static gboolean wig_tab_native_page_answers_to(WigTab *self, const char *uri)
+{
+  if (!WIG_IS_NATIVE_PAGE(self->native_page))
+    return FALSE;
+
+  return wig_util_uris_are_same_page(wig_native_page_get_uri(WIG_NATIVE_PAGE(self->native_page)), uri);
+}
+
+static void wig_tab_show_settings_page(WigTab *self, const char *uri)
+{
+  if (wig_tab_native_page_answers_to(self, uri))
+    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+  else
+    wig_tab_show_native_page(self, wig_settings_page_new(uri));
+}
+
 /* Once a load commits, an empty title means the page genuinely has none, so fall
  * back to the hostname.  A real title, if any, arrives via notify::title. */
 static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
@@ -605,14 +624,19 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
     self->restoring_icon = FALSE;
     wig_tab_set_hovered_link(self, NULL, NULL);
     wig_tab_clear_error_page(self);
-    wig_tab_clear_native_page(self);
+
+    /* Moving between panes would otherwise take the page down and put an empty
+     * document on screen until the next one commits. */
+    if (!wig_tab_native_page_answers_to(self, webkit_web_view_get_uri(self->web_view)))
+      wig_tab_clear_native_page(self);
   }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
 
-  if (uri_is_settings_page(webkit_web_view_get_uri(self->web_view))) {
-    wig_tab_show_native_page(self, wig_settings_page_new());
+  const char *uri = webkit_web_view_get_uri(self->web_view);
+  if (uri_is_settings_page(uri)) {
+    wig_tab_show_settings_page(self, uri);
     return;
   }
 

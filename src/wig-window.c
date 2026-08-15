@@ -230,7 +230,8 @@ WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, Web
     if (lookup_host && *lookup_host)
       match = g_str_equal(lookup_scheme, tab_scheme) && tab_host && g_ascii_strcasecmp(lookup_host, tab_host) == 0;
     else
-      match = g_str_equal(lookup_scheme, tab_scheme) && g_strcmp0(lookup_path, g_uri_get_path(parsed)) == 0;
+      match = g_str_equal(lookup_scheme, tab_scheme)
+          && wig_util_paths_are_same_page(lookup_path, g_uri_get_path(parsed));
 
     if (match) {
       gboolean discarded = wig_tab_get_discarded(tab);
@@ -958,15 +959,6 @@ static const char *wig_navigation_type_name(WebKitNavigationType type)
   }
 }
 
-static gboolean wig_uri_is_same_page(const char *first, const char *second)
-{
-  g_autoptr(GUri) first_uri = first ? g_uri_parse(first, G_URI_FLAGS_NONE, NULL) : NULL;
-  g_autoptr(GUri) second_uri = second ? g_uri_parse(second, G_URI_FLAGS_NONE, NULL) : NULL;
-  return first_uri && second_uri && g_strcmp0(g_uri_get_scheme(first_uri), "wig") == 0
-      && g_strcmp0(g_uri_get_scheme(second_uri), "wig") == 0
-      && g_strcmp0(g_uri_get_path(first_uri), g_uri_get_path(second_uri)) == 0;
-}
-
 static const char *wig_web_view_get_committed_uri(WebKitWebView *web_view)
 {
   WebKitWebResource *resource = webkit_web_view_get_main_resource(web_view);
@@ -1008,7 +1000,7 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   }
 
   if (g_strcmp0(target_scheme, "wig") == 0
-      && !wig_uri_is_same_page(wig_web_view_get_committed_uri(web_view), request_uri)
+      && !wig_util_uris_are_same_page(wig_web_view_get_committed_uri(web_view), request_uri)
       && wig_application_focus_internal_page(wig_application_get(), request_uri, web_view)) {
     g_debug("wig: focusing the page that is already open instead of '%s'", request_uri);
     webkit_policy_decision_ignore(decision);

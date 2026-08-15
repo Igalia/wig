@@ -149,6 +149,31 @@ char *wig_util_search_engine_name(const char *search_engine)
   return g_strdup(host);
 }
 
+/* An internal page showing a pane of itself names the pane in the path, so what
+ * decides which page a path belongs to is its first segment. */
+gboolean wig_util_paths_are_same_page(const char *first, const char *second)
+{
+  if (!first || !second)
+    return first == second;
+
+  size_t first_length = strcspn(first, "/");
+  size_t second_length = strcspn(second, "/");
+
+  return first_length == second_length && strncmp(first, second, first_length) == 0;
+}
+
+/* Only wig's own pages are split into panes this way, so two addresses are the
+ * same page only if they are both wig's. */
+gboolean wig_util_uris_are_same_page(const char *first, const char *second)
+{
+  g_autoptr(GUri) first_uri = first ? g_uri_parse(first, G_URI_FLAGS_NONE, NULL) : NULL;
+  g_autoptr(GUri) second_uri = second ? g_uri_parse(second, G_URI_FLAGS_NONE, NULL) : NULL;
+
+  return first_uri && second_uri && g_strcmp0(g_uri_get_scheme(first_uri), "wig") == 0
+      && g_strcmp0(g_uri_get_scheme(second_uri), "wig") == 0
+      && wig_util_paths_are_same_page(g_uri_get_path(first_uri), g_uri_get_path(second_uri));
+}
+
 #if HAVE_FAVICON_SUPPORT
 GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size)
 {
