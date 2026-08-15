@@ -636,6 +636,7 @@ static void wig_application_startup(GApplication *application)
     { "win.find-previous", { "<Primary><Shift>g", "<Shift>F3", NULL } },
     { "win.show-downloads", { "<Primary>j", NULL } },
     { "win.show-history", { "<Primary>h", NULL } },
+    { "win.insert-emoji", { "<Primary>period", NULL } },
 
   };
 

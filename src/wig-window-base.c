@@ -24,6 +24,7 @@
 
 #include "wig-application.h"
 #include "wig-downloads-button.h"
+#include "wig-emoji-chooser.h"
 #include "wig-favicon.h"
 #include "wig-permissions-popover.h"
 
@@ -41,6 +42,7 @@ typedef struct {
   GtkWidget *downloads_button;
   GtkWidget *permissions_popover;
   GtkWidget *permission_request_popover;
+  GtkWidget *emoji_chooser;
   WigPermissionsManager *permissions_manager; /* borrowed from application */
   char *active_origin;
 } WigWindowBasePrivate;
@@ -338,6 +340,60 @@ static void wig_window_base_zoom_reset(GSimpleAction *action, GVariant *paramete
     webkit_web_view_set_zoom_level(web_view, 1.0);
 }
 
+static void wig_window_base_emoji_chooser_closed(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  g_clear_pointer(&priv->emoji_chooser, gtk_widget_unparent);
+}
+
+static void wig_window_base_show_emoji_chooser(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WigWindowBase) self = user_data;
+  WebKitWebView *web_view = WEBKIT_WEB_VIEW(source);
+  GdkRectangle caret;
+  gboolean have_caret = wig_emoji_chooser_query_caret_finish(web_view, result, &caret);
+
+  /* The answers are about the view that was asked, which the window may have
+   * moved on from while the web process was answering. */
+  if (get_active_web_view(self) != web_view)
+    return;
+
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  g_clear_pointer(&priv->emoji_chooser, gtk_widget_unparent);
+
+  priv->emoji_chooser = wig_emoji_chooser_show(web_view, have_caret ? &caret : NULL);
+  g_signal_connect_object(priv->emoji_chooser, "closed", G_CALLBACK(wig_window_base_emoji_chooser_closed), self,
+                          G_CONNECT_SWAPPED);
+}
+
+static void wig_window_base_emoji_target_checked(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WigWindowBase) self = user_data;
+  WebKitWebView *web_view = WEBKIT_WEB_VIEW(source);
+  g_autoptr(GError) error = NULL;
+
+  if (!webkit_web_view_can_execute_editing_command_finish(web_view, result, &error)) {
+    g_debug("emoji: nothing editable is focused%s%s", error ? ": " : "", error ? error->message : "");
+    return;
+  }
+
+  if (get_active_web_view(self) != web_view)
+    return;
+
+  wig_emoji_chooser_query_caret(web_view, wig_window_base_show_emoji_chooser, g_steal_pointer(&self));
+}
+
+static void wig_window_base_insert_emoji(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindowBase *self = WIG_WINDOW_BASE(user_data);
+  WebKitWebView *web_view = get_active_web_view(self);
+  if (!web_view)
+    return;
+
+  webkit_web_view_can_execute_editing_command(web_view, "InsertText", NULL, wig_window_base_emoji_target_checked,
+                                              g_object_ref(self));
+}
+
 static const GActionEntry actions[] = {
   { "go-back", wig_window_base_go_back },
   { "go-forward", wig_window_base_go_forward },
@@ -348,6 +404,7 @@ static const GActionEntry actions[] = {
   { "zoom-in", wig_window_base_zoom_in },
   { "zoom-out", wig_window_base_zoom_out },
   { "zoom-reset", wig_window_base_zoom_reset },
+  { "insert-emoji", wig_window_base_insert_emoji },
 };
 
 static void wig_window_base_update_navigation_actions(WigWindowBase *self)
@@ -671,6 +728,7 @@ static void wig_window_base_dispose(GObject *object)
   g_clear_object(&priv->toplevel);
   g_clear_pointer(&priv->back_history_popover, gtk_widget_unparent);
   g_clear_pointer(&priv->forward_history_popover, gtk_widget_unparent);
+  g_clear_pointer(&priv->emoji_chooser, gtk_widget_unparent);
   g_clear_object(&priv->permissions_popover);
   g_clear_object(&priv->permission_request_popover);
   g_clear_pointer(&priv->active_origin, g_free);
@@ -819,6 +877,7 @@ void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web
 
   g_clear_pointer(&priv->back_history_popover, gtk_widget_unparent);
   g_clear_pointer(&priv->forward_history_popover, gtk_widget_unparent);
+  g_clear_pointer(&priv->emoji_chooser, gtk_widget_unparent);
   g_signal_group_set_target(priv->active_web_view_signals, web_view);
   g_signal_group_set_target(priv->back_forward_list_signals,
                             web_view ? webkit_web_view_get_back_forward_list(web_view) : NULL);
