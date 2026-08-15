@@ -74,6 +74,13 @@ void wig_native_page_set_uri(WigNativePage *self, const char *uri)
     g_object_notify_by_pspec(G_OBJECT(self), props[PROP_URI]);
 }
 
+gboolean wig_native_page_start_search(WigNativePage *self)
+{
+  WigNativePageClass *klass = WIG_NATIVE_PAGE_GET_CLASS(self);
+
+  return klass->start_search ? klass->start_search(self) : FALSE;
+}
+
 static void wig_native_page_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
   WigNativePage *self = WIG_NATIVE_PAGE(object);
@@ -133,4 +140,9 @@ static void wig_native_page_class_init(WigNativePageClass *klass)
 
 static void wig_native_page_init(WigNativePage *self)
 {
+  /* Nothing in the page holds the focus to begin with, and a container cannot
+   * take it on their behalf without private API. Focusing the page itself puts
+   * it in the path a key press takes, which is what lets a page answer a
+   * shortcut the browser would otherwise take for itself. */
+  gtk_widget_set_focusable(GTK_WIDGET(self), TRUE);
 }

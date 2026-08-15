@@ -34,6 +34,6 @@ GtkWidget *wig_settings_switch_row_new(GSettings *settings, const char *key, con
 GtkWidget *wig_settings_combo_row_new(GSettings *settings, const char *key, const char *title, const char *subtitle,
                                       const char **nicks, const char *const *labels);
 
-void wig_settings_search_engine_rows_add(AdwPreferencesGroup *group, GSettings *settings);
+GtkWidget *wig_settings_search_engine_rows_add(AdwPreferencesGroup *group, GSettings *settings);
 
 G_END_DECLS

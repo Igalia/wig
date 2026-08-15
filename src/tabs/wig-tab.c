@@ -578,6 +578,8 @@ static void wig_tab_show_native_page(WigTab *self, GtkWidget *page)
   gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), page);
   gtk_widget_grab_focus(page);
 
+  gtk_widget_grab_focus(page);
+
   g_signal_connect_object(page, "notify::title", G_CALLBACK(wig_tab_native_page_title_changed), self,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(page, "notify::uri", G_CALLBACK(wig_tab_native_page_uri_changed), self, G_CONNECT_SWAPPED);
@@ -602,6 +604,14 @@ static gboolean wig_tab_native_page_answers_to(WigTab *self, const char *uri)
     return FALSE;
 
   return wig_util_uris_are_same_page(wig_native_page_get_uri(WIG_NATIVE_PAGE(self->native_page)), uri);
+}
+
+gboolean wig_tab_start_search(WigTab *self)
+{
+  if (!WIG_IS_NATIVE_PAGE(self->native_page))
+    return FALSE;
+
+  return wig_native_page_start_search(WIG_NATIVE_PAGE(self->native_page));
 }
 
 static void wig_tab_show_settings_page(WigTab *self, const char *uri)

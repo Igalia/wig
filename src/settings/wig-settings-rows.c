@@ -171,7 +171,7 @@ static void search_engine_apply(GSettings *settings, AdwEntryRow *entry)
   g_settings_set_string(settings, "search-engine", template);
 }
 
-void wig_settings_search_engine_rows_add(AdwPreferencesGroup *group, GSettings *settings)
+GtkWidget *wig_settings_search_engine_rows_add(AdwPreferencesGroup *group, GSettings *settings)
 {
   GtkWidget *row = adw_combo_row_new();
   g_autoptr(GtkStringList) model = gtk_string_list_new(search_engine_labels);
@@ -192,4 +192,6 @@ void wig_settings_search_engine_rows_add(AdwPreferencesGroup *group, GSettings *
   g_object_bind_property_full(row, "selected", entry, "visible", G_BINDING_SYNC_CREATE,
                               search_engine_selection_is_custom, NULL, NULL, NULL);
   adw_preferences_group_add(group, entry);
+
+  return row;
 }

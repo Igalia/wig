@@ -309,10 +309,14 @@ static void wig_window_focus_entry(GSimpleAction *action, GVariant *parameter, g
 static void wig_window_find(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
+  WigTab *tab = win->tab_list ? wig_tab_list_get_active(win->tab_list) : NULL;
+
+  if (tab && wig_tab_start_search(tab))
+    return;
+
   if (!win->search_bar)
     return;
 
-  WigTab *tab = win->tab_list ? wig_tab_list_get_active(win->tab_list) : NULL;
   wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
   wig_search_bar_open(WIG_SEARCH_BAR(win->search_bar));
 }

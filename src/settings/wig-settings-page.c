@@ -24,6 +24,7 @@
 
 #include "wig-application.h"
 #include "wig-settings-rows.h"
+#include "wig-settings-search.h"
 
 #include <adwaita.h>
 
@@ -33,6 +34,9 @@ struct _WigSettingsPage {
   /* Holds the one page for now, and is what a settings row drills into. */
   GtkWidget *navigation;
   GtkWidget *stack;
+  GtkWidget *content;
+  GtkWidget *search;
+  GtkWidget *search_bar;
   /* Set while an address is choosing the pane, so the pane it lands on does not
    * rewrite the address that asked for it. */
   gboolean applying_uri;
@@ -80,77 +84,97 @@ static char *wig_settings_page_pane_for_uri(const char *uri)
   return pane && *pane ? g_strdup(pane) : NULL;
 }
 
+/* What a row needs to be put somewhere and found again. */
+typedef struct {
+  WigSettingsPage *page;
+  AdwPreferencesGroup *group;
+  const char *name;
+  const char *title;
+} Pane;
+
 /* Each pane is a page of its own in the switcher, so the group inside it carries
  * no title of its own until there is a second one to tell apart. A switcher
  * button falls back to the broken image icon, so every pane names one. */
-static void wig_settings_page_new_pane(AdwViewStack *stack, const char *name, const char *title, const char *icon_name,
-                                       AdwPreferencesGroup **group)
+static void wig_settings_page_new_pane(WigSettingsPage *self, Pane *pane, const char *name, const char *title,
+                                       const char *icon_name)
 {
   AdwPreferencesPage *page = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
 
-  *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-  adw_preferences_page_add(page, *group);
-  adw_view_stack_add_titled_with_icon(stack, GTK_WIDGET(page), name, title, icon_name);
+  pane->page = self;
+  pane->group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  pane->name = name;
+  pane->title = title;
+
+  adw_preferences_page_add(page, pane->group);
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), GTK_WIDGET(page), name, title, icon_name);
 }
 
-static void wig_settings_page_add_browsing_pane(AdwViewStack *stack, GSettings *settings)
+/* Searching looks through the rows wherever they are, so every one of them is
+ * offered along with the pane it would be found in. */
+static void pane_add(Pane *pane, GtkWidget *row)
+{
+  adw_preferences_group_add(pane->group, row);
+  wig_settings_search_add_row(WIG_SETTINGS_SEARCH(pane->page->search), row, pane->name, pane->title);
+}
+
+static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings *settings)
 {
   static const char *tab_layout_nicks[] = { "horizontal", "vertical", NULL };
   static const char *const tab_layout_labels[] = { "Tab Bar", "Sidebar", NULL };
 
-  AdwPreferencesGroup *group = NULL;
-  wig_settings_page_new_pane(stack, "browser", "Browsing", "web-browser-symbolic", &group);
+  Pane pane;
+  wig_settings_page_new_pane(self, &pane, "browser", "Browsing", "web-browser-symbolic");
 
-  adw_preferences_group_add(group,
-                            wig_settings_switch_row_new(settings, "restore-tabs", "Restore Tabs on Startup",
-                                                        "Open the windows and tabs that were open when wig was "
-                                                        "last closed."));
-  adw_preferences_group_add(group,
-                            wig_settings_combo_row_new(settings, "tab-layout", "Tab Layout",
-                                                       "Show tabs in a bar above the page or in a sidebar beside it.",
-                                                       tab_layout_nicks, tab_layout_labels));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "restore-tabs", "Restore Tabs on Startup",
+                                       "Open the windows and tabs that were open when wig was last closed."));
+  pane_add(&pane,
+           wig_settings_combo_row_new(settings, "tab-layout", "Tab Layout",
+                                      "Show tabs in a bar above the page or in a sidebar beside it.", tab_layout_nicks,
+                                      tab_layout_labels));
 
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
   static const char *https_nicks[] = { "keep-as-requested", "https-first", "https-only", NULL };
   static const char *const https_labels[] = { "Off", "HTTPS-First", "HTTPS-Only", NULL };
 
-  adw_preferences_group_add(group,
-                            wig_settings_combo_row_new(settings, "https-navigation-policy", "HTTPS Navigation",
-                                                       "Upgrade addresses typed as http to https. HTTPS-First "
-                                                       "quietly falls back to http when the secure load fails; "
-                                                       "HTTPS-Only shows an error instead.",
-                                                       https_nicks, https_labels));
+  pane_add(&pane,
+           wig_settings_combo_row_new(settings, "https-navigation-policy", "HTTPS Navigation",
+                                      "Upgrade addresses typed as http to https. HTTPS-First quietly falls "
+                                      "back to http when the secure load fails; HTTPS-Only shows an error "
+                                      "instead.",
+                                      https_nicks, https_labels));
 #endif
 
-  wig_settings_search_engine_rows_add(group, settings);
+  /* The template it reveals is part of the same setting, so only the row naming
+   * the engine is worth finding. */
+  wig_settings_search_add_row(WIG_SETTINGS_SEARCH(self->search),
+                              wig_settings_search_engine_rows_add(pane.group, settings), pane.name, pane.title);
 }
 
-static void wig_settings_page_add_content_pane(AdwViewStack *stack, GSettings *settings)
+static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings *settings)
 {
-  AdwPreferencesGroup *group = NULL;
-  wig_settings_page_new_pane(stack, "content", "Content", "text-x-generic-symbolic", &group);
+  Pane pane;
+  wig_settings_page_new_pane(self, &pane, "content", "Content", "text-x-generic-symbolic");
 
-  adw_preferences_group_add(
-      group,
-      wig_settings_switch_row_new(settings, "enable-javascript", "JavaScript", "Run the scripts a page carries."));
-  adw_preferences_group_add(group,
-                            wig_settings_switch_row_new(settings, "auto-load-images", "Load Images",
-                                                        "Fetch the images a page asks for. Turning this off saves "
-                                                        "data and leaves the rest of the page as it is."));
-  adw_preferences_group_add(group,
-                            wig_settings_switch_row_new(settings, "javascript-can-open-windows-automatically",
-                                                        "Allow Pop-up Windows",
-                                                        "Let a page open a window on its own, rather than only when "
-                                                        "a click asks for one."));
-  adw_preferences_group_add(group,
-                            wig_settings_switch_row_new(settings, "media-playback-requires-user-gesture",
-                                                        "Require a Click Before Media Plays",
-                                                        "Hold audio and video until they are started, instead of "
-                                                        "letting a page play them on its own."));
-  adw_preferences_group_add(group,
-                            wig_settings_switch_row_new(settings, "zoom-text-only", "Zoom Text Only",
-                                                        "Resize only the text when zooming, leaving images and "
-                                                        "layout at their own size."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "enable-javascript", "JavaScript", "Run the scripts a page carries."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "auto-load-images", "Load Images",
+                                       "Fetch the images a page asks for. Turning this off saves data and "
+                                       "leaves the rest of the page as it is."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "javascript-can-open-windows-automatically", "Allow Pop-up Windows",
+                                       "Let a page open a window on its own, rather than only when a click "
+                                       "asks for one."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "media-playback-requires-user-gesture",
+                                       "Require a Click Before Media Plays",
+                                       "Hold audio and video until they are started, instead of letting a "
+                                       "page play them on its own."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "zoom-text-only", "Zoom Text Only",
+                                       "Resize only the text when zooming, leaving images and layout at "
+                                       "their own size."));
 }
 
 static char *wig_settings_page_first_pane(WigSettingsPage *self)
@@ -197,6 +221,43 @@ static void wig_settings_page_visible_pane_changed(WigSettingsPage *self)
   wig_native_page_set_uri(WIG_NATIVE_PAGE(self), uri);
 }
 
+static void wig_settings_page_set_searching(WigSettingsPage *self, gboolean searching)
+{
+  gtk_stack_set_visible_child_name(GTK_STACK(self->content), searching ? "search" : "panes");
+}
+
+static void wig_settings_page_search_changed(WigSettingsPage *self, GtkSearchEntry *entry)
+{
+  const char *terms = gtk_editable_get_text(GTK_EDITABLE(entry));
+
+  /* An empty search is the settings as they were, not a search with everything
+   * in it. */
+  wig_settings_page_set_searching(self, *terms != '\0');
+  wig_settings_search_set_terms(WIG_SETTINGS_SEARCH(self->search), terms);
+}
+
+static void wig_settings_page_search_mode_changed(WigSettingsPage *self)
+{
+  if (!gtk_search_bar_get_search_mode(GTK_SEARCH_BAR(self->search_bar)))
+    wig_settings_page_set_searching(self, FALSE);
+}
+
+/* A result stands for a row in a pane, so following one goes to the pane and
+ * leaves the search behind. */
+static void wig_settings_page_search_activated(WigSettingsPage *self, const char *pane)
+{
+  gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(self->search_bar), FALSE);
+  adw_view_stack_set_visible_child_name(ADW_VIEW_STACK(self->stack), pane);
+}
+
+static gboolean wig_settings_page_start_search(WigNativePage *page)
+{
+  WigSettingsPage *self = WIG_SETTINGS_PAGE(page);
+
+  gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(self->search_bar), TRUE);
+  return TRUE;
+}
+
 static void wig_settings_page_dispose(GObject *object)
 {
   WigSettingsPage *self = WIG_SETTINGS_PAGE(object);
@@ -212,6 +273,7 @@ static void wig_settings_page_class_init(WigSettingsPageClass *klass)
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
 
   object_class->dispose = wig_settings_page_dispose;
+  WIG_NATIVE_PAGE_CLASS(klass)->start_search = wig_settings_page_start_search;
 
   gtk_widget_class_set_css_name(widget_class, "wig-settings-page");
 }
@@ -220,12 +282,22 @@ static void wig_settings_page_init(WigSettingsPage *self)
 {
   GSettings *settings = wig_application_get_settings(wig_application_get());
 
+  self->search = wig_settings_search_new();
+  g_signal_connect_object(self->search, "activated", G_CALLBACK(wig_settings_page_search_activated), self,
+                          G_CONNECT_SWAPPED);
+
   GtkWidget *stack = adw_view_stack_new();
   self->stack = stack;
-  wig_settings_page_add_browsing_pane(ADW_VIEW_STACK(stack), settings);
-  wig_settings_page_add_content_pane(ADW_VIEW_STACK(stack), settings);
+  wig_settings_page_add_browsing_pane(self, settings);
+  wig_settings_page_add_content_pane(self, settings);
   g_signal_connect_object(stack, "notify::visible-child-name", G_CALLBACK(wig_settings_page_visible_pane_changed), self,
                           G_CONNECT_SWAPPED);
+
+  /* Searching takes the place of the panes rather than sitting beside them, so
+   * what is on screen is either everything or what was asked for. */
+  self->content = gtk_stack_new();
+  gtk_stack_add_named(GTK_STACK(self->content), stack, "panes");
+  gtk_stack_add_named(GTK_STACK(self->content), self->search, "search");
 
   /* The window this sits in already has a header bar, so the switcher stands on
    * its own above the panes rather than inside one of its own. */
@@ -236,10 +308,30 @@ static void wig_settings_page_init(WigSettingsPage *self)
   gtk_widget_set_margin_top(switcher, 6);
   gtk_widget_set_margin_bottom(switcher, 6);
 
+  GtkWidget *entry = gtk_search_entry_new();
+  gtk_widget_set_hexpand(entry, TRUE);
+  g_signal_connect_object(entry, "search-changed", G_CALLBACK(wig_settings_page_search_changed), self,
+                          G_CONNECT_SWAPPED);
+
+  /* The rows are held to a readable width by a clamp of their own, and the
+   * entry searching them lines up with them rather than with the window. */
+  GtkWidget *entry_clamp = adw_clamp_new();
+  adw_clamp_set_child(ADW_CLAMP(entry_clamp), entry);
+
+  self->search_bar = gtk_search_bar_new();
+  gtk_search_bar_set_child(GTK_SEARCH_BAR(self->search_bar), entry_clamp);
+  gtk_search_bar_connect_entry(GTK_SEARCH_BAR(self->search_bar), GTK_EDITABLE(entry));
+  /* Typing anywhere in the page starts a search, the way the preferences dialog
+   * wig cannot use does. */
+  gtk_search_bar_set_key_capture_widget(GTK_SEARCH_BAR(self->search_bar), GTK_WIDGET(self));
+  g_signal_connect_object(self->search_bar, "notify::search-mode-enabled",
+                          G_CALLBACK(wig_settings_page_search_mode_changed), self, G_CONNECT_SWAPPED);
+
   GtkWidget *toolbar = adw_toolbar_view_new();
   adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(toolbar), ADW_TOOLBAR_FLAT);
   adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), switcher);
-  adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), stack);
+  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), self->search_bar);
+  adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), self->content);
 
   AdwNavigationPage *root = adw_navigation_page_new(toolbar, WIG_SETTINGS_PAGE_TITLE);
 

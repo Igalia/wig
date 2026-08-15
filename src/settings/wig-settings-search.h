@@ -22,26 +22,15 @@
 
 #pragma once
 
-#include <gtk/gtk.h>
+#include <adwaita.h>
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_NATIVE_PAGE (wig_native_page_get_type())
-G_DECLARE_DERIVABLE_TYPE(WigNativePage, wig_native_page, WIG, NATIVE_PAGE, GtkWidget)
+#define WIG_TYPE_SETTINGS_SEARCH (wig_settings_search_get_type())
+G_DECLARE_FINAL_TYPE(WigSettingsSearch, wig_settings_search, WIG, SETTINGS_SEARCH, GtkWidget)
 
-struct _WigNativePageClass {
-  GtkWidgetClass parent_class;
-
-  /* Finding text in a document is the browser's to offer, but a page drawn as
-   * widgets has nothing for it to search. One that has its own idea of searching
-   * says so here and is asked instead. */
-  gboolean (*start_search)(WigNativePage *self);
-};
-
-const char *wig_native_page_get_title(WigNativePage *self);
-void wig_native_page_set_title(WigNativePage *self, const char *title);
-const char *wig_native_page_get_uri(WigNativePage *self);
-void wig_native_page_set_uri(WigNativePage *self, const char *uri);
-gboolean wig_native_page_start_search(WigNativePage *self);
+GtkWidget *wig_settings_search_new(void);
+void wig_settings_search_add_row(WigSettingsSearch *self, GtkWidget *row, const char *pane, const char *pane_title);
+void wig_settings_search_set_terms(WigSettingsSearch *self, const char *terms);
 
 G_END_DECLS
