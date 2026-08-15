@@ -40,7 +40,6 @@ struct _WigSettingsPage {
   GtkWidget *navigation;
   GtkWidget *stack;
   GtkWidget *content;
-  GtkWidget *switcher;
   GtkWidget *search;
   GtkWidget *search_bar;
   /* Set while an address is choosing the pane, so the pane it lands on does not
@@ -332,10 +331,7 @@ static void wig_settings_page_search_changed(WigSettingsPage *self, GtkSearchEnt
 
 static void wig_settings_page_search_mode_changed(WigSettingsPage *self)
 {
-  gboolean searching = gtk_search_bar_get_search_mode(GTK_SEARCH_BAR(self->search_bar));
-
-  gtk_revealer_set_reveal_child(GTK_REVEALER(self->switcher), !searching);
-  if (!searching)
+  if (!gtk_search_bar_get_search_mode(GTK_SEARCH_BAR(self->search_bar)))
     wig_settings_page_set_searching(self, FALSE);
 }
 
@@ -345,6 +341,48 @@ static void wig_settings_page_search_activated(WigSettingsPage *self, const char
 {
   gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(self->search_bar), FALSE);
   adw_view_stack_set_visible_child_name(ADW_VIEW_STACK(self->stack), pane);
+}
+
+static void sidebar_row_setup(GtkSignalListItemFactory *factory, GtkListItem *item)
+{
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+  GtkWidget *icon = gtk_image_new();
+  GtkWidget *label = gtk_label_new(NULL);
+
+  gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+  gtk_box_append(GTK_BOX(box), icon);
+  gtk_box_append(GTK_BOX(box), label);
+  gtk_list_item_set_child(item, box);
+}
+
+static void sidebar_row_bind(GtkSignalListItemFactory *factory, GtkListItem *item)
+{
+  AdwViewStackPage *page = gtk_list_item_get_item(item);
+  GtkWidget *box = gtk_list_item_get_child(item);
+
+  gtk_image_set_from_icon_name(GTK_IMAGE(gtk_widget_get_first_child(box)), adw_view_stack_page_get_icon_name(page));
+  gtk_label_set_label(GTK_LABEL(gtk_widget_get_last_child(box)), adw_view_stack_page_get_title(page));
+}
+
+/* The stack's own page model is a selection model, so what the sidebar has
+ * selected and what the stack is showing are one thing rather than two kept in
+ * step. */
+static GtkWidget *wig_settings_page_build_sidebar(WigSettingsPage *self)
+{
+  GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+
+  g_signal_connect(factory, "setup", G_CALLBACK(sidebar_row_setup), NULL);
+  g_signal_connect(factory, "bind", G_CALLBACK(sidebar_row_bind), NULL);
+
+  GtkWidget *list = gtk_list_view_new(adw_view_stack_get_pages(ADW_VIEW_STACK(self->stack)), factory);
+  gtk_widget_add_css_class(list, "navigation-sidebar");
+
+  GtkWidget *scroller = gtk_scrolled_window_new();
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), list);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+
+  return scroller;
 }
 
 static gboolean wig_settings_page_start_search(WigNativePage *page)
@@ -401,20 +439,6 @@ static void wig_settings_page_init(WigSettingsPage *self)
   gtk_stack_add_named(GTK_STACK(self->content), stack, "panes");
   gtk_stack_add_named(GTK_STACK(self->content), self->search, "search");
 
-  /* The window this sits in already has a header bar, so the switcher stands on
-   * its own above the panes rather than inside one of its own. */
-  GtkWidget *switcher = adw_view_switcher_new();
-  adw_view_switcher_set_stack(ADW_VIEW_SWITCHER(switcher), ADW_VIEW_STACK(stack));
-  adw_view_switcher_set_policy(ADW_VIEW_SWITCHER(switcher), ADW_VIEW_SWITCHER_POLICY_WIDE);
-  gtk_widget_set_halign(switcher, GTK_ALIGN_CENTER);
-  gtk_widget_set_margin_top(switcher, 6);
-  gtk_widget_set_margin_bottom(switcher, 6);
-
-  self->switcher = gtk_revealer_new();
-  gtk_revealer_set_transition_type(GTK_REVEALER(self->switcher), GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
-  gtk_revealer_set_child(GTK_REVEALER(self->switcher), switcher);
-  gtk_revealer_set_reveal_child(GTK_REVEALER(self->switcher), TRUE);
-
   GtkWidget *entry = gtk_search_entry_new();
   gtk_widget_set_hexpand(entry, TRUE);
   g_signal_connect_object(entry, "search-changed", G_CALLBACK(wig_settings_page_search_changed), self,
@@ -436,11 +460,17 @@ static void wig_settings_page_init(WigSettingsPage *self)
 
   GtkWidget *toolbar = adw_toolbar_view_new();
   adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(toolbar), ADW_TOOLBAR_FLAT);
-  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), self->switcher);
   adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), self->search_bar);
   adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), self->content);
 
-  AdwNavigationPage *root = adw_navigation_page_new(toolbar, WIG_SETTINGS_PAGE_TITLE);
+  GtkWidget *split = adw_navigation_split_view_new();
+  adw_navigation_split_view_set_sidebar(
+      ADW_NAVIGATION_SPLIT_VIEW(split),
+      adw_navigation_page_new(wig_settings_page_build_sidebar(self), WIG_SETTINGS_PAGE_TITLE));
+  adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(split),
+                                        adw_navigation_page_new(toolbar, WIG_SETTINGS_PAGE_TITLE));
+
+  AdwNavigationPage *root = adw_navigation_page_new(split, WIG_SETTINGS_PAGE_TITLE);
 
   self->navigation = adw_navigation_view_new();
   adw_navigation_view_add(ADW_NAVIGATION_VIEW(self->navigation), root);
