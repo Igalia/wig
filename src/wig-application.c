@@ -329,9 +329,9 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
   if (g_strcmp0(current_scheme, "wig") != 0) {
     g_warning("wig: rejecting cross-origin request for '%s' from '%s'", uri, current_uri);
-    webkit_uri_scheme_request_finish_error(request,
-                                           g_error_new_literal(G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                                                               "Cross-origin access to wig: URIs is not allowed"));
+    g_autoptr(GError) denied = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                                                   "Cross-origin access to wig: URIs is not allowed");
+    webkit_uri_scheme_request_finish_error(request, denied);
     return;
   }
 
@@ -341,7 +341,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
     g_autoptr(GError) error = NULL;
     g_autoptr(GBytes) bytes = g_resources_lookup_data(res_path, G_RESOURCE_LOOKUP_FLAGS_NONE, &error);
     if (!bytes) {
-      webkit_uri_scheme_request_finish_error(request, g_steal_pointer(&error));
+      webkit_uri_scheme_request_finish_error(request, error);
       return;
     }
     gsize size;
@@ -386,7 +386,8 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
     handle_content_filters_uri(request, app->user_content_manager, app->content_filter_store);
     return; // async
   } else {
-    webkit_uri_scheme_request_finish_error(request, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found"));
+    g_autoptr(GError) not_found = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found");
+    webkit_uri_scheme_request_finish_error(request, not_found);
     return;
   }
 
