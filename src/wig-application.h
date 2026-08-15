@@ -70,6 +70,7 @@ GSettings *wig_application_get_settings(WigApplication *app);
 WebKitSettings *wig_application_get_web_settings(WigApplication *app);
 WebKitUserContentManager *wig_application_get_user_content_manager(WigApplication *app);
 WebKitUserContentFilterStore *wig_application_get_content_filter_store(WigApplication *app);
+WebKitMemoryPressureSettings *wig_application_get_memory_pressure_settings(WigApplication *app);
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
 WebKitWebsitePolicies *wig_application_get_website_policies(WigApplication *app);
 #endif

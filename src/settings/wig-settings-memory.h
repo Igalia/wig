@@ -22,7 +22,14 @@
 
 #pragma once
 
-#include <tmpl-glib.h>
-#include <wpe/webkit.h>
+#include "wig-settings-search.h"
 
-TmplScope *handle_memory_pressure_uri(WebKitURISchemeRequest *request, WebKitMemoryPressureSettings *settings);
+G_BEGIN_DECLS
+
+#define WIG_TYPE_SETTINGS_MEMORY (wig_settings_memory_get_type())
+G_DECLARE_FINAL_TYPE(WigSettingsMemory, wig_settings_memory, WIG, SETTINGS_MEMORY, GtkWidget)
+
+GtkWidget *wig_settings_memory_new(void);
+void wig_settings_memory_index(WigSettingsSearch *search, const char *pane, const char *pane_title);
+
+G_END_DECLS

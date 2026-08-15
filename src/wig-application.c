@@ -29,7 +29,6 @@
 #include "wig-flatpak.h"
 #include "wig-history.h"
 #include "wig-internal-page.h"
-#include "wig-memory-pressure.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
 #include "wig-settings-page.h"
@@ -300,13 +299,16 @@ static void wig_application_download_update_action(GSimpleAction *action, GVaria
   wig_update_monitor_download(app->update_monitor);
 }
 
-static void wig_application_restart_to_update_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+/* Nothing here is about the update: the helper waits for wig to let go of its
+ * name and then asks for it back, which is a restart whatever the reason for
+ * one. Tabs are put back so restarting costs the session nothing. */
+static void wig_application_restart_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigApplication *app = WIG_APPLICATION(user_data);
   g_autoptr(GError) error = NULL;
 
   if (!wig_update_monitor_spawn_restart_helper(&error)) {
-    g_warning("update: staying put, the restart helper did not start: %s", error->message);
+    g_warning("restart: staying put, the restart helper did not start: %s", error->message);
     return;
   }
 
@@ -317,11 +319,12 @@ static void wig_application_restart_to_update_action(GSimpleAction *action, GVar
 static const GActionEntry app_actions[] = {
   { "quit", wig_application_quit_action },
   { "new-window", wig_application_new_window_action },
+  { "restart", wig_application_restart_action },
 };
 
 static const GActionEntry app_update_actions[] = {
   { "download-update", wig_application_download_update_action },
-  { "restart-to-update", wig_application_restart_to_update_action },
+  { "restart-to-update", wig_application_restart_action },
 };
 
 /* Enchant looks dictionaries up by language tag, so the encoding and modifier
@@ -397,10 +400,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   g_autoptr(TmplScope) scope = NULL;
   if (g_str_equal(uri, "wig:about"))
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/about.html", NULL);
-  else if (g_str_has_prefix(uri, "wig:memory-pressure")) {
-    scope = handle_memory_pressure_uri(request, app->memory_pressure_settings);
-    html = wig_internal_page_render("/com/igalia/wig/internal-pages/memory-pressure.html", scope);
-  } else if (g_str_has_prefix(uri, "wig:website-data")) {
+  else if (g_str_has_prefix(uri, "wig:website-data")) {
     WebKitWebsiteDataManager *manager = webkit_network_session_get_website_data_manager(app->network_session);
     handle_website_data_uri(request, manager);
     return; // async
@@ -1000,6 +1000,11 @@ WebKitUserContentManager *wig_application_get_user_content_manager(WigApplicatio
 WebKitUserContentFilterStore *wig_application_get_content_filter_store(WigApplication *app)
 {
   return app->content_filter_store;
+}
+
+WebKitMemoryPressureSettings *wig_application_get_memory_pressure_settings(WigApplication *app)
+{
+  return app->memory_pressure_settings;
 }
 
 WigSession *wig_application_get_session(WigApplication *app)
