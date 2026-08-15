@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Unresponsive Page Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    section.danger { border-left: 4px solid #e01b24; }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.95em;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button:hover { background: #1c71d8; }
+    button.danger { background: #c01c28; }
+    button.danger:hover { background: #a51d2d; }
+    .result {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+    }
+    code { background: #ececec; padding: 1px 5px; border-radius: 4px; }
+    .clock { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+
+<h1>Unresponsive Page Tests</h1>
+<p class="subtitle">
+  Blocks the web process main thread so <code>WebKitWebView:is-web-process-responsive</code> flips to false.
+</p>
+
+<section>
+  <h2>How the detection works</h2>
+  <p class="desc">
+    WebKit only notices a stuck process while it is <em>waiting</em> on one, so the timer starts when input is
+    sent to the page. Click a button below and then keep moving the pointer over the page — the property flips
+    about <strong>3 seconds</strong> into the freeze, not immediately.
+  </p>
+  <p class="desc">
+    Nothing is shown at that point. The dialog appears only when you <strong>click the frozen page</strong>, on
+    the grounds that a page quietly stuck in the background is not worth interrupting you over. Independently,
+    a page that stays stuck for <strong>60 seconds</strong> has its web process ended automatically.
+  </p>
+  <p class="desc">
+    The clock below runs off <code>setInterval</code>, so it stops dead during a freeze and resumes afterwards:
+    a second opinion on when the main thread is actually blocked.
+  </p>
+  <div class="result">clock: <span class="clock" id="clock">--</span></div>
+</section>
+
+<section>
+  <h2>Freeze for 5 seconds</h2>
+  <p class="desc">
+    Just past the threshold. Click the page during the freeze and the dialog should appear; it goes away on its
+    own once the loop ends, whether or not you answered it.
+  </p>
+  <button onclick="freeze(5000)">Freeze 5s</button>
+</section>
+
+<section>
+  <h2>Freeze for 30 seconds</h2>
+  <p class="desc">
+    Long enough to try "Wait" — the dialog should dismiss and then come back on the next click, since the page
+    is still stuck. Too short to reach the 60-second cutoff.
+  </p>
+  <button onclick="freeze(30000)">Freeze 30s</button>
+</section>
+
+<section class="danger">
+  <h2>Freeze forever</h2>
+  <p class="desc">
+    An unbounded loop: nothing but ending the web process gets this tab back. "Close Page" should take you to
+    the crash page, which reports <code>WEBKIT_WEB_PROCESS_TERMINATED_BY_API</code> and offers a reload.
+  </p>
+  <button class="danger" onclick="freeze(Infinity)">Freeze forever</button>
+</section>
+
+<section class="danger">
+  <h2>Freeze forever, then leave it alone</h2>
+  <p class="desc">
+    Same unbounded loop, for testing the automatic cutoff. Click the page once so WebKit notices the freeze,
+    then do not touch it: about 60 seconds later the process should be ended for you and the crash page should
+    appear on its own.
+  </p>
+  <button class="danger" onclick="freeze(Infinity)">Freeze forever (walk away)</button>
+</section>
+
+<section>
+  <h2>Freeze on a timer</h2>
+  <p class="desc">
+    Starts a 20-second freeze three seconds from now, so it begins while the pointer is elsewhere. Useful for
+    checking that a background tab stays quiet until you come back and click it.
+  </p>
+  <button onclick="setTimeout(() => freeze(20000), 3000)">Freeze 20s, starting in 3s</button>
+</section>
+
+<script>
+  let ticks = 0;
+  setInterval(() => {
+    ticks++;
+    document.getElementById('clock').textContent = `${ticks}s`;
+  }, 1000);
+
+  function freeze(ms) {
+    const deadline = Date.now() + ms;
+    /* A busy loop rather than a sleep: the main thread has to stay occupied for
+       WebKit to see the process as stuck. */
+    while (Date.now() < deadline) {
+      /* spin */
+    }
+  }
+</script>
+</body>
+</html>

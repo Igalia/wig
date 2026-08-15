@@ -29,8 +29,11 @@
 #include "wig-option-menu.h"
 #include "wig-script-dialog.h"
 #include "wig-tls-error-page.h"
+#include "wig-unresponsive-dialog.h"
 #include "wig-utils.h"
 #include "wpe-view-gtk.h"
+
+#define WIG_TAB_UNRESPONSIVE_TIMEOUT_SECONDS 60
 
 struct _WigTab {
   GObject parent;
@@ -41,6 +44,9 @@ struct _WigTab {
   GtkWidget *web_view_widget;
   GtkWidget *error_page;
   GtkWidget *option_menu;
+  GtkWidget *unresponsive_dialog;
+  guint unresponsive_timeout_id;
+  gboolean unresponsive;
   char *error_uri;
   GtkWidget *status_label;
   GIcon *icon;
@@ -85,6 +91,96 @@ static gboolean wig_tab_on_authenticate(WigTab *self, WebKitAuthenticationReques
 {
   wig_auth_dialog_show(GTK_OVERLAY(self->view_overlay), request);
   return TRUE;
+}
+
+/* The dialog also goes away on its own, when it is answered or escaped, so the
+ * tab follows the widget rather than assuming it outlives the request. */
+static void wig_tab_unresponsive_dialog_destroyed(WigTab *self)
+{
+  self->unresponsive_dialog = NULL;
+}
+
+static void wig_tab_dismiss_unresponsive_dialog(WigTab *self)
+{
+  GtkWidget *dialog = g_steal_pointer(&self->unresponsive_dialog);
+  if (!dialog)
+    return;
+
+  wig_unresponsive_dialog_dismiss(GTK_OVERLAY(self->view_overlay), dialog);
+}
+
+static void wig_tab_terminate_web_process(WigTab *self)
+{
+  g_warning("tab %u: ending the web process for an unresponsive %s", self->id, webkit_web_view_get_uri(self->web_view));
+
+  webkit_web_view_terminate_web_process(self->web_view);
+}
+
+static void wig_tab_unresponsive_response(WigUnresponsiveResponse response, gpointer user_data)
+{
+  WigTab *self = user_data;
+
+  wig_tab_dismiss_unresponsive_dialog(self);
+
+  if (response == WIG_UNRESPONSIVE_RESPONSE_CLOSE)
+    wig_tab_terminate_web_process(self);
+}
+
+/* A page stuck this long is not coming back, and until the process is gone the
+ * tab cannot be reloaded or closed cleanly. */
+static void wig_tab_unresponsive_timeout(gpointer user_data)
+{
+  WigTab *self = user_data;
+
+  self->unresponsive_timeout_id = 0;
+
+  g_warning("tab %u: unresponsive for %d seconds", self->id, WIG_TAB_UNRESPONSIVE_TIMEOUT_SECONDS);
+  wig_tab_terminate_web_process(self);
+}
+
+static void wig_tab_set_unresponsive(WigTab *self, gboolean unresponsive)
+{
+  if (self->unresponsive == unresponsive)
+    return;
+
+  self->unresponsive = unresponsive;
+  g_clear_handle_id(&self->unresponsive_timeout_id, g_source_remove);
+
+  if (unresponsive) {
+    self->unresponsive_timeout_id = g_timeout_add_seconds_once(WIG_TAB_UNRESPONSIVE_TIMEOUT_SECONDS,
+                                                               wig_tab_unresponsive_timeout, self);
+    return;
+  }
+
+  wig_tab_dismiss_unresponsive_dialog(self);
+}
+
+/* WebKit only notices a stuck process while it is waiting on one, so this
+ * follows input rather than arriving on its own after a fixed delay. */
+static void wig_tab_on_responsive_changed(WigTab *self)
+{
+  gboolean responsive = webkit_web_view_get_is_web_process_responsive(self->web_view);
+
+  g_debug("tab %u: web process is %s", self->id, responsive ? "responsive again" : "not responding");
+
+  wig_tab_set_unresponsive(self, !responsive);
+}
+
+/* Nothing is said about a stuck page until it is actually in the way: a page
+ * quietly busy in the background is not worth interrupting anyone over. */
+static void wig_tab_view_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigTab *self)
+{
+  if (!self->unresponsive || self->unresponsive_dialog)
+    return;
+
+  g_debug("tab %u: click on an unresponsive page, asking what to do", self->id);
+
+  self->unresponsive_dialog = wig_unresponsive_dialog_show(
+      GTK_OVERLAY(self->view_overlay), webkit_web_view_get_uri(self->web_view), wig_tab_unresponsive_response, self);
+  g_signal_connect_object(self->unresponsive_dialog, "destroy", G_CALLBACK(wig_tab_unresponsive_dialog_destroyed), self,
+                          G_CONNECT_SWAPPED);
+
+  gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
 }
 
 static void wig_tab_option_menu_closed(WigTab *self)
@@ -214,6 +310,10 @@ static void wig_tab_on_web_process_terminated(WigTab *self, WebKitWebProcessTerm
   g_object_set(self, "loading", FALSE, NULL);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
+  /* The dead process cannot report itself responsive again. */
+  wig_tab_set_unresponsive(self, FALSE);
+  wig_tab_dismiss_unresponsive_dialog(self);
+
   wig_tab_clear_error_page(self);
   GtkWidget *page = wig_crash_page_new(self->web_view, reason, self->id);
   g_signal_connect_object(page, "reload", G_CALLBACK(wig_tab_error_page_reload), self, G_CONNECT_SWAPPED);
@@ -315,6 +415,7 @@ static void wig_tab_dispose(GObject *object)
 {
   WigTab *self = WIG_TAB(object);
   g_clear_object(&self->icon);
+  g_clear_handle_id(&self->unresponsive_timeout_id, g_source_remove);
   g_clear_pointer(&self->option_menu, gtk_widget_unparent);
   if (self->web_view)
     g_signal_handlers_disconnect_by_data(self->web_view, self);
@@ -525,6 +626,12 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
 
   gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), self->status_label);
 
+  /* Capture phase, so a click lands here before the frozen view swallows it. */
+  GtkGesture *click = gtk_gesture_click_new();
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
+  g_signal_connect_object(click, "pressed", G_CALLBACK(wig_tab_view_pressed), self, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(self->view_overlay, GTK_EVENT_CONTROLLER(click));
+
   GtkEventController *motion = gtk_event_controller_motion_new();
   g_signal_connect_object(motion, "motion", G_CALLBACK(wig_tab_overlay_motion), self, G_CONNECT_DEFAULT);
   gtk_widget_add_controller(self->view_overlay, motion);
@@ -539,6 +646,8 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_signal_connect_object(web_view, "authenticate", G_CALLBACK(wig_tab_on_authenticate), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "show-option-menu", G_CALLBACK(wig_tab_on_show_option_menu), self,
                           G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "notify::is-web-process-responsive", G_CALLBACK(wig_tab_on_responsive_changed),
+                          self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "web-process-terminated", G_CALLBACK(wig_tab_on_web_process_terminated), self,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "load-failed-with-tls-errors", G_CALLBACK(wig_tab_on_load_failed_with_tls_errors),

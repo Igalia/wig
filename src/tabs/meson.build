@@ -16,4 +16,5 @@ wig_tab_sources = files(
     'wig-tab-wrap-layout.c',
     'wig-tab.c',
     'wig-tls-error-page.c',
+    'wig-unresponsive-dialog.c',
 )

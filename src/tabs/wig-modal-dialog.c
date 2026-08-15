@@ -93,9 +93,27 @@ GtkWidget *wig_modal_dialog_present(GtkOverlay *overlay, GtkWidget **out_card, W
   return backdrop;
 }
 
+/* The dialog is focused for as long as it is up, and a window keeps pointing at
+ * whatever had the focus, so the focus is handed back to the page before the
+ * widget holding it is destroyed. */
+static void wig_modal_dialog_release_focus(GtkOverlay *overlay, GtkWidget *backdrop)
+{
+  GtkRoot *root = gtk_widget_get_root(backdrop);
+  GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+
+  if (!focus || (focus != backdrop && !gtk_widget_is_ancestor(focus, backdrop)))
+    return;
+
+  GtkWidget *child = gtk_overlay_get_child(overlay);
+  if (!child || !gtk_widget_grab_focus(child))
+    gtk_root_set_focus(root, NULL);
+}
+
 void wig_modal_dialog_dismiss(GtkOverlay *overlay, GtkWidget *backdrop)
 {
   g_return_if_fail(GTK_IS_OVERLAY(overlay));
   g_return_if_fail(GTK_IS_WIDGET(backdrop));
+
+  wig_modal_dialog_release_focus(overlay, backdrop);
   gtk_overlay_remove_overlay(overlay, backdrop);
 }
