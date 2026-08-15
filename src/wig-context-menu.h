@@ -25,5 +25,5 @@
 #include <wpe/webkit.h>
 
 GMenu *wig_context_menu_build(WebKitContextMenu *context_menu, GSimpleActionGroup *action_group,
-                              WebKitHitTestResult *hit_test_result, const char *open_link_action,
-                              const char *open_link_label);
+                              WebKitHitTestResult *hit_test_result, const char *selected_text,
+                              const char *search_engine);

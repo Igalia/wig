@@ -22,6 +22,23 @@
 
 #include "wig-context-menu.h"
 
+#include "wig-utils.h"
+
+/* Enough of the selection to recognise it without the item growing wider than
+ * the rest of the menu. */
+#define SELECTION_SNIPPET_MAX_CHARS 32
+
+typedef struct {
+  WebKitHitTestResult *hit_test_result;
+  const char *selected_text;
+  const char *search_engine;
+  /* The section WebKit is filling with image items, held until the block ends so
+   * the address wig adds lands after the last of them. */
+  GMenu *image_section;
+  GMenu *selection_section;
+  gboolean placed_search_item;
+} BuildContext;
+
 /* A misspelled word brings a guess per item plus the two spelling actions, which
  * is most of the menu by the time the usual editing entries follow. */
 static gboolean is_spelling_action(WebKitContextMenuAction action)
@@ -46,8 +63,130 @@ static GMenuItem *build_action_item(WebKitContextMenuItem *item, GAction *action
   return menu_item;
 }
 
-static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, WebKitHitTestResult *hit_test_result,
-                          const char *open_link_action, const char *open_link_label)
+static GMenuItem *build_uri_item(const char *label, const char *action, const char *uri)
+{
+  GMenuItem *menu_item = g_menu_item_new(label, NULL);
+  g_menu_item_set_action_and_target(menu_item, action, "s", uri);
+  return menu_item;
+}
+
+/* WebKit offers a new window for anything it can open on its own; wig browses in
+ * tabs, so the stock item is swapped for one aimed at the tab it would land in. */
+static GMenuItem *build_new_tab_item(const BuildContext *context, WebKitContextMenuAction stock_action)
+{
+  WebKitHitTestResult *hit_test_result = context->hit_test_result;
+
+  switch (stock_action) {
+  case WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK:
+    if (!webkit_hit_test_result_context_is_link(hit_test_result))
+      return NULL;
+    return build_uri_item("Open Link in New Tab", "popup.open-in-new-tab",
+                          webkit_hit_test_result_get_link_uri(hit_test_result));
+  case WEBKIT_CONTEXT_MENU_ACTION_OPEN_IMAGE_IN_NEW_WINDOW:
+    if (!webkit_hit_test_result_context_is_image(hit_test_result))
+      return NULL;
+    return build_uri_item("Open Image in New Tab", "popup.open-in-new-tab",
+                          webkit_hit_test_result_get_image_uri(hit_test_result));
+  case WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW:
+  case WEBKIT_CONTEXT_MENU_ACTION_OPEN_AUDIO_IN_NEW_WINDOW:
+    if (!webkit_hit_test_result_context_is_media(hit_test_result))
+      return NULL;
+    return build_uri_item(stock_action == WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW ? "Open Video in New Tab"
+                                                                                              : "Open Audio in New Tab",
+                          "popup.open-in-new-tab", webkit_hit_test_result_get_media_uri(hit_test_result));
+  default:
+    return NULL;
+  }
+}
+
+static gboolean is_image_action(WebKitContextMenuAction action)
+{
+  switch (action) {
+  case WEBKIT_CONTEXT_MENU_ACTION_OPEN_IMAGE_IN_NEW_WINDOW:
+  case WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_IMAGE_TO_DISK:
+  case WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_TO_CLIPBOARD:
+    return TRUE;
+  default:
+    return FALSE;
+  }
+}
+
+/* A selection is whatever the page had, newlines and runs of spaces included,
+ * neither of which belongs in a menu item or in a search query. */
+static char *collapse_whitespace(const char *text)
+{
+  g_autoptr(GString) collapsed = g_string_new(NULL);
+  gboolean pending_space = FALSE;
+
+  for (const char *p = text; *p; p = g_utf8_next_char(p)) {
+    gunichar c = g_utf8_get_char(p);
+    if (g_unichar_isspace(c)) {
+      pending_space = collapsed->len > 0;
+      continue;
+    }
+
+    if (pending_space) {
+      g_string_append_c(collapsed, ' ');
+      pending_space = FALSE;
+    }
+    g_string_append_unichar(collapsed, c);
+  }
+
+  return g_string_free(g_steal_pointer(&collapsed), FALSE);
+}
+
+static char *build_search_label(const char *engine_name, const char *terms)
+{
+  g_autoptr(GString) label = g_string_new(NULL);
+  g_string_append_printf(label, "Search %s for “", engine_name ? engine_name : "the Web");
+
+  if (g_utf8_strlen(terms, -1) > SELECTION_SNIPPET_MAX_CHARS) {
+    const char *end = g_utf8_offset_to_pointer(terms, SELECTION_SNIPPET_MAX_CHARS);
+    g_string_append_len(label, terms, end - terms);
+    g_string_append(label, "…");
+  } else {
+    g_string_append(label, terms);
+  }
+  g_string_append(label, "”");
+
+  /* GtkPopoverMenu reads the label for mnemonics. */
+  g_string_replace(label, "_", "__", 0);
+  return g_string_free(g_steal_pointer(&label), FALSE);
+}
+
+static GMenuItem *build_search_item(const BuildContext *context)
+{
+  g_autofree char *terms = collapse_whitespace(context->selected_text);
+  if (!*terms)
+    return NULL;
+
+  g_autofree char *engine_name = wig_util_search_engine_name(context->search_engine);
+  g_autofree char *label = build_search_label(engine_name, terms);
+  g_autofree char *uri = wig_util_search_uri(terms, context->search_engine);
+  return build_uri_item(label, "popup.open-in-new-tab", uri);
+}
+
+/* The items wig adds belong after the ones WebKit built for the same thing, so
+ * they wait for the section holding those to end. */
+static void flush_pending_items(BuildContext *context)
+{
+  if (context->image_section) {
+    g_autoptr(GMenuItem) item = build_uri_item("Copy Image Address", "popup.copy-text",
+                                               webkit_hit_test_result_get_image_uri(context->hit_test_result));
+    g_menu_append_item(context->image_section, item);
+    context->image_section = NULL;
+  }
+
+  if (context->selection_section) {
+    g_autoptr(GMenuItem) item = build_search_item(context);
+    if (item)
+      g_menu_append_item(context->selection_section, item);
+    context->selection_section = NULL;
+    context->placed_search_item = TRUE;
+  }
+}
+
+static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildContext *context)
 {
   g_autoptr(GMenu) menu = g_menu_new();
   g_autoptr(GMenu) spelling_guesses = NULL;
@@ -56,18 +195,22 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, WebKit
   for (GList *l = items; l; l = g_list_next(l)) {
     WebKitContextMenuItem *item = WEBKIT_CONTEXT_MENU_ITEM(l->data);
     if (webkit_context_menu_item_is_separator(item)) {
+      flush_pending_items(context);
       g_autoptr(GMenu) section = g_menu_new();
       g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
       section_menu = section;
       continue;
     }
 
-    if (open_link_action && webkit_context_menu_item_get_stock_action(item) == WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK
-        && webkit_hit_test_result_context_is_link(hit_test_result)) {
-      g_autoptr(GMenuItem) menu_item = g_menu_item_new(open_link_label, NULL);
-      g_menu_item_set_action_and_target(menu_item, open_link_action, "s",
-                                        webkit_hit_test_result_get_link_uri(hit_test_result));
-      g_menu_append_item(section_menu, menu_item);
+    WebKitContextMenuAction stock_action = webkit_context_menu_item_get_stock_action(item);
+    if (is_image_action(stock_action))
+      context->image_section = section_menu;
+    else if (stock_action == WEBKIT_CONTEXT_MENU_ACTION_COPY && context->selected_text && !context->placed_search_item)
+      context->selection_section = section_menu;
+
+    g_autoptr(GMenuItem) new_tab_item = build_new_tab_item(context, stock_action);
+    if (new_tab_item) {
+      g_menu_append_item(section_menu, new_tab_item);
       continue;
     }
 
@@ -76,7 +219,6 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, WebKit
       continue;
     g_action_map_add_action(G_ACTION_MAP(action_group), action);
 
-    WebKitContextMenuAction stock_action = webkit_context_menu_item_get_stock_action(item);
     if (is_spelling_action(stock_action)) {
       /* The submenu takes the place of the first guess, which is where WebKit
        * puts the whole block. */
@@ -101,8 +243,7 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, WebKit
     g_autoptr(GMenuItem) menu_item = NULL;
     WebKitContextMenu *submenu = webkit_context_menu_item_get_submenu(item);
     if (submenu) {
-      g_autoptr(GMenu) submenu_model = build_items(webkit_context_menu_get_items(submenu), action_group,
-                                                   hit_test_result, open_link_action, open_link_label);
+      g_autoptr(GMenu) submenu_model = build_items(webkit_context_menu_get_items(submenu), action_group, context);
       menu_item = g_menu_item_new_submenu(webkit_context_menu_item_get_title(item), G_MENU_MODEL(submenu_model));
     } else {
       menu_item = build_action_item(item, action);
@@ -114,14 +255,28 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, WebKit
 }
 
 GMenu *wig_context_menu_build(WebKitContextMenu *context_menu, GSimpleActionGroup *action_group,
-                              WebKitHitTestResult *hit_test_result, const char *open_link_action,
-                              const char *open_link_label)
+                              WebKitHitTestResult *hit_test_result, const char *selected_text,
+                              const char *search_engine)
 {
   g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU(context_menu), NULL);
   g_return_val_if_fail(G_IS_SIMPLE_ACTION_GROUP(action_group), NULL);
   g_return_val_if_fail(WEBKIT_IS_HIT_TEST_RESULT(hit_test_result), NULL);
-  g_return_val_if_fail((open_link_action == NULL) == (open_link_label == NULL), NULL);
+  g_return_val_if_fail(search_engine != NULL, NULL);
 
-  return build_items(webkit_context_menu_get_items(context_menu), action_group, hit_test_result, open_link_action,
-                     open_link_label);
+  BuildContext context = {
+    .hit_test_result = hit_test_result,
+    .selected_text = selected_text && *selected_text ? selected_text : NULL,
+    .search_engine = search_engine,
+  };
+  g_autoptr(GMenu) menu = build_items(webkit_context_menu_get_items(context_menu), action_group, &context);
+  flush_pending_items(&context);
+
+  /* Without a copy item to sit beside, the search goes at the end of the menu. */
+  if (context.selected_text && !context.placed_search_item) {
+    g_autoptr(GMenuItem) search_item = build_search_item(&context);
+    if (search_item)
+      g_menu_append_item(menu, search_item);
+  }
+
+  return g_steal_pointer(&menu);
 }

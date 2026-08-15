@@ -37,6 +37,8 @@ typedef enum {
 
 WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url);
 char *wig_util_complete_uri(const char *url, const char *search_engine);
+char *wig_util_search_uri(const char *terms, const char *search_engine);
+char *wig_util_search_engine_name(const char *search_engine);
 #if HAVE_FAVICON_SUPPORT
 GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size);
 #endif

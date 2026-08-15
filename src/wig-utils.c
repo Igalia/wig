@@ -119,18 +119,34 @@ char *wig_util_complete_uri(const char *url, const char *search_engine)
   case WIG_UTIL_URI_COMPLETION_HTTP:
     return g_strconcat("http://", url, NULL);
 
-  case WIG_UTIL_URI_COMPLETION_SEARCH: {
-    g_autofree char *escaped = g_uri_escape_string(url ? url : "", NULL, FALSE);
-    g_autoptr(GString) search_string = g_string_new(search_engine);
-    if (g_string_replace(search_string, "%s", escaped, 0) != 1) {
-      g_warning("Invalid search engine template, must contain one %%s");
-      return g_strconcat("https://duckduckgo.com/?q=", escaped, NULL);
-    }
-    return g_string_free(g_steal_pointer(&search_string), FALSE);
-  }
+  case WIG_UTIL_URI_COMPLETION_SEARCH:
+    return wig_util_search_uri(url ? url : "", search_engine);
   }
 
   g_assert_not_reached();
+}
+
+char *wig_util_search_uri(const char *terms, const char *search_engine)
+{
+  g_autofree char *escaped = g_uri_escape_string(terms, NULL, FALSE);
+  g_autoptr(GString) search_string = g_string_new(search_engine);
+  if (g_string_replace(search_string, "%s", escaped, 0) != 1) {
+    g_warning("Invalid search engine template, must contain one %%s");
+    return g_strconcat("https://duckduckgo.com/?q=", escaped, NULL);
+  }
+  return g_string_free(g_steal_pointer(&search_string), FALSE);
+}
+// FIXME: We should have a real name along with the URL for the search engine setting.
+char *wig_util_search_engine_name(const char *search_engine)
+{
+  g_autoptr(GUri) uri = g_uri_parse(search_engine, G_URI_FLAGS_PARSE_RELAXED, NULL);
+  const char *host = uri ? g_uri_get_host(uri) : NULL;
+  if (!host)
+    return NULL;
+
+  if (g_str_has_prefix(host, "www."))
+    host += strlen("www.");
+  return g_strdup(host);
 }
 
 #if HAVE_FAVICON_SUPPORT
