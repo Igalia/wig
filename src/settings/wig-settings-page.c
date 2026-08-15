@@ -28,12 +28,12 @@
 #include <adwaita.h>
 
 struct _WigSettingsPage {
-  GtkWidget parent;
+  WigNativePage parent;
 
   GtkWidget *preferences;
 };
 
-G_DEFINE_FINAL_TYPE(WigSettingsPage, wig_settings_page, GTK_TYPE_WIDGET)
+G_DEFINE_FINAL_TYPE(WigSettingsPage, wig_settings_page, WIG_TYPE_NATIVE_PAGE)
 
 gboolean uri_is_settings_page(const char *uri)
 {
@@ -123,7 +123,6 @@ static void wig_settings_page_class_init(WigSettingsPageClass *klass)
 
   object_class->dispose = wig_settings_page_dispose;
 
-  gtk_widget_class_set_layout_manager_type(widget_class, GTK_TYPE_BIN_LAYOUT);
   gtk_widget_class_set_css_name(widget_class, "wig-settings-page");
 }
 
@@ -136,6 +135,9 @@ static void wig_settings_page_init(WigSettingsPage *self)
 
   wig_settings_page_add_browsing_group(self, settings);
   wig_settings_page_add_content_group(self, settings);
+
+  wig_native_page_set_title(WIG_NATIVE_PAGE(self), WIG_SETTINGS_PAGE_TITLE);
+  wig_native_page_set_uri(WIG_NATIVE_PAGE(self), WIG_SETTINGS_PAGE_URI);
 }
 
 GtkWidget *wig_settings_page_new(void)

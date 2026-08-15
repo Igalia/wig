@@ -22,18 +22,20 @@
 
 #pragma once
 
-#include "wig-native-page.h"
+#include <gtk/gtk.h>
 
 G_BEGIN_DECLS
 
-#define WIG_SETTINGS_PAGE_URI "wig:settings"
-#define WIG_SETTINGS_PAGE_TITLE "Settings"
+#define WIG_TYPE_NATIVE_PAGE (wig_native_page_get_type())
+G_DECLARE_DERIVABLE_TYPE(WigNativePage, wig_native_page, WIG, NATIVE_PAGE, GtkWidget)
 
-#define WIG_TYPE_SETTINGS_PAGE (wig_settings_page_get_type())
-G_DECLARE_FINAL_TYPE(WigSettingsPage, wig_settings_page, WIG, SETTINGS_PAGE, WigNativePage)
+struct _WigNativePageClass {
+  GtkWidgetClass parent_class;
+};
 
-GtkWidget *wig_settings_page_new(void);
-
-gboolean uri_is_settings_page(const char *uri);
+const char *wig_native_page_get_title(WigNativePage *self);
+void wig_native_page_set_title(WigNativePage *self, const char *title);
+const char *wig_native_page_get_uri(WigNativePage *self);
+void wig_native_page_set_uri(WigNativePage *self, const char *uri);
 
 G_END_DECLS

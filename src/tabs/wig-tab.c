@@ -552,7 +552,24 @@ static void wig_tab_on_title_changed(WigTab *self)
  * still navigates to them, so everything hung off the address keeps working, but
  * what it drew is covered up and the widget carries the title the document would
  * have had. */
-static void wig_tab_show_native_page(WigTab *self, GtkWidget *page, const char *title)
+static void wig_tab_native_page_title_changed(WigTab *self, GParamSpec *pspec, WigNativePage *page)
+{
+  wig_tab_set_title(self, wig_native_page_get_title(page));
+}
+
+/* The page says where it is, which the view follows so the entry, history and
+ * session see an ordinary navigation. */
+static void wig_tab_native_page_uri_changed(WigTab *self, GParamSpec *pspec, WigNativePage *page)
+{
+  const char *uri = wig_native_page_get_uri(page);
+
+  if (!uri || g_strcmp0(uri, webkit_web_view_get_uri(self->web_view)) == 0)
+    return;
+
+  webkit_web_view_load_uri(self->web_view, uri);
+}
+
+static void wig_tab_show_native_page(WigTab *self, GtkWidget *page)
 {
   self->native_page = page;
 
@@ -560,7 +577,10 @@ static void wig_tab_show_native_page(WigTab *self, GtkWidget *page, const char *
   gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), page);
   gtk_widget_grab_focus(page);
 
-  wig_tab_set_title(self, title);
+  g_signal_connect_object(page, "notify::title", G_CALLBACK(wig_tab_native_page_title_changed), self,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(page, "notify::uri", G_CALLBACK(wig_tab_native_page_uri_changed), self, G_CONNECT_SWAPPED);
+  wig_tab_set_title(self, wig_native_page_get_title(WIG_NATIVE_PAGE(page)));
 }
 
 static void wig_tab_clear_native_page(WigTab *self)
@@ -592,7 +612,7 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
     return;
 
   if (uri_is_settings_page(webkit_web_view_get_uri(self->web_view))) {
-    wig_tab_show_native_page(self, wig_settings_page_new(), WIG_SETTINGS_PAGE_TITLE);
+    wig_tab_show_native_page(self, wig_settings_page_new());
     return;
   }
 
