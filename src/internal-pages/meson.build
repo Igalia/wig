@@ -7,6 +7,5 @@ internal_pages_resources = gnome.compile_resources(
 )
 
 internal_pages_sources = files(
-    'wig-history.c',
     'wig-internal-page.c',
 ) + internal_pages_resources

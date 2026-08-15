@@ -3,6 +3,5 @@
   <gresource prefix="/com/igalia/wig/internal-pages">
     <file>style.css</file>
     <file>about.html</file>
-    <file>history.html</file>
   </gresource>
 </gresources>

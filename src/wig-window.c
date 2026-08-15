@@ -1667,3 +1667,11 @@ void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view)
   WigTab *tab = wig_window_add_tab_for_view(win, web_view);
   wig_tab_list_set_active(win->tab_list, tab);
 }
+
+void wig_window_add_web_view_in_background(WigWindow *win, WebKitWebView *web_view)
+{
+  g_return_if_fail(WIG_IS_WINDOW(win));
+  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
+
+  wig_window_add_tab_for_view(win, web_view);
+}

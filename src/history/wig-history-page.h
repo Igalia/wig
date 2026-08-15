@@ -22,9 +22,18 @@
 
 #pragma once
 
-#include <tmpl-glib.h>
-#include <wpe/webkit.h>
+#include "wig-native-page.h"
 
-#include "wig-history-store.h"
+G_BEGIN_DECLS
 
-TmplScope *handle_history_uri(WebKitURISchemeRequest *request, WigHistoryStore *store);
+#define WIG_HISTORY_PAGE_URI "wig:history"
+#define WIG_HISTORY_PAGE_TITLE "History"
+
+#define WIG_TYPE_HISTORY_PAGE (wig_history_page_get_type())
+G_DECLARE_FINAL_TYPE(WigHistoryPage, wig_history_page, WIG, HISTORY_PAGE, WigNativePage)
+
+GtkWidget *wig_history_page_new(const char *uri);
+
+gboolean uri_is_history_page(const char *uri);
+
+G_END_DECLS

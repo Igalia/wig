@@ -26,12 +26,14 @@
 #include "wig-crash-page.h"
 #include "wig-error-page.h"
 #include "wig-favicon.h"
+#include "wig-history-page.h"
 #include "wig-option-menu.h"
 #include "wig-script-dialog.h"
 #include "wig-settings-page.h"
 #include "wig-tls-error-page.h"
 #include "wig-unresponsive-dialog.h"
 #include "wig-utils.h"
+#include "wig-window.h"
 #include "wpe-view-gtk.h"
 
 #define WIG_TAB_UNRESPONSIVE_TIMEOUT_SECONDS 60
@@ -622,6 +624,37 @@ static void wig_tab_show_settings_page(WigTab *self, const char *uri)
     wig_tab_show_native_page(self, wig_settings_page_new(uri));
 }
 
+/* Following an entry is an ordinary navigation, so the page it lands on takes
+ * this one's place the way any other link would; middle-clicking it opens a tab
+ * behind this one, the way middle-clicking a link on a page does. */
+static void wig_tab_history_page_open_uri(WigTab *self, const char *uri, gboolean background)
+{
+  GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(self));
+
+  g_debug("tab %u: opening %s from history%s", self->id, uri, background ? " in a tab behind this one" : "");
+
+  if (!background || !WIG_IS_WINDOW(root)) {
+    webkit_web_view_load_uri(self->web_view, uri);
+    return;
+  }
+
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(wig_application_get());
+  wig_window_add_web_view_in_background(WIG_WINDOW(root), web_view);
+  webkit_web_view_load_uri(web_view, uri);
+}
+
+static void wig_tab_show_history_page(WigTab *self, const char *uri)
+{
+  if (wig_tab_native_page_answers_to(self, uri)) {
+    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+    return;
+  }
+
+  GtkWidget *page = wig_history_page_new(uri);
+  g_signal_connect_object(page, "open-uri", G_CALLBACK(wig_tab_history_page_open_uri), self, G_CONNECT_SWAPPED);
+  wig_tab_show_native_page(self, page);
+}
+
 /* Once a load commits, an empty title means the page genuinely has none, so fall
  * back to the hostname.  A real title, if any, arrives via notify::title. */
 static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
@@ -647,6 +680,11 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
   const char *uri = webkit_web_view_get_uri(self->web_view);
   if (uri_is_settings_page(uri)) {
     wig_tab_show_settings_page(self, uri);
+    return;
+  }
+
+  if (uri_is_history_page(uri)) {
+    wig_tab_show_history_page(self, uri);
     return;
   }
 

@@ -27,7 +27,7 @@
 
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
-#include "wig-history.h"
+#include "wig-history-page.h"
 #include "wig-internal-page.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
@@ -360,7 +360,6 @@ static void wig_application_initialize_notification_permissions(WigApplication *
 
 static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpointer user_data)
 {
-  WigApplication *app = WIG_APPLICATION(user_data);
   const char *uri = webkit_uri_scheme_request_get_uri(request);
 
   g_debug("wig: scheme handler called for '%s'", uri);
@@ -394,16 +393,12 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   }
 
   g_autofree char *html = NULL;
-  g_autoptr(TmplScope) scope = NULL;
   if (g_str_equal(uri, "wig:about"))
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/about.html", NULL);
-  else if (uri_is_settings_page(uri)) {
-    /* The settings are a widget the tab shows over this document, which only has
-     * to commit so the address behaves like any other. */
+  else if (uri_is_settings_page(uri) || uri_is_history_page(uri)) {
+    /* These are widgets the tab shows over this document, which only has to
+     * commit so the address behaves like any other. */
     html = g_strdup("<!DOCTYPE html>");
-  } else if (g_str_has_prefix(uri, "wig:history")) {
-    scope = handle_history_uri(request, app->history_store);
-    html = wig_internal_page_render("/com/igalia/wig/internal-pages/history.html", scope);
   } else {
     g_autoptr(GError) not_found = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found");
     webkit_uri_scheme_request_finish_error(request, not_found);
