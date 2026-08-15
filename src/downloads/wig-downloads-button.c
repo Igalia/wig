@@ -241,6 +241,7 @@ static void wig_downloads_button_init(WigDownloadsButton *self)
   gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(self->menu_button), FALSE);
   gtk_widget_set_tooltip_text(self->menu_button, "Downloads");
   gtk_widget_add_css_class(self->menu_button, "toolbar-button");
+  gtk_widget_set_focusable(self->menu_button, FALSE);
 
   self->revealer = gtk_revealer_new();
   gtk_revealer_set_transition_type(GTK_REVEALER(self->revealer), GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
