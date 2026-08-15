@@ -267,7 +267,7 @@ static void wig_settings_page_add_features_panes(WigSettingsPage *self)
 static void wig_settings_page_add_memory_pane(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_memory_new(), "memory-limits",
-                                      "Memory Limits", "drive-harddisk-symbolic");
+                                      "Memory Limits", "memory-symbolic");
   wig_settings_memory_index(WIG_SETTINGS_SEARCH(self->search), "memory-limits", "Memory Limits");
 }
 
@@ -290,7 +290,7 @@ static void wig_settings_page_add_user_content_panes(WigSettingsPage *self)
 static void wig_settings_page_add_website_data_pane(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_website_data_new(), "website-data",
-                                      "Website Data", "network-server-symbolic");
+                                      "Website Data", "drive-harddisk-symbolic");
   wig_settings_website_data_index(WIG_SETTINGS_SEARCH(self->search), "website-data", "Website Data");
 }
 
