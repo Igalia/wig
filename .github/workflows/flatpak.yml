@@ -22,6 +22,7 @@ jobs:
             wpe:
               - 'flatpak/com.igalia.wig.WPE.yaml'
               - 'flatpak/webkit-empty-linked-into.patch'
+              - 'flatpak/com.igalia.SparkleCDM.Module.clearkey.yaml'
 
       - name: Resolve repository names
         id: repository
@@ -58,18 +59,30 @@ jobs:
           flatpak-builder --user --force-clean --repo=_flatpak-repo \
             _flatpak-build flatpak/com.igalia.wig.WPE.yaml
 
-      - name: Create bundle
+      - name: Create WPE bundle
         run: |
           flatpak build-bundle _flatpak-repo wpe-base.flatpak \
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
             com.igalia.wig.WPE master
 
-      - name: Upload bundle
+      - name: Upload WPE bundle
         uses: actions/upload-artifact@v4
         with:
           name: wpe-base-x86_64.flatpak
           path: wpe-base.flatpak
           if-no-files-found: error
+
+      - name: Install WPE base app
+        run: |
+          flatpak install --user --noninteractive --assumeyes --reinstall \
+            --bundle wpe-base.flatpak
+
+      - name: Build Clear Key module
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: flatpak/com.igalia.SparkleCDM.Module.clearkey.yaml
+          bundle: sparkle-cdm-clearkey.flatpak
+          cache: false
 
   build-wig-flatpak:
     runs-on: ubuntu-latest
@@ -114,13 +127,6 @@ jobs:
         with:
           manifest-path: flatpak/com.igalia.wig.yaml
           bundle: wig.flatpak
-          cache: false
-
-      - name: Build Clear Key module
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          manifest-path: flatpak/com.igalia.SparkleCDM.Module.clearkey.yaml
-          bundle: sparkle-cdm-clearkey.flatpak
           cache: false
 
   publish-flatpaks:
