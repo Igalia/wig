@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Capture State Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.95em;
+      cursor: pointer;
+      margin: 0 8px 8px 0;
+    }
+    button:hover { background: #1c71d8; }
+    button.stop { background: #c01c28; }
+    button.stop:hover { background: #a51d2d; }
+    button.mute { background: #77767b; }
+    button.mute:hover { background: #5e5c64; }
+    .status {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+    }
+    video { width: 100%; border-radius: 6px; background: #000; margin-top: 12px; }
+    code { background: #ececec; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<h1>Capture State Tests</h1>
+<p class="subtitle">
+  Holds capture open so <code>camera-capture-state</code>, <code>microphone-capture-state</code> and
+  <code>display-capture-state</code> stay non-<code>NONE</code>.
+</p>
+
+<section>
+  <h2>Why not test-permissions.html</h2>
+  <p class="desc">
+    That page stops every track the moment it is granted, so capture is over before an indicator could show.
+    Everything here keeps the stream in a variable until you stop it.
+  </p>
+</section>
+
+<section>
+  <h2>Camera</h2>
+  <p class="desc">Should light the camera indicator.</p>
+  <button onclick="start('camera', { video: true })">Start camera</button>
+  <button class="mute" onclick="toggleMute('camera')">Toggle track mute</button>
+  <button class="stop" onclick="stop('camera')">Stop camera</button>
+  <div class="status" id="status-camera">idle</div>
+  <video id="video-camera" autoplay muted playsinline></video>
+</section>
+
+<section>
+  <h2>Microphone</h2>
+  <p class="desc">Should light the microphone indicator, with no video attached.</p>
+  <button onclick="start('microphone', { audio: true })">Start microphone</button>
+  <button class="mute" onclick="toggleMute('microphone')">Toggle track mute</button>
+  <button class="stop" onclick="stop('microphone')">Stop microphone</button>
+  <div class="status" id="status-microphone">idle</div>
+</section>
+
+<section>
+  <h2>Camera and microphone together</h2>
+  <p class="desc">Both indicators at once, to check they sit side by side and stay distinguishable.</p>
+  <button onclick="start('both', { video: true, audio: true })">Start both</button>
+  <button class="stop" onclick="stop('both')">Stop both</button>
+  <div class="status" id="status-both">idle</div>
+  <video id="video-both" autoplay muted playsinline></video>
+</section>
+
+<section>
+  <h2>Screen share</h2>
+  <p class="desc">
+    Goes through the desktop portal picker first. Should light the display indicator, and needs
+    <code>gst-plugin-pipewire</code> to produce frames.
+  </p>
+  <button onclick="startDisplay()">Share screen</button>
+  <button class="stop" onclick="stop('display')">Stop sharing</button>
+  <div class="status" id="status-display">idle</div>
+  <video id="video-display" autoplay muted playsinline></video>
+</section>
+
+<section>
+  <h2>Everything at once</h2>
+  <p class="desc">All three indicators together — the real check that each colour is telling them apart.</p>
+  <button onclick="startAll()">Start all three</button>
+  <button class="stop" onclick="stopAll()">Stop everything</button>
+  <div class="status" id="status-all">idle</div>
+</section>
+
+<script>
+  const streams = {};
+
+  function set(id, text) {
+    document.getElementById('status-' + id).textContent = text;
+  }
+
+  function attach(id, stream) {
+    const video = document.getElementById('video-' + id);
+    if (video)
+      video.srcObject = stream;
+  }
+
+  async function start(id, constraints) {
+    stop(id);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streams[id] = stream;
+      attach(id, stream);
+      set(id, `live: ${stream.getTracks().map(t => t.kind).join(', ')}`);
+    } catch (error) {
+      set(id, `failed: ${error.name} — ${error.message}`);
+    }
+  }
+
+  async function startDisplay() {
+    stop('display');
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      streams.display = stream;
+      attach('display', stream);
+      set('display', `live: ${stream.getTracks().map(t => t.kind).join(', ')}`);
+    } catch (error) {
+      set('display', `failed: ${error.name} — ${error.message}`);
+    }
+  }
+
+  async function startAll() {
+    await start('camera', { video: true });
+    await start('microphone', { audio: true });
+    await startDisplay();
+    set('all', 'started camera, microphone and screen share');
+  }
+
+  function stop(id) {
+    const stream = streams[id];
+    if (!stream)
+      return;
+    stream.getTracks().forEach(track => track.stop());
+    delete streams[id];
+    attach(id, null);
+    set(id, 'stopped');
+  }
+
+  function stopAll() {
+    Object.keys(streams).forEach(stop);
+    set('all', 'everything stopped');
+  }
+
+  /* Disabling a track is how a page mutes itself without giving the device up,
+     which is the difference between the ACTIVE and MUTED capture states. */
+  function toggleMute(id) {
+    const stream = streams[id];
+    if (!stream) {
+      set(id, 'nothing to mute');
+      return;
+    }
+    const tracks = stream.getTracks();
+    tracks.forEach(track => { track.enabled = !track.enabled; });
+    set(id, tracks[0].enabled ? 'live (unmuted)' : 'live (muted)');
+  }
+</script>
+</body>
+</html>

@@ -39,6 +39,12 @@ G_BEGIN_DECLS
 #define WIG_TYPE_TAB (wig_tab_get_type())
 G_DECLARE_FINAL_TYPE(WigTab, wig_tab, WIG, TAB, GObject)
 
+typedef enum {
+  WIG_CAPTURE_CAMERA,
+  WIG_CAPTURE_MICROPHONE,
+  WIG_CAPTURE_DISPLAY,
+} WigCaptureKind;
+
 WigTab *wig_tab_new(WebKitWebView *web_view);
 guint wig_tab_get_id(WigTab *self);
 WebKitWebView *wig_tab_get_web_view(WigTab *self);
@@ -57,6 +63,8 @@ gboolean wig_tab_get_loading(WigTab *self);
 gboolean wig_tab_get_playing_audio(WigTab *self);
 gboolean wig_tab_get_muted(WigTab *self);
 void wig_tab_set_muted(WigTab *self, gboolean muted);
+WebKitMediaCaptureState wig_tab_get_capture_state(WigTab *self, WigCaptureKind kind);
+void wig_tab_set_capture_state(WigTab *self, WigCaptureKind kind, WebKitMediaCaptureState state);
 gboolean wig_tab_get_selected(WigTab *self);
 void wig_tab_set_selected(WigTab *self, gboolean selected);
 gboolean wig_tab_get_search_active(WigTab *self);

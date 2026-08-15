@@ -721,7 +721,6 @@ static void wig_window_base_init(WigWindowBase *self)
   g_signal_group_connect_swapped(priv->active_web_view_signals, "leave-fullscreen",
                                  G_CALLBACK(wig_window_base_on_leave_fullscreen), self);
   g_signal_group_connect_swapped(priv->active_web_view_signals, "notify::uri", G_CALLBACK(active_uri_changed), self);
-
   priv->back_forward_list_signals = g_signal_group_new(WEBKIT_TYPE_BACK_FORWARD_LIST);
   g_signal_group_connect_swapped(priv->back_forward_list_signals, "changed",
                                  G_CALLBACK(wig_window_base_on_back_forward_list_changed), self);

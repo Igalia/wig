@@ -35,6 +35,7 @@ struct _WigTabWidget {
   GtkWidget *favicon;
   GtkWidget *spinner;
   GtkWidget *audio_icon;
+  GtkWidget *capture_icons[WIG_CAPTURE_DISPLAY + 1];
   GtkWidget *title_label;
   GtkWidget *close_fade;
   GtkWidget *context_menu_popover;
@@ -136,6 +137,80 @@ static void wig_tab_widget_on_playing_audio_changed(WigTabWidget *self, GParamSp
     wig_tab_widget_on_muted_changed(self, NULL, tab);
   } else {
     g_clear_pointer(&self->audio_icon, gtk_widget_unparent);
+  }
+}
+
+static const struct {
+  const char *icon_name;
+  const char *muted_icon_name;
+  const char *style_class;
+  const char *tooltip;
+  const char *muted_tooltip;
+} capture_kinds[WIG_CAPTURE_DISPLAY + 1] = {
+  [WIG_CAPTURE_CAMERA] = { "film-camera-symbolic", "film-camera-disabled-symbolic", "tab-capture-camera",
+                           "Using the camera, click to pause", "Camera paused, click to resume" },
+  [WIG_CAPTURE_MICROPHONE] = { "audio-input-microphone-symbolic", "microphone-disabled-symbolic",
+                               "tab-capture-microphone", "Using the microphone, click to pause",
+                               "Microphone paused, click to resume" },
+  [WIG_CAPTURE_DISPLAY] = { "screen-shared-symbolic", "screen-shared-symbolic", "tab-capture-display",
+                            "Sharing the screen, click to pause", "Screen sharing paused, click to resume" },
+};
+
+/* Pausing keeps the device, so the page can be let back in with another click;
+ * giving it up entirely is not offered here since it cannot be undone. */
+static void wig_tab_widget_capture_icon_clicked(GtkGestureClick *gesture, int n_press, double x, double y,
+                                                WigTabWidget *self)
+{
+  GtkWidget *icon = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+
+  for (WigCaptureKind kind = WIG_CAPTURE_CAMERA; kind <= WIG_CAPTURE_DISPLAY; kind++) {
+    if (self->capture_icons[kind] != icon)
+      continue;
+
+    gboolean muted = wig_tab_get_capture_state(self->tab, kind) == WEBKIT_MEDIA_CAPTURE_STATE_MUTED;
+    wig_tab_set_capture_state(self->tab, kind,
+                              muted ? WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE : WEBKIT_MEDIA_CAPTURE_STATE_MUTED);
+    return;
+  }
+}
+
+static void wig_tab_widget_on_capture_changed(WigTabWidget *self, WigTab *tab)
+{
+  for (WigCaptureKind kind = WIG_CAPTURE_CAMERA; kind <= WIG_CAPTURE_DISPLAY; kind++) {
+    WebKitMediaCaptureState state = wig_tab_get_capture_state(tab, kind);
+
+    if (state == WEBKIT_MEDIA_CAPTURE_STATE_NONE) {
+      g_clear_pointer(&self->capture_icons[kind], gtk_widget_unparent);
+      continue;
+    }
+
+    gboolean muted = state == WEBKIT_MEDIA_CAPTURE_STATE_MUTED;
+    if (!self->capture_icons[kind]) {
+      GtkWidget *icon = gtk_image_new();
+      gtk_image_set_pixel_size(GTK_IMAGE(icon), WIG_TAB_FAVICON_SIZE);
+      gtk_widget_set_halign(icon, GTK_ALIGN_CENTER);
+      gtk_widget_set_hexpand(icon, FALSE);
+      gtk_widget_set_cursor(icon, gdk_cursor_new_from_name("pointer", NULL));
+      gtk_widget_add_css_class(icon, "tab-capture");
+      gtk_widget_add_css_class(icon, capture_kinds[kind].style_class);
+      gtk_widget_insert_before(icon, self->content, self->title_label);
+
+      GtkGestureClick *gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+      g_signal_connect_object(gesture, "pressed", G_CALLBACK(wig_tab_widget_capture_icon_clicked), self,
+                              G_CONNECT_DEFAULT);
+      gtk_widget_add_controller(icon, GTK_EVENT_CONTROLLER(gesture));
+
+      self->capture_icons[kind] = icon;
+    }
+
+    gtk_image_set_from_icon_name(GTK_IMAGE(self->capture_icons[kind]),
+                                 muted ? capture_kinds[kind].muted_icon_name : capture_kinds[kind].icon_name);
+    gtk_widget_set_tooltip_text(self->capture_icons[kind],
+                                muted ? capture_kinds[kind].muted_tooltip : capture_kinds[kind].tooltip);
+    if (muted)
+      gtk_widget_add_css_class(self->capture_icons[kind], "muted");
+    else
+      gtk_widget_remove_css_class(self->capture_icons[kind], "muted");
   }
 }
 
@@ -325,6 +400,8 @@ static void wig_tab_widget_dispose(GObject *object)
   self->spinner = NULL;
   self->audio_icon = NULL;
   self->favicon = NULL;
+  for (WigCaptureKind kind = WIG_CAPTURE_CAMERA; kind <= WIG_CAPTURE_DISPLAY; kind++)
+    self->capture_icons[kind] = NULL;
 
   g_clear_pointer(&self->context_menu_popover, gtk_widget_unparent);
   if (self->snapshot_popover) {
@@ -415,9 +492,12 @@ GtkWidget *wig_tab_widget_new(WigTab *tab)
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(tab, "notify::muted", G_CALLBACK(wig_tab_widget_on_muted_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(tab, "notify::pinned", G_CALLBACK(wig_tab_widget_on_pinned_changed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(tab, "capture-changed", G_CALLBACK(wig_tab_widget_on_capture_changed), self,
+                          G_CONNECT_SWAPPED);
   wig_tab_widget_on_loading_changed(self, NULL, tab);
   wig_tab_widget_on_playing_audio_changed(self, NULL, tab);
   wig_tab_widget_on_pinned_changed(self, NULL, tab);
+  wig_tab_widget_on_capture_changed(self, tab);
 
   return GTK_WIDGET(self);
 }

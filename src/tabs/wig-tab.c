@@ -81,6 +81,36 @@ typedef enum {
 
 static GParamSpec *props[PROP_ERROR_URI + 1];
 
+enum {
+  CAPTURE_CHANGED,
+  N_SIGNALS,
+};
+
+static guint signals[N_SIGNALS];
+
+static const struct {
+  const char *property;
+  WebKitMediaCaptureState (*get_state)(WebKitWebView *web_view);
+  void (*set_state)(WebKitWebView *web_view, WebKitMediaCaptureState state);
+} capture_kinds[WIG_CAPTURE_DISPLAY + 1] = {
+  [WIG_CAPTURE_CAMERA] = { "camera-capture-state", webkit_web_view_get_camera_capture_state,
+                           webkit_web_view_set_camera_capture_state },
+  [WIG_CAPTURE_MICROPHONE] = { "microphone-capture-state", webkit_web_view_get_microphone_capture_state,
+                               webkit_web_view_set_microphone_capture_state },
+  [WIG_CAPTURE_DISPLAY] = { "display-capture-state", webkit_web_view_get_display_capture_state,
+                            webkit_web_view_set_display_capture_state },
+};
+
+static void wig_tab_on_capture_changed(WigTab *self)
+{
+  g_debug("tab %u: capture camera=%d microphone=%d display=%d", self->id,
+          webkit_web_view_get_camera_capture_state(self->web_view),
+          webkit_web_view_get_microphone_capture_state(self->web_view),
+          webkit_web_view_get_display_capture_state(self->web_view));
+
+  g_signal_emit(self, signals[CAPTURE_CHANGED], 0);
+}
+
 static gboolean wig_tab_on_script_dialog(WigTab *self, WebKitScriptDialog *dialog)
 {
   wig_script_dialog_show(GTK_OVERLAY(self->view_overlay), dialog);
@@ -462,6 +492,9 @@ static void wig_tab_class_init(WigTabClass *klass)
                                               G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
+
+  signals[CAPTURE_CHANGED] = g_signal_new("capture-changed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+                                          NULL, G_TYPE_NONE, 0);
 }
 
 /* The title shown for a committed page that provides no <title> of its own. */
@@ -648,6 +681,10 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "notify::is-web-process-responsive", G_CALLBACK(wig_tab_on_responsive_changed),
                           self, G_CONNECT_SWAPPED);
+  for (WigCaptureKind kind = WIG_CAPTURE_CAMERA; kind <= WIG_CAPTURE_DISPLAY; kind++) {
+    g_autofree char *signal_name = g_strconcat("notify::", capture_kinds[kind].property, NULL);
+    g_signal_connect_object(web_view, signal_name, G_CALLBACK(wig_tab_on_capture_changed), self, G_CONNECT_SWAPPED);
+  }
   g_signal_connect_object(web_view, "web-process-terminated", G_CALLBACK(wig_tab_on_web_process_terminated), self,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "load-failed-with-tls-errors", G_CALLBACK(wig_tab_on_load_failed_with_tls_errors),
@@ -804,6 +841,22 @@ gboolean wig_tab_get_muted(WigTab *self)
 void wig_tab_set_muted(WigTab *self, gboolean muted)
 {
   g_object_set(self, "muted", muted, NULL);
+}
+
+WebKitMediaCaptureState wig_tab_get_capture_state(WigTab *self, WigCaptureKind kind)
+{
+  g_assert(WIG_IS_TAB(self));
+
+  return capture_kinds[kind].get_state(self->web_view);
+}
+
+/* Muting a device leaves it held and can be undone, while WEBKIT_MEDIA_CAPTURE_
+ * STATE_NONE gives it up for good: the page has to ask for it again. */
+void wig_tab_set_capture_state(WigTab *self, WigCaptureKind kind, WebKitMediaCaptureState state)
+{
+  g_assert(WIG_IS_TAB(self));
+
+  capture_kinds[kind].set_state(self->web_view, state);
 }
 
 gboolean wig_tab_get_selected(WigTab *self)

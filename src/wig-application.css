@@ -142,6 +142,30 @@ wig-error-page {
   font-family: monospace;
 }
 
+ wig-tab .tab-capture {
+  margin: 6px 6px 6px 0px;
+}
+
+wig-tab.pinned .tab-capture {
+  margin: 6px 0px;
+}
+
+.tab-capture.tab-capture-camera {
+  color: #d33941;
+}
+
+.tab-capture.tab-capture-microphone {
+  color: #09e456;
+}
+
+.tab-capture.tab-capture-display {
+  color: #e2ae1d;
+}
+
+.tab-capture.muted {
+  opacity: 0.45;
+}
+
 /* Adwaita pads menus vertically only, since its own menu items run edge to edge.
  * These items are rounded rows, so they need the same gap on every side, and the
  * list must not paint its view background over the menu's. */
