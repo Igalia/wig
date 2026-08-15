@@ -30,7 +30,8 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(WigSettingsSearch, wig_settings_search, WIG, SETTINGS_SEARCH, GtkWidget)
 
 GtkWidget *wig_settings_search_new(void);
-void wig_settings_search_add_row(WigSettingsSearch *self, GtkWidget *row, const char *pane, const char *pane_title);
+void wig_settings_search_add(WigSettingsSearch *self, const char *title, const char *description, const char *pane,
+                             const char *pane_title);
 void wig_settings_search_set_terms(WigSettingsSearch *self, const char *terms);
 
 G_END_DECLS

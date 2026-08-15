@@ -23,8 +23,8 @@
 #include "wig-settings-search.h"
 
 typedef struct {
-  /* The pane holds the row; this only points at it for its wording. */
-  AdwPreferencesRow *row;
+  char *title;
+  char *description;
   char *pane;
   char *pane_title;
 } SearchRow;
@@ -33,11 +33,10 @@ struct _WigSettingsSearch {
   GtkWidget parent;
 
   GtkWidget *scroller;
-  GtkWidget *list;
+  GtkWidget *results;
   GtkWidget *empty;
   GtkWidget *stack;
-  GPtrArray *rows; /* SearchRow, every row there is */
-  GPtrArray *matches; /* SearchRow, borrowed, in the order they are listed */
+  GPtrArray *rows; /* SearchRow, every setting there is */
 };
 
 /* The settings rows as something to search: each one is offered with the pane it
@@ -56,6 +55,8 @@ static void search_row_free(gpointer data)
 {
   SearchRow *row = data;
 
+  g_free(row->title);
+  g_free(row->description);
   g_free(row->pane);
   g_free(row->pane_title);
   g_free(row);
@@ -63,16 +64,15 @@ static void search_row_free(gpointer data)
 
 static gboolean search_row_matches(SearchRow *row, const char *terms)
 {
-  g_autofree char *title = g_utf8_casefold(adw_preferences_row_get_title(row->row), -1);
-  if (strstr(title, terms))
+  g_autofree char *title = row->title ? g_utf8_casefold(row->title, -1) : NULL;
+  if (title && strstr(title, terms))
     return TRUE;
 
-  const char *subtitle = ADW_IS_ACTION_ROW(row->row) ? adw_action_row_get_subtitle(ADW_ACTION_ROW(row->row)) : NULL;
-  if (!subtitle)
+  if (!row->description)
     return FALSE;
 
-  g_autofree char *folded = g_utf8_casefold(subtitle, -1);
-  return strstr(folded, terms) != NULL;
+  g_autofree char *description = g_utf8_casefold(row->description, -1);
+  return strstr(description, terms) != NULL;
 }
 
 GtkWidget *wig_settings_search_new(void)
@@ -80,49 +80,68 @@ GtkWidget *wig_settings_search_new(void)
   return g_object_new(WIG_TYPE_SETTINGS_SEARCH, NULL);
 }
 
-void wig_settings_search_add_row(WigSettingsSearch *self, GtkWidget *row, const char *pane, const char *pane_title)
+void wig_settings_search_add(WigSettingsSearch *self, const char *title, const char *description, const char *pane,
+                             const char *pane_title)
 {
   SearchRow *entry = g_new0(SearchRow, 1);
 
-  entry->row = ADW_PREFERENCES_ROW(row);
+  entry->title = g_strdup(title);
+  entry->description = description && *description ? g_strdup(description) : NULL;
   entry->pane = g_strdup(pane);
   entry->pane_title = g_strdup(pane_title);
   g_ptr_array_add(self->rows, entry);
 }
 
-static void wig_settings_search_row_activated(WigSettingsSearch *self, GtkListBoxRow *listed)
+static void wig_settings_search_result_activated(AdwActionRow *result, SearchRow *row)
 {
-  guint index = (guint)gtk_list_box_row_get_index(listed);
-  if (index >= self->matches->len)
-    return;
+  WigSettingsSearch *self = WIG_SETTINGS_SEARCH(gtk_widget_get_ancestor(GTK_WIDGET(result), WIG_TYPE_SETTINGS_SEARCH));
 
-  SearchRow *match = g_ptr_array_index(self->matches, index);
-  g_signal_emit(self, signals[ACTIVATED_SIGNAL], 0, match->pane);
+  g_signal_emit(self, signals[ACTIVATED_SIGNAL], 0, row->pane);
 }
 
-/* The rows themselves stay where they are; what is listed is a way to get to
- * them, so the pane each one lives in is what the result carries. */
+static void wig_settings_search_clear(WigSettingsSearch *self)
+{
+  GtkWidget *child;
+
+  while ((child = gtk_widget_get_first_child(self->results)))
+    gtk_box_remove(GTK_BOX(self->results), child);
+}
+
+/* Settings are offered pane by pane, so a run of matches from the same pane is
+ * gathered under its name the way the pane itself would show them. */
 void wig_settings_search_set_terms(WigSettingsSearch *self, const char *terms)
 {
   g_autofree char *folded = g_utf8_casefold(terms, -1);
+  AdwPreferencesGroup *group = NULL;
+  const char *group_pane = NULL;
+  guint matches = 0;
 
-  gtk_list_box_remove_all(GTK_LIST_BOX(self->list));
-  g_ptr_array_set_size(self->matches, 0);
+  wig_settings_search_clear(self);
 
   for (guint i = 0; i < self->rows->len; i++) {
     SearchRow *row = g_ptr_array_index(self->rows, i);
     if (!search_row_matches(row, folded))
       continue;
 
+    if (!group || g_strcmp0(group_pane, row->pane) != 0) {
+      group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+      adw_preferences_group_set_title(group, row->pane_title);
+      gtk_box_append(GTK_BOX(self->results), GTK_WIDGET(group));
+      group_pane = row->pane;
+    }
+
     GtkWidget *result = adw_action_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(result), adw_preferences_row_get_title(row->row));
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(result), row->pane_title);
-    adw_action_row_set_activatable_widget(ADW_ACTION_ROW(result), NULL);
-    gtk_list_box_append(GTK_LIST_BOX(self->list), result);
-    g_ptr_array_add(self->matches, row);
+    adw_preferences_row_set_use_markup(ADW_PREFERENCES_ROW(result), FALSE);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(result), row->title);
+    if (row->description)
+      adw_action_row_set_subtitle(ADW_ACTION_ROW(result), row->description);
+    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(result), TRUE);
+    g_signal_connect(result, "activated", G_CALLBACK(wig_settings_search_result_activated), row);
+    adw_preferences_group_add(group, result);
+    matches++;
   }
 
-  gtk_stack_set_visible_child_name(GTK_STACK(self->stack), self->matches->len ? "results" : "empty");
+  gtk_stack_set_visible_child_name(GTK_STACK(self->stack), matches ? "results" : "empty");
 }
 
 static void wig_settings_search_dispose(GObject *object)
@@ -131,7 +150,6 @@ static void wig_settings_search_dispose(GObject *object)
 
   g_clear_pointer(&self->stack, gtk_widget_unparent);
   g_clear_pointer(&self->rows, g_ptr_array_unref);
-  g_clear_pointer(&self->matches, g_ptr_array_unref);
 
   G_OBJECT_CLASS(wig_settings_search_parent_class)->dispose(object);
 }
@@ -153,17 +171,12 @@ static void wig_settings_search_class_init(WigSettingsSearchClass *klass)
 static void wig_settings_search_init(WigSettingsSearch *self)
 {
   self->rows = g_ptr_array_new_with_free_func(search_row_free);
-  self->matches = g_ptr_array_new();
 
-  self->list = gtk_list_box_new();
-  gtk_list_box_set_selection_mode(GTK_LIST_BOX(self->list), GTK_SELECTION_NONE);
-  gtk_widget_add_css_class(self->list, "boxed-list");
-  gtk_widget_set_valign(self->list, GTK_ALIGN_START);
-  g_signal_connect_object(self->list, "row-activated", G_CALLBACK(wig_settings_search_row_activated), self,
-                          G_CONNECT_SWAPPED);
+  self->results = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
+  gtk_widget_set_valign(self->results, GTK_ALIGN_START);
 
   GtkWidget *clamp = adw_clamp_new();
-  adw_clamp_set_child(ADW_CLAMP(clamp), self->list);
+  adw_clamp_set_child(ADW_CLAMP(clamp), self->results);
   gtk_widget_set_margin_top(clamp, 24);
   gtk_widget_set_margin_bottom(clamp, 24);
   gtk_widget_set_margin_start(clamp, 12);

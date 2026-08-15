@@ -143,6 +143,13 @@ static guint feature_current_mode(WebKitSettings *web_settings, GSettings *setti
   return enabled == webkit_feature_get_default_value(feature) ? MODE_DEFAULT : MODE_SESSION;
 }
 
+static const char *feature_display_name(WebKitFeature *feature)
+{
+  const char *name = webkit_feature_get_name(feature);
+
+  return name && *name ? name : webkit_feature_get_identifier(feature);
+}
+
 static const char *feature_status_label(WebKitFeatureStatus status)
 {
   switch (status) {
@@ -220,10 +227,13 @@ static GtkWidget *feature_row_new(WebKitSettings *web_settings, GSettings *setti
    *   [ details                ] [      ]
    */
   GtkWidget *row = adw_preferences_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), webkit_feature_get_name(feature));
+  /* A feature is named after the syntax it is about, so <image> and the like
+   * would be read as markup. */
+  adw_preferences_row_set_use_markup(ADW_PREFERENCES_ROW(row), FALSE);
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), feature_display_name(feature));
   gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
 
-  GtkWidget *name = gtk_label_new(webkit_feature_get_name(feature));
+  GtkWidget *name = gtk_label_new(feature_display_name(feature));
   gtk_label_set_xalign(GTK_LABEL(name), 0.0);
   gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
   gtk_widget_set_hexpand(name, TRUE);
@@ -270,14 +280,32 @@ static GtkWidget *feature_row_new(WebKitSettings *web_settings, GSettings *setti
   return row;
 }
 
+static WebKitFeatureList *features_for_kind(WigFeaturesKind kind)
+{
+  return kind == WIG_FEATURES_DEVELOPMENT ? webkit_settings_get_development_features()
+                                          : webkit_settings_get_experimental_features();
+}
+
+/* Offers the features to @search without building any of the rows, so they can
+ * be found before the pane has ever been looked at. */
+void wig_settings_features_index(WigFeaturesKind kind, WigSettingsSearch *search, const char *pane,
+                                 const char *pane_title)
+{
+  g_autoptr(WebKitFeatureList) features = features_for_kind(kind);
+
+  for (gsize i = 0; i < webkit_feature_list_get_length(features); i++) {
+    WebKitFeature *feature = webkit_feature_list_get(features, i);
+    wig_settings_search_add(search, feature_display_name(feature), webkit_feature_get_details(feature), pane,
+                            pane_title);
+  }
+}
+
 static void wig_settings_features_populate(WigSettingsFeatures *self)
 {
   WigApplication *app = wig_application_get();
   WebKitSettings *web_settings = wig_application_get_web_settings(app);
   GSettings *settings = wig_application_get_settings(app);
-  g_autoptr(WebKitFeatureList) features = self->kind == WIG_FEATURES_DEVELOPMENT
-      ? webkit_settings_get_development_features()
-      : webkit_settings_get_experimental_features();
+  g_autoptr(WebKitFeatureList) features = features_for_kind(self->kind);
 
   /* The categories are whatever the features name, in the order they first turn
    * up, so the list reads the way WebKit orders it. */

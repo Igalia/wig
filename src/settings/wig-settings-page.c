@@ -36,6 +36,7 @@ struct _WigSettingsPage {
   GtkWidget *navigation;
   GtkWidget *stack;
   GtkWidget *content;
+  GtkWidget *switcher;
   GtkWidget *search;
   GtkWidget *search_bar;
   /* Set while an address is choosing the pane, so the pane it lands on does not
@@ -138,12 +139,19 @@ static void wig_settings_page_new_pane(WigSettingsPage *self, Pane *pane, const 
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), GTK_WIDGET(page), name, title, icon_name);
 }
 
-/* Searching looks through the rows wherever they are, so every one of them is
- * offered along with the pane it would be found in. */
+/* Searching looks through the settings wherever they are, so what each row says
+ * is offered along with the pane it would be found in. */
+static void pane_index(Pane *pane, GtkWidget *row)
+{
+  wig_settings_search_add(WIG_SETTINGS_SEARCH(pane->page->search),
+                          adw_preferences_row_get_title(ADW_PREFERENCES_ROW(row)),
+                          adw_action_row_get_subtitle(ADW_ACTION_ROW(row)), pane->name, pane->title);
+}
+
 static void pane_add(Pane *pane, GtkWidget *row)
 {
   adw_preferences_group_add(pane->group, row);
-  wig_settings_search_add_row(WIG_SETTINGS_SEARCH(pane->page->search), row, pane->name, pane->title);
+  pane_index(pane, row);
 }
 
 static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings *settings)
@@ -176,8 +184,7 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
 
   /* The template it reveals is part of the same setting, so only the row naming
    * the engine is worth finding. */
-  wig_settings_search_add_row(WIG_SETTINGS_SEARCH(self->search),
-                              wig_settings_search_engine_rows_add(pane.group, settings), pane.name, pane.title);
+  pane_index(&pane, wig_settings_search_engine_rows_add(pane.group, settings));
 }
 
 static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings *settings)
@@ -208,12 +215,21 @@ static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings 
 
 /* The feature lists are pages of their own rather than rows in a group, so they
  * go in beside the panes rather than through one. */
+static void wig_settings_page_add_features_pane(WigSettingsPage *self, WigFeaturesKind kind, const char *name,
+                                                const char *title, const char *icon_name)
+{
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_features_new(kind), name, title,
+                                      icon_name);
+  /* The rows wait to be looked at, but what they say can be searched at once. */
+  wig_settings_features_index(kind, WIG_SETTINGS_SEARCH(self->search), name, title);
+}
+
 static void wig_settings_page_add_features_panes(WigSettingsPage *self)
 {
-  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_features_new(WIG_FEATURES_EXPERIMENTAL),
-                                      "features", "Features", "applications-science-symbolic");
-  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_features_new(WIG_FEATURES_DEVELOPMENT),
-                                      "developer-features", "Developer", "applications-engineering-symbolic");
+  wig_settings_page_add_features_pane(self, WIG_FEATURES_EXPERIMENTAL, "features", "Features",
+                                      "applications-science-symbolic");
+  wig_settings_page_add_features_pane(self, WIG_FEATURES_DEVELOPMENT, "developer-features", "Developer",
+                                      "applications-engineering-symbolic");
 }
 
 static char *wig_settings_page_first_pane(WigSettingsPage *self)
@@ -277,7 +293,10 @@ static void wig_settings_page_search_changed(WigSettingsPage *self, GtkSearchEnt
 
 static void wig_settings_page_search_mode_changed(WigSettingsPage *self)
 {
-  if (!gtk_search_bar_get_search_mode(GTK_SEARCH_BAR(self->search_bar)))
+  gboolean searching = gtk_search_bar_get_search_mode(GTK_SEARCH_BAR(self->search_bar));
+
+  gtk_revealer_set_reveal_child(GTK_REVEALER(self->switcher), !searching);
+  if (!searching)
     wig_settings_page_set_searching(self, FALSE);
 }
 
@@ -348,6 +367,11 @@ static void wig_settings_page_init(WigSettingsPage *self)
   gtk_widget_set_margin_top(switcher, 6);
   gtk_widget_set_margin_bottom(switcher, 6);
 
+  self->switcher = gtk_revealer_new();
+  gtk_revealer_set_transition_type(GTK_REVEALER(self->switcher), GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
+  gtk_revealer_set_child(GTK_REVEALER(self->switcher), switcher);
+  gtk_revealer_set_reveal_child(GTK_REVEALER(self->switcher), TRUE);
+
   GtkWidget *entry = gtk_search_entry_new();
   gtk_widget_set_hexpand(entry, TRUE);
   g_signal_connect_object(entry, "search-changed", G_CALLBACK(wig_settings_page_search_changed), self,
@@ -369,7 +393,7 @@ static void wig_settings_page_init(WigSettingsPage *self)
 
   GtkWidget *toolbar = adw_toolbar_view_new();
   adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(toolbar), ADW_TOOLBAR_FLAT);
-  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), switcher);
+  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), self->switcher);
   adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), self->search_bar);
   adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), self->content);
 

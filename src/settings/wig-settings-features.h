@@ -22,7 +22,8 @@
 
 #pragma once
 
-#include <adwaita.h>
+#include "wig-settings-search.h"
+
 #include <wpe/webkit.h>
 
 G_BEGIN_DECLS
@@ -39,6 +40,9 @@ typedef enum {
 G_DECLARE_FINAL_TYPE(WigSettingsFeatures, wig_settings_features, WIG, SETTINGS_FEATURES, GtkWidget)
 
 GtkWidget *wig_settings_features_new(WigFeaturesKind kind);
+
+void wig_settings_features_index(WigFeaturesKind kind, WigSettingsSearch *search, const char *pane,
+                                 const char *pane_title);
 
 /* Puts back the overrides that were kept for good, at startup. */
 void wig_features_apply_overrides(WebKitSettings *web_settings, GSettings *settings);
