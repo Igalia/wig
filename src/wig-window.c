@@ -164,13 +164,14 @@ static void wig_window_save_tab_to_history(WigWindow *win, WigTab *tab)
 
 static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *win)
 {
-  wig_window_save_tab_to_history(win, tab);
-
+  /* The window going away records its remaining tabs itself, so recording the
+   * last tab here as well would push it twice. */
   if (wig_tab_list_get_n_tabs(list) == 1) {
     gtk_window_destroy(GTK_WINDOW(win));
     return TRUE;
   }
 
+  wig_window_save_tab_to_history(win, tab);
   return FALSE;
 }
 
