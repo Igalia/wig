@@ -164,6 +164,18 @@ static void wig_window_save_tab_to_history(WigWindow *win, WigTab *tab)
 
 static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *win)
 {
+  /* Nothing is torn down until the page has run its beforeunload handler. WebKit
+   * answers by emitting close on the view, which comes back here with the tab
+   * marked; a page that is refused keeps its tab. */
+  if (!wig_tab_get_closing(tab)) {
+    if (!wig_tab_get_close_pending(tab)) {
+      g_debug("tab %u: asking the page to close", wig_tab_get_id(tab));
+      wig_tab_set_close_pending(tab, TRUE);
+      webkit_web_view_try_close(wig_tab_get_web_view(tab));
+    }
+    return TRUE;
+  }
+
   /* The window going away records its remaining tabs itself, so recording the
    * last tab here as well would push it twice. */
   if (wig_tab_list_get_n_tabs(list) == 1) {
@@ -175,11 +187,15 @@ static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *w
   return FALSE;
 }
 
-static void wig_window_close_tab(WigWindow *win, WebKitWebView *web_view)
+static void wig_window_web_view_closed(WigWindow *win, WebKitWebView *web_view)
 {
   g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
-  if (tab)
-    wig_tab_list_close(win->tab_list, tab);
+  if (!tab)
+    return;
+
+  g_debug("tab %u: the page is done with, closing it", wig_tab_get_id(tab));
+  wig_tab_set_closing(tab, TRUE);
+  wig_tab_list_close(win->tab_list, tab);
 }
 
 WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore, gboolean reload)
@@ -244,7 +260,7 @@ static void wig_window_attach_web_view(WigWindow *win, WebKitWebView *web_view)
 
   g_autoptr(GObject) signals_object = G_OBJECT(g_signal_group_new(WEBKIT_TYPE_WEB_VIEW));
   GSignalGroup *signals = G_SIGNAL_GROUP(signals_object);
-  g_signal_group_connect_swapped(signals, "close", G_CALLBACK(wig_window_close_tab), win);
+  g_signal_group_connect_swapped(signals, "close", G_CALLBACK(wig_window_web_view_closed), win);
   g_signal_group_connect_swapped(signals, "decide-policy", G_CALLBACK(wig_window_decide_policy), win);
   g_signal_group_connect_swapped(signals, "create", G_CALLBACK(wig_window_web_view_create), win);
   g_signal_group_connect_swapped(signals, "web-process-terminated", G_CALLBACK(wig_window_web_process_terminated), win);
@@ -342,8 +358,12 @@ static void wig_window_show_settings(GSimpleAction *action, GVariant *parameter,
 static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
-  if (win->current_web_view)
-    wig_window_close_tab(win, win->current_web_view);
+  if (!win->current_web_view)
+    return;
+
+  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, win->current_web_view);
+  if (tab)
+    wig_tab_list_close(win->tab_list, tab);
 }
 
 static WigWindow *get_window_by_id(WigApplication *app, guint id)
@@ -1132,8 +1152,16 @@ static void wig_window_fullscreen_changed(WigWindow *win)
     gtk_widget_set_visible(win->tab_sidebar, !is_fullscreen);
 }
 
+static void wig_window_tab_wants_attention(WigWindow *win, WigTab *tab)
+{
+  g_debug("tab %u: prompting, bringing it to the front", wig_tab_get_id(tab));
+  wig_tab_list_set_active(win->tab_list, tab);
+  gtk_window_present(GTK_WINDOW(win));
+}
+
 static void wig_window_tab_added(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
 {
+  g_signal_connect_object(tab, "wants-attention", G_CALLBACK(wig_window_tab_wants_attention), win, G_CONNECT_SWAPPED);
   gtk_stack_add_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
   wig_window_attach_web_view(win, wig_tab_get_web_view(tab));
   wig_session_queue_save(wig_application_get_session(wig_application_get()));
@@ -1511,6 +1539,23 @@ static void wig_window_init(WigWindow *win)
   win->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
 }
 
+static gboolean wig_window_close_request(GtkWindow *window)
+{
+  WigWindow *win = WIG_WINDOW(window);
+  guint n_tabs = win->tab_list ? wig_tab_list_get_n_tabs(win->tab_list) : 0;
+  if (n_tabs == 0)
+    return GDK_EVENT_PROPAGATE;
+
+  /* Every page is asked, and the last tab to agree takes the window with it. A
+   * page that refuses keeps its tab, and so keeps the window. */
+  g_autoptr(GPtrArray) tabs = g_ptr_array_sized_new(n_tabs);
+  for (guint i = 0; i < n_tabs; i++)
+    g_ptr_array_add(tabs, wig_tab_list_get_nth(win->tab_list, i));
+  wig_tab_list_close_many(win->tab_list, tabs);
+
+  return GDK_EVENT_STOP;
+}
+
 static void wig_window_class_init(WigWindowClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
@@ -1523,6 +1568,9 @@ static void wig_window_class_init(WigWindowClass *klass)
   props[PROP_TAB_LAYOUT] = g_param_spec_enum("tab-layout", NULL, NULL, WIG_TYPE_TAB_LAYOUT, WIG_TAB_LAYOUT_HORIZONTAL,
                                              G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
   g_object_class_install_property(gobject_class, PROP_TAB_LAYOUT, props[PROP_TAB_LAYOUT]);
+
+  GtkWindowClass *window_class = GTK_WINDOW_CLASS(klass);
+  window_class->close_request = wig_window_close_request;
 
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
   gtk_widget_class_install_action(widget_class, "tab.detach", "u", wig_window_detach_tab);

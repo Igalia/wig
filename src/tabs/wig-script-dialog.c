@@ -78,11 +78,10 @@ static void wig_script_dialog_cancel(gpointer user_data)
   wig_script_dialog_respond(FALSE, user_data);
 }
 
-void wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog)
+/* Returns: (transfer none): the dialog widget, which goes away once the question
+ * has been answered. */
+GtkWidget *wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog)
 {
-  g_return_if_fail(GTK_IS_OVERLAY(overlay));
-  g_return_if_fail(dialog != NULL);
-
   webkit_script_dialog_ref(dialog);
   WebKitScriptDialogType type = webkit_script_dialog_get_dialog_type(dialog);
   const char *message = webkit_script_dialog_get_message(dialog);
@@ -146,4 +145,6 @@ void wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog)
   }
 
   gtk_widget_grab_focus(focus_widget);
+
+  return data->backdrop;
 }

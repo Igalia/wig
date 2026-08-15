@@ -27,6 +27,6 @@
 
 G_BEGIN_DECLS
 
-void wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog);
+GtkWidget *wig_script_dialog_show(GtkOverlay *overlay, WebKitScriptDialog *dialog);
 
 G_END_DECLS

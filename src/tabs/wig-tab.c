@@ -54,6 +54,8 @@ struct _WigTab {
   gboolean discarded;
   gboolean restoring_icon;
   gboolean pinned;
+  gboolean closing;
+  gboolean close_pending;
   gboolean loading;
   gboolean playing_audio;
   gboolean muted;
@@ -83,6 +85,7 @@ static GParamSpec *props[PROP_ERROR_URI + 1];
 
 enum {
   CAPTURE_CHANGED,
+  WANTS_ATTENTION,
   N_SIGNALS,
 };
 
@@ -111,14 +114,30 @@ static void wig_tab_on_capture_changed(WigTab *self)
   g_signal_emit(self, signals[CAPTURE_CHANGED], 0);
 }
 
+/* The question has been answered one way or the other, so a later attempt at
+ * closing the tab starts a fresh one. */
+static void wig_tab_close_question_answered(WigTab *self)
+{
+  self->close_pending = FALSE;
+}
+
 static gboolean wig_tab_on_script_dialog(WigTab *self, WebKitScriptDialog *dialog)
 {
-  wig_script_dialog_show(GTK_OVERLAY(self->view_overlay), dialog);
+  WebKitScriptDialogType type = webkit_script_dialog_get_dialog_type(dialog);
+  g_debug("tab %u: script dialog type %d", self->id, type);
+
+  g_signal_emit(self, signals[WANTS_ATTENTION], 0);
+  GtkWidget *shown = wig_script_dialog_show(GTK_OVERLAY(self->view_overlay), dialog);
+
+  if (type == WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM)
+    g_signal_connect_swapped(shown, "destroy", G_CALLBACK(wig_tab_close_question_answered), self);
+
   return TRUE;
 }
 
 static gboolean wig_tab_on_authenticate(WigTab *self, WebKitAuthenticationRequest *request)
 {
+  g_signal_emit(self, signals[WANTS_ATTENTION], 0);
   wig_auth_dialog_show(GTK_OVERLAY(self->view_overlay), request);
   return TRUE;
 }
@@ -495,6 +514,11 @@ static void wig_tab_class_init(WigTabClass *klass)
 
   signals[CAPTURE_CHANGED] = g_signal_new("capture-changed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
                                           NULL, G_TYPE_NONE, 0);
+
+  /* A prompt is drawn over the page it belongs to, so a tab that puts one up
+   * has to be the tab on screen for the question to be answerable at all. */
+  signals[WANTS_ATTENTION] = g_signal_new("wants-attention", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+                                          NULL, G_TYPE_NONE, 0);
 }
 
 /* The title shown for a committed page that provides no <title> of its own. */
@@ -821,6 +845,31 @@ void wig_tab_set_pinned(WigTab *self, gboolean pinned)
     return;
   self->pinned = pinned;
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PINNED]);
+}
+
+/* Set once the page has agreed to go away, so that the tab is torn down rather
+ * than asked a second time. */
+gboolean wig_tab_get_closing(WigTab *self)
+{
+  return self->closing;
+}
+
+void wig_tab_set_closing(WigTab *self, gboolean closing)
+{
+  self->closing = closing;
+}
+
+/* Asking a page that is still working out its answer to close again restarts
+ * WebKit's try-close timeout, which closes the page out from under the question
+ * the user is still looking at. */
+gboolean wig_tab_get_close_pending(WigTab *self)
+{
+  return self->close_pending;
+}
+
+void wig_tab_set_close_pending(WigTab *self, gboolean pending)
+{
+  self->close_pending = pending;
 }
 
 gboolean wig_tab_get_loading(WigTab *self)

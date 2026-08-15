@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Before Unload Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 720px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 {
+      margin: 0 0 6px;
+      font-size: 1.05em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    ol.steps { color: #555; font-size: 0.9em; margin: 0 0 14px; padding-left: 22px; }
+    ol.steps li { margin-bottom: 4px; }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.85em;
+      color: #555;
+    }
+    input[type="text"], textarea { font-family: inherit; font-size: 0.95em; }
+    input[type="text"], textarea {
+      padding: 5px 8px;
+      border: 1px solid #c0c0c0;
+      border-radius: 5px;
+      background: white;
+      color: #222;
+    }
+    textarea { min-height: 60px; }
+    button {
+      font-family: inherit;
+      font-size: 0.95em;
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover { background: #1c71d8; }
+    button.secondary { background: #777; }
+    button.secondary:hover { background: #5e5e5e; }
+    .status {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ok   { color: #26a269; }
+    .err  { color: #c01c28; }
+    .info { color: #9141ac; }
+    .badge {
+      font-size: 0.68em;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge.armed   { background: #f7d7d7; color: #a51d2d; }
+    .badge.unarmed { background: #d8f5e3; color: #1a7f4b; }
+    .badge.note    { background: #f0f0f0; color: #555; }
+    kbd {
+      font-family: monospace;
+      border: 1px solid #c0c0c0;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      padding: 1px 5px;
+      background: #fafafa;
+    }
+    code { font-family: monospace; }
+  </style>
+</head>
+<body>
+
+<h1>Before Unload Tests</h1>
+<p class="subtitle">
+  Closing a tab or window should run the page's <code>beforeunload</code> handler and, when the
+  handler asks to stay, put up the confirmation dialog before anything is torn down. Answering
+  <em>Leave</em> closes the tab; answering <em>Stay</em> must leave the tab exactly as it was —
+  same page, same scroll position, same form contents.
+</p>
+
+<section>
+  <h2>State <span class="badge unarmed" id="armed-badge">not armed</span></h2>
+  <p class="desc">
+    Two things have to be true before the dialog can appear: the handler must be registered, and
+    the page must have had a real user interaction. WebKit suppresses the prompt for a page the
+    user has never touched, so a page that is opened and immediately closed will close silently
+    even with the handler installed — that is correct behaviour, not a bug in wig.
+  </p>
+  <div class="status" id="state-status">Handler: not registered. Interaction: none yet.</div>
+  <div class="row" style="margin-top: 12px">
+    <button id="arm">Arm handler</button>
+    <button id="disarm" class="secondary">Disarm handler</button>
+  </div>
+</section>
+
+<section>
+  <h2>Unsaved changes <span class="badge note">the real case</span></h2>
+  <p class="desc">
+    The usual reason a page asks to stay: an edited form. Typing here arms the handler on its own
+    (and typing is itself the interaction WebKit wants), so this is the quickest way to get a
+    prompt. Clearing the field disarms it again.
+  </p>
+  <div class="row">
+    <div class="field">
+      <span>Subject</span>
+      <input type="text" id="subject" placeholder="Type to make the page dirty…">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field" style="flex: 1">
+      <span>Message</span>
+      <textarea id="message" placeholder="…or type here."></textarea>
+    </div>
+  </div>
+  <div class="status" id="dirty-status">Form is clean.</div>
+</section>
+
+<section>
+  <h2>What to try</h2>
+  <ol class="steps">
+    <li>Arm the handler (or type in the form), then close the tab with <kbd>Ctrl</kbd>+<kbd>W</kbd>.
+      Answer <em>Stay</em>: the tab must survive with its text intact. Repeat and answer
+      <em>Leave</em>: the tab closes.</li>
+    <li>Cancel a close, then close again — the prompt must appear <em>every</em> time, never only
+      the first.</li>
+    <li>Close the same tab with the tab bar's × button and with a middle click. Both go through the
+      same path and must prompt.</li>
+    <li>Close the window with its × button. With several tabs open, arm this one only: the tabs
+      that do not object close, and the window stays open holding this tab.</li>
+    <li>Open a second window, arm this page, and use <em>Close Other Tabs</em> from the tab context
+      menu on a different tab — each closing tab is asked in turn.</li>
+    <li>Press the button below. A script-initiated close does <em>not</em> prompt, per spec: the
+      tab should simply go away.</li>
+    <li>Answer <em>Stay</em>, then reload with <kbd>Ctrl</kbd>+<kbd>R</kbd>. Navigation runs the
+      same handler, so it should prompt as well.</li>
+  </ol>
+  <div class="row">
+    <button id="self-close" class="secondary">window.close() — should not prompt</button>
+  </div>
+  <p class="desc" style="margin: 10px 0 0">
+    Quitting with <code>app.quit</code> (<kbd>Ctrl</kbd>+<kbd>Q</kbd>) is a known exception: it does
+    not go through this handshake, so it will not prompt.
+  </p>
+</section>
+
+<section>
+  <h2>Handler log</h2>
+  <p class="desc">
+    Every time <code>beforeunload</code> fires it is recorded here. The entry appears even when the
+    prompt is suppressed, which is how you tell "the handler never ran" apart from "the handler ran
+    and WebKit chose not to ask". Answer <em>Stay</em> to come back and read it.
+  </p>
+  <div class="status" id="log">Nothing yet.</div>
+</section>
+
+<script>
+  const armedBadge = document.getElementById('armed-badge');
+  const stateStatus = document.getElementById('state-status');
+  const dirtyStatus = document.getElementById('dirty-status');
+  const log = document.getElementById('log');
+  const subject = document.getElementById('subject');
+  const message = document.getElementById('message');
+
+  let armed = false;
+  let interacted = false;
+  let fired = 0;
+
+  function onBeforeUnload(event) {
+    fired++;
+    const line = `${new Date().toLocaleTimeString()} — beforeunload #${fired}` +
+                 (interacted ? '' : ' (no interaction yet, prompt suppressed)');
+    log.className = 'status ok';
+    log.textContent = line + '\n' + (log.dataset.entries || '');
+    log.dataset.entries = log.textContent;
+
+    event.preventDefault();
+    /* Legacy spelling, still what some engines look at. */
+    event.returnValue = 'There are unsaved changes.';
+    return 'There are unsaved changes.';
+  }
+
+  function setArmed(value) {
+    if (value === armed)
+      return update();
+
+    armed = value;
+    if (armed)
+      window.addEventListener('beforeunload', onBeforeUnload);
+    else
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    update();
+  }
+
+  function update() {
+    armedBadge.textContent = armed ? 'armed' : 'not armed';
+    armedBadge.className = 'badge ' + (armed ? 'armed' : 'unarmed');
+    stateStatus.className = 'status ' + (armed && interacted ? 'ok' : 'info');
+    stateStatus.textContent =
+      `Handler: ${armed ? 'registered' : 'not registered'}. ` +
+      `Interaction: ${interacted ? 'yes' : 'none yet — click or type first'}.\n` +
+      `beforeunload has fired ${fired} time(s) this page load.`;
+  }
+
+  document.getElementById('arm').addEventListener('click', () => setArmed(true));
+  document.getElementById('disarm').addEventListener('click', () => setArmed(false));
+  document.getElementById('self-close').addEventListener('click', () => window.close());
+
+  for (const field of [subject, message]) {
+    field.addEventListener('input', () => {
+      const dirty = subject.value.trim() !== '' || message.value.trim() !== '';
+      dirtyStatus.className = 'status ' + (dirty ? 'err' : '');
+      dirtyStatus.textContent = dirty ? 'Form has unsaved changes.' : 'Form is clean.';
+      setArmed(dirty);
+    });
+  }
+
+  for (const type of ['pointerdown', 'keydown']) {
+    window.addEventListener(type, () => {
+      interacted = true;
+      update();
+    }, { once: true });
+  }
+
+  update();
+</script>
+</body>
+</html>
