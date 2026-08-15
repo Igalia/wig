@@ -22,6 +22,7 @@
 
 #include "wig-application.h"
 
+#include <errno.h>
 #include <tmpl-glib.h>
 
 #include "internal-pages/wig-content-filters.h"
@@ -603,8 +604,13 @@ static void wig_application_startup(GApplication *application)
                                                         NULL);
   wig_features_apply_overrides(app->web_settings, app->settings);
 
+  /* The sandbox refuses paths that do not exist yet, and the CDM is only staged
+   * there on first use. */
   g_autofree char *widevine_path = g_build_filename(g_get_user_cache_dir(), "widevine", NULL);
-  webkit_web_context_add_path_to_sandbox(app->web_context, widevine_path, TRUE);
+  if (g_mkdir_with_parents(widevine_path, 0700) == 0)
+    webkit_web_context_add_path_to_sandbox(app->web_context, widevine_path, TRUE);
+  else
+    g_warning("widevine: could not create '%s': %s", widevine_path, g_strerror(errno));
 
   static const struct {
     const char *action;
