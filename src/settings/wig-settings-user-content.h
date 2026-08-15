@@ -22,12 +22,18 @@
 
 #pragma once
 
-#include <tmpl-glib.h>
-#include <wpe/webkit.h>
+#include <adwaita.h>
 
-#include "wig-application.h"
+G_BEGIN_DECLS
 
-void wig_user_style_sheet_record_free(WigUserStyleSheetRecord *record);
+typedef enum {
+  WIG_USER_CONTENT_SCRIPTS,
+  WIG_USER_CONTENT_STYLES,
+} WigUserContentKind;
 
-void handle_user_styles_uri(WebKitURISchemeRequest *request, WebKitUserContentManager *manager,
-                            GPtrArray *style_sheets);
+#define WIG_TYPE_SETTINGS_USER_CONTENT (wig_settings_user_content_get_type())
+G_DECLARE_FINAL_TYPE(WigSettingsUserContent, wig_settings_user_content, WIG, SETTINGS_USER_CONTENT, GtkWidget)
+
+GtkWidget *wig_settings_user_content_new(WigUserContentKind kind);
+
+G_END_DECLS

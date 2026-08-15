@@ -28,6 +28,7 @@
 #include "wig-settings-memory.h"
 #include "wig-settings-rows.h"
 #include "wig-settings-search.h"
+#include "wig-settings-user-content.h"
 #include "wig-settings-website-data.h"
 
 #include <adwaita.h>
@@ -94,6 +95,8 @@ char *wig_settings_page_moved_uri(const char *uri)
     { "wig:content-filters", WIG_SETTINGS_PAGE_URI "/content-filters" },
     { "wig:memory-pressure", WIG_SETTINGS_PAGE_URI "/memory-limits" },
     { "wig:website-data", WIG_SETTINGS_PAGE_URI "/website-data" },
+    { "wig:user-scripts", WIG_SETTINGS_PAGE_URI "/user-scripts" },
+    { "wig:user-styles", WIG_SETTINGS_PAGE_URI "/user-styles" },
   };
 
   if (!uri)
@@ -251,6 +254,16 @@ static void wig_settings_page_add_filters_pane(WigSettingsPage *self)
                                       "Filters", "security-high-symbolic");
 }
 
+static void wig_settings_page_add_user_content_panes(WigSettingsPage *self)
+{
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack),
+                                      wig_settings_user_content_new(WIG_USER_CONTENT_SCRIPTS), "user-scripts",
+                                      "Scripts", "application-x-executable-symbolic");
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack),
+                                      wig_settings_user_content_new(WIG_USER_CONTENT_STYLES), "user-styles", "Styles",
+                                      "preferences-desktop-appearance-symbolic");
+}
+
 static void wig_settings_page_add_website_data_pane(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_website_data_new(), "website-data",
@@ -376,6 +389,7 @@ static void wig_settings_page_init(WigSettingsPage *self)
   wig_settings_page_add_content_pane(self, settings);
   wig_settings_page_add_features_panes(self);
   wig_settings_page_add_filters_pane(self);
+  wig_settings_page_add_user_content_panes(self);
   wig_settings_page_add_website_data_pane(self);
   wig_settings_page_add_memory_pane(self);
   g_signal_connect_object(stack, "notify::visible-child-name", G_CALLBACK(wig_settings_page_visible_pane_changed), self,

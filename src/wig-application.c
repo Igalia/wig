@@ -33,8 +33,6 @@
 #include "wig-settings-filters.h"
 #include "wig-settings-page.h"
 #include "wig-settings.h"
-#include "wig-user-scripts.h"
-#include "wig-user-styles.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 
@@ -406,12 +404,6 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   } else if (g_str_has_prefix(uri, "wig:history")) {
     scope = handle_history_uri(request, app->history_store);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/history.html", scope);
-  } else if (g_str_has_prefix(uri, "wig:user-scripts")) {
-    handle_user_scripts_uri(request, app->user_content_manager, app->user_scripts);
-    return; // async
-  } else if (g_str_has_prefix(uri, "wig:user-styles")) {
-    handle_user_styles_uri(request, app->user_content_manager, app->user_style_sheets);
-    return; // async
   } else {
     g_autoptr(GError) not_found = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found");
     webkit_uri_scheme_request_finish_error(request, not_found);
@@ -419,6 +411,20 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   }
 
   wig_internal_page_finish_request(request, g_steal_pointer(&html));
+}
+
+static void wig_user_script_record_free(WigUserScriptRecord *record)
+{
+  g_free(record->source);
+  webkit_user_script_unref(record->script);
+  g_free(record);
+}
+
+static void wig_user_style_sheet_record_free(WigUserStyleSheetRecord *record)
+{
+  g_free(record->source);
+  webkit_user_style_sheet_unref(record->stylesheet);
+  g_free(record);
 }
 
 static void wig_application_init(WigApplication *app)
@@ -990,6 +996,16 @@ WebKitSettings *wig_application_get_web_settings(WigApplication *app)
 WebKitUserContentManager *wig_application_get_user_content_manager(WigApplication *app)
 {
   return app->user_content_manager;
+}
+
+GPtrArray *wig_application_get_user_scripts(WigApplication *app)
+{
+  return app->user_scripts;
+}
+
+GPtrArray *wig_application_get_user_style_sheets(WigApplication *app)
+{
+  return app->user_style_sheets;
 }
 
 WebKitUserContentFilterStore *wig_application_get_content_filter_store(WigApplication *app)

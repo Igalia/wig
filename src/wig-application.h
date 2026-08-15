@@ -69,6 +69,8 @@ gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWeb
 GSettings *wig_application_get_settings(WigApplication *app);
 WebKitSettings *wig_application_get_web_settings(WigApplication *app);
 WebKitUserContentManager *wig_application_get_user_content_manager(WigApplication *app);
+GPtrArray *wig_application_get_user_scripts(WigApplication *app);
+GPtrArray *wig_application_get_user_style_sheets(WigApplication *app);
 WebKitUserContentFilterStore *wig_application_get_content_filter_store(WigApplication *app);
 WebKitMemoryPressureSettings *wig_application_get_memory_pressure_settings(WigApplication *app);
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
