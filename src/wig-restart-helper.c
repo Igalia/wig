@@ -29,12 +29,9 @@
  *
  * Only the name matters, not the browser process: that it is still unwinding is welcome, as
  * the sandbox lives exactly as long as it does.
- *
- * A window stands in for the browser meanwhile, so the restart is not a stretch of empty
- * screen. It is shown for as long as this runs, which is until the replacement is up.
  */
 
-#include <gtk/gtk.h>
+#include <gio/gio.h>
 #include <stdlib.h>
 
 #define WIG_APPLICATION_ID "com.igalia.wig"
@@ -44,46 +41,11 @@
 
 #define WIG_EXIT_TIMEOUT_SECONDS 60
 
-/* Long enough that a restart which is over quickly never puts a window on screen at all,
- * short enough that a slower one is not a stretch of nothing. */
-#define WIG_WINDOW_DELAY_SECONDS 3
-
 typedef struct {
   GMainLoop *loop;
-  GtkWidget *window;
   guint timeout_id;
-  guint window_timeout_id;
   gboolean activated;
 } RestartHelper;
-
-static gboolean present_restarting_window(gpointer user_data)
-{
-  RestartHelper *helper = user_data;
-
-  helper->window_timeout_id = 0;
-
-  helper->window = gtk_window_new();
-  gtk_window_set_title(GTK_WINDOW(helper->window), "wig");
-  gtk_window_set_default_size(GTK_WINDOW(helper->window), 360, 160);
-  gtk_window_set_resizable(GTK_WINDOW(helper->window), FALSE);
-
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
-  gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
-  gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
-
-  GtkWidget *spinner = gtk_spinner_new();
-  gtk_widget_set_size_request(spinner, 32, 32);
-  gtk_spinner_start(GTK_SPINNER(spinner));
-  gtk_box_append(GTK_BOX(box), spinner);
-
-  GtkWidget *label = gtk_label_new("Restarting wig…");
-  gtk_box_append(GTK_BOX(box), label);
-
-  gtk_window_set_child(GTK_WINDOW(helper->window), box);
-  gtk_window_present(GTK_WINDOW(helper->window));
-
-  return G_SOURCE_REMOVE;
-}
 
 /* A build that has not been installed has no service file for the session to find
  * the browser by, but it is sitting right next to this. */
@@ -131,10 +93,7 @@ static void browser_activated(GObject *source, GAsyncResult *result, gpointer us
 /* Activating the name rather than spawning a command leaves the launch to the session, which
  * runs the exported service file and so gives the new instance the environment any other
  * launch would get. It picks up the newly deployed commit because that is what running the
- * application now resolves to.
- *
- * The call is left to complete on its own so that the window keeps drawing while the session
- * brings the browser back, which is the part that takes a noticeable moment. */
+ * application now resolves to. */
 static void activate_browser(GDBusConnection *connection, RestartHelper *helper)
 {
   GVariantBuilder platform_data;
@@ -183,12 +142,6 @@ int main(int argc, char **argv)
 {
   RestartHelper helper = { .loop = g_main_loop_new(NULL, FALSE) };
 
-  /* Not fatal without a display: the restart is worth doing either way. */
-  if (gtk_init_check())
-    helper.window_timeout_id = g_timeout_add_seconds(WIG_WINDOW_DELAY_SECONDS, present_restarting_window, &helper);
-  else
-    g_debug("no display, restarting without a window");
-
   guint watch_id = g_bus_watch_name(G_BUS_TYPE_SESSION, WIG_APPLICATION_ID, G_BUS_NAME_WATCHER_FLAGS_NONE,
                                     name_appeared, name_vanished, &helper, NULL);
   helper.timeout_id = g_timeout_add_seconds(WIG_EXIT_TIMEOUT_SECONDS, exit_timed_out, &helper);
@@ -196,10 +149,7 @@ int main(int argc, char **argv)
   g_main_loop_run(helper.loop);
 
   g_clear_handle_id(&helper.timeout_id, g_source_remove);
-  g_clear_handle_id(&helper.window_timeout_id, g_source_remove);
   g_bus_unwatch_name(watch_id);
-  if (helper.window)
-    gtk_window_destroy(GTK_WINDOW(helper.window));
   g_main_loop_unref(helper.loop);
 
   return helper.activated ? EXIT_SUCCESS : EXIT_FAILURE;
