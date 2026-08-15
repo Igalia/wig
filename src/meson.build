@@ -66,3 +66,12 @@ executable(
     link_depends: wig_compiled_schemas,
     install: true,
 )
+
+executable(
+    'wig-restart-helper',
+    sources: 'wig-restart-helper.c',
+    dependencies: [dependency('gtk4')],
+    c_args: ['-DG_LOG_DOMAIN="wig-restart-helper"'],
+    install: true,
+    install_dir: wig_libexecdir,
+)

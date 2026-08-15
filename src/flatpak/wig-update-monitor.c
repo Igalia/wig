@@ -372,16 +372,32 @@ void wig_update_monitor_download(WigUpdateMonitor *self)
                          -1, self->cancellable, wig_update_monitor_update_finished, g_object_ref(self));
 }
 
+/* Installed it sits in libexec; in a build that has not been installed it is next
+ * to the browser itself. */
+static char *wig_restart_helper_path(void)
+{
+  g_autofree char *installed = g_build_filename(WIG_LIBEXECDIR, "wig-restart-helper", NULL);
+  if (g_file_test(installed, G_FILE_TEST_IS_EXECUTABLE))
+    return g_steal_pointer(&installed);
+
+  g_autofree char *self = g_file_read_link("/proc/self/exe", NULL);
+  if (!self)
+    return g_steal_pointer(&installed);
+
+  g_autofree char *directory = g_path_get_dirname(self);
+  return g_build_filename(directory, "wig-restart-helper", NULL);
+}
+
 /* The replacement instance cannot be started from here: it would find this process still
  * owning the application's bus name and hand its startup back to the instance that is on its
  * way out. The helper waits for the name to go away and asks the portal instead. */
 gboolean wig_update_monitor_spawn_restart_helper(GError **error)
 {
-  g_autofree char *path = g_build_filename(WIG_LIBEXECDIR, "flatpak-update-helper", NULL);
+  g_autofree char *path = wig_restart_helper_path();
   g_autoptr(GSubprocess) helper = g_subprocess_new(G_SUBPROCESS_FLAGS_NONE, error, path, NULL);
   if (!helper)
     return FALSE;
 
-  g_debug("update: launched %s to restart the browser", path);
+  g_debug("restart: launched %s to start the browser again", path);
   return TRUE;
 }

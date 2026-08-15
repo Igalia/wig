@@ -21,10 +21,11 @@
  */
 
 /*
- * Restarts the browser into a newly deployed flatpak commit. The browser launches this and
- * quits; it cannot ask for the replacement itself, because activating a name that is still
- * owned reaches the instance on its way out instead of starting a new one. This waits for the
- * name to be released, then activates it.
+ * Starts the browser again once it has gone, whether it left to pick up a newly deployed
+ * flatpak commit or for any other reason. The browser launches this and quits; it cannot ask
+ * for the replacement itself, because activating a name that is still owned reaches the
+ * instance on its way out instead of starting a new one. This waits for the name to be
+ * released, then activates it.
  *
  * Only the name matters, not the browser process: that it is still unwinding is welcome, as
  * the sandbox lives exactly as long as it does.
@@ -32,8 +33,6 @@
  * A window stands in for the browser meanwhile, so the restart is not a stretch of empty
  * screen. It is shown for as long as this runs, which is until the replacement is up.
  */
-
-#include "wig-flatpak.h"
 
 #include <gtk/gtk.h>
 #include <stdlib.h>
@@ -55,11 +54,11 @@ typedef struct {
   guint timeout_id;
   guint window_timeout_id;
   gboolean activated;
-} UpdateHelper;
+} RestartHelper;
 
 static gboolean present_restarting_window(gpointer user_data)
 {
-  UpdateHelper *helper = user_data;
+  RestartHelper *helper = user_data;
 
   helper->window_timeout_id = 0;
 
@@ -86,17 +85,44 @@ static gboolean present_restarting_window(gpointer user_data)
   return G_SOURCE_REMOVE;
 }
 
+/* A build that has not been installed has no service file for the session to find
+ * the browser by, but it is sitting right next to this. */
+static gboolean spawn_browser(void)
+{
+  g_autofree char *self = g_file_read_link("/proc/self/exe", NULL);
+  if (!self)
+    return FALSE;
+
+  g_autofree char *directory = g_path_get_dirname(self);
+  g_autofree char *browser = g_build_filename(directory, "wig", NULL);
+  if (!g_file_test(browser, G_FILE_TEST_IS_EXECUTABLE)) {
+    g_warning("no browser next to %s to start", self);
+    return FALSE;
+  }
+
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GSubprocess) browser_process = g_subprocess_new(G_SUBPROCESS_FLAGS_NONE, &error, browser, NULL);
+  if (!browser_process) {
+    g_warning("could not start %s: %s", browser, error->message);
+    return FALSE;
+  }
+
+  g_message("started %s", browser);
+  return TRUE;
+}
+
 static void browser_activated(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-  UpdateHelper *helper = user_data;
+  RestartHelper *helper = user_data;
   g_autoptr(GError) error = NULL;
   g_autoptr(GVariant) reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
 
   if (reply) {
     helper->activated = TRUE;
-    g_message("the updated browser has been activated");
+    g_message("the browser has been activated again");
   } else {
-    g_warning("failed to start the updated browser: %s", error->message);
+    g_debug("the session would not activate the browser: %s", error->message);
+    helper->activated = spawn_browser();
   }
 
   g_main_loop_quit(helper->loop);
@@ -109,7 +135,7 @@ static void browser_activated(GObject *source, GAsyncResult *result, gpointer us
  *
  * The call is left to complete on its own so that the window keeps drawing while the session
  * brings the browser back, which is the part that takes a noticeable moment. */
-static void activate_browser(GDBusConnection *connection, UpdateHelper *helper)
+static void activate_browser(GDBusConnection *connection, RestartHelper *helper)
 {
   GVariantBuilder platform_data;
   g_variant_builder_init(&platform_data, G_VARIANT_TYPE_VARDICT);
@@ -126,7 +152,7 @@ static void name_appeared(GDBusConnection *connection, const char *name, const c
 
 static void name_vanished(GDBusConnection *connection, const char *name, gpointer user_data)
 {
-  UpdateHelper *helper = user_data;
+  RestartHelper *helper = user_data;
 
   if (!connection) {
     g_warning("no session bus, cannot restart the browser");
@@ -145,7 +171,7 @@ static void name_vanished(GDBusConnection *connection, const char *name, gpointe
 
 static gboolean exit_timed_out(gpointer user_data)
 {
-  UpdateHelper *helper = user_data;
+  RestartHelper *helper = user_data;
 
   g_warning("%s did not exit within %d seconds, not restarting it", WIG_APPLICATION_ID, WIG_EXIT_TIMEOUT_SECONDS);
   helper->timeout_id = 0;
@@ -155,12 +181,7 @@ static gboolean exit_timed_out(gpointer user_data)
 
 int main(int argc, char **argv)
 {
-  if (!wig_in_flatpak()) {
-    g_warning("only useful from inside a flatpak, where the browser can be restarted");
-    return EXIT_FAILURE;
-  }
-
-  UpdateHelper helper = { .loop = g_main_loop_new(NULL, FALSE) };
+  RestartHelper helper = { .loop = g_main_loop_new(NULL, FALSE) };
 
   /* Not fatal without a display: the restart is worth doing either way. */
   if (gtk_init_check())
