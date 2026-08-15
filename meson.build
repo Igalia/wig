@@ -127,6 +127,14 @@ config_h.set10(
         dependencies: wpe_webkit_dep,
     ),
 )
+config_h.set10(
+    'HAVE_WEBSITE_DATA_FILE_SYSTEM',
+    cc.has_header_symbol(
+        'wpe/webkit.h',
+        'WEBKIT_WEBSITE_DATA_FILE_SYSTEM',
+        dependencies: wpe_webkit_dep,
+    ),
+)
 configure_file(output: 'config.h', configuration: config_h)
 add_project_arguments(
     '-include',

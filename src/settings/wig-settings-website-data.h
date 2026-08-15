@@ -22,7 +22,14 @@
 
 #pragma once
 
-#include <tmpl-glib.h>
-#include <wpe/webkit.h>
+#include "wig-settings-search.h"
 
-void handle_website_data_uri(WebKitURISchemeRequest *request, WebKitWebsiteDataManager *manager);
+G_BEGIN_DECLS
+
+#define WIG_TYPE_SETTINGS_WEBSITE_DATA (wig_settings_website_data_get_type())
+G_DECLARE_FINAL_TYPE(WigSettingsWebsiteData, wig_settings_website_data, WIG, SETTINGS_WEBSITE_DATA, GtkWidget)
+
+GtkWidget *wig_settings_website_data_new(void);
+void wig_settings_website_data_index(WigSettingsSearch *search, const char *pane, const char *pane_title);
+
+G_END_DECLS

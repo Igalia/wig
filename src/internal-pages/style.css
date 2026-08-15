@@ -604,31 +604,6 @@ td {
   vertical-align: middle;
 }
 
-tr.active td {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.actions-cell {
-  white-space: nowrap;
-  text-align: right;
-}
-
-.results-section {
-  margin-block: 1.5rem;
-}
-
-.results-section h2 {
-  font-weight: 700;
-  margin-block-end: 0;
-}
-
-.size-cell {
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-  font-size: 0.875em;
-  width: 8rem;
-}
-
 /* === User scripts page === */
 
 .section-heading {

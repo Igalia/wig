@@ -35,7 +35,6 @@
 #include "wig-settings.h"
 #include "wig-user-scripts.h"
 #include "wig-user-styles.h"
-#include "wig-website-data.h"
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 
@@ -400,11 +399,7 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
   g_autoptr(TmplScope) scope = NULL;
   if (g_str_equal(uri, "wig:about"))
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/about.html", NULL);
-  else if (g_str_has_prefix(uri, "wig:website-data")) {
-    WebKitWebsiteDataManager *manager = webkit_network_session_get_website_data_manager(app->network_session);
-    handle_website_data_uri(request, manager);
-    return; // async
-  } else if (uri_is_settings_page(uri)) {
+  else if (uri_is_settings_page(uri)) {
     /* The settings are a widget the tab shows over this document, which only has
      * to commit so the address behaves like any other. */
     html = g_strdup("<!DOCTYPE html>");

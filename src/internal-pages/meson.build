@@ -11,5 +11,4 @@ internal_pages_sources = files(
     'wig-internal-page.c',
     'wig-user-scripts.c',
     'wig-user-styles.c',
-    'wig-website-data.c',
 ) + internal_pages_resources
