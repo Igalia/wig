@@ -33,8 +33,6 @@ G_DECLARE_DERIVABLE_TYPE(WigWindowBase, wig_window_base, WIG, WINDOW_BASE, GtkAp
 
 struct _WigWindowBaseClass {
   GtkApplicationWindowClass parent_class;
-
-  void (*loading_changed)(WigWindowBase *self, gboolean is_loading);
 };
 
 guint wig_window_base_get_id(WigWindowBase *self);

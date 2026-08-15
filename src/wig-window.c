@@ -65,6 +65,7 @@ struct _WigWindow {
   GtkWidget *tab_view_context_menu;
   GSignalGroup *active_web_view_signals;
   GSignalGroup *active_tab_signals;
+  GBinding *tab_loading_binding;
   GHashTable *web_view_signal_groups;
 };
 
@@ -100,9 +101,37 @@ static void wig_window_set_property(GObject *object, guint prop_id, const GValue
   }
 }
 
-static void wig_window_loading_changed(WigWindowBase *base, gboolean is_loading)
+/* The window shows whether the tab being looked at is loading, which is not the
+ * same as its view's "is-loading": a view that crashed or gave up on a load
+ * keeps claiming it loads, and only the tab knows an error page replaced it. */
+static void wig_window_clear_tab_loading_binding(WigWindow *win)
 {
-  WigWindow *win = WIG_WINDOW(base);
+  if (!win->tab_loading_binding)
+    return;
+
+  g_autoptr(GObject) binding = g_object_ref(G_OBJECT(win->tab_loading_binding));
+  g_clear_weak_pointer(&win->tab_loading_binding);
+  g_binding_unbind(G_BINDING(binding));
+}
+
+static void wig_window_bind_tab_loading(WigWindow *win, WigTab *tab)
+{
+  wig_window_clear_tab_loading_binding(win);
+
+  if (!tab) {
+    g_object_set(win, "loading", FALSE, NULL);
+    return;
+  }
+
+  g_set_weak_pointer(&win->tab_loading_binding,
+                     g_object_bind_property(tab, "loading", win, "loading", G_BINDING_SYNC_CREATE));
+}
+
+static void wig_window_loading_changed(WigWindow *win)
+{
+  gboolean is_loading = FALSE;
+  g_object_get(win, "loading", &is_loading, NULL);
+
   if (win->stop_reload_button)
     gtk_button_set_icon_name(GTK_BUTTON(win->stop_reload_button),
                              is_loading ? "process-stop-symbolic" : "view-refresh-symbolic");
@@ -1124,6 +1153,8 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
   g_signal_group_set_target(win->active_tab_signals, tab);
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), web_view);
 
+  wig_window_bind_tab_loading(win, tab);
+
   if (tab)
     gtk_stack_set_visible_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
 
@@ -1439,6 +1470,7 @@ static void wig_window_dispose(GObject *object)
     g_signal_group_set_target(win->active_web_view_signals, NULL);
   if (win->active_tab_signals)
     g_signal_group_set_target(win->active_tab_signals, NULL);
+  wig_window_clear_tab_loading_binding(win);
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), NULL);
   g_clear_object(&win->active_web_view_signals);
   g_clear_object(&win->active_tab_signals);
@@ -1467,6 +1499,7 @@ static void wig_window_init(WigWindow *win)
                                  G_CALLBACK(wig_window_on_mouse_target_changed), win);
   win->active_tab_signals = g_signal_group_new(WIG_TYPE_TAB);
   g_signal_group_connect_swapped(win->active_tab_signals, "notify::error-uri", G_CALLBACK(wig_window_update_url), win);
+  g_signal_connect(win, "notify::loading", G_CALLBACK(wig_window_loading_changed), NULL);
 
   win->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
 }
@@ -1479,9 +1512,6 @@ static void wig_window_class_init(WigWindowClass *klass)
   gobject_class->finalize = wig_window_finalize;
   gobject_class->get_property = wig_window_get_property;
   gobject_class->set_property = wig_window_set_property;
-
-  WigWindowBaseClass *base_class = WIG_WINDOW_BASE_CLASS(klass);
-  base_class->loading_changed = wig_window_loading_changed;
 
   props[PROP_TAB_LAYOUT] = g_param_spec_enum("tab-layout", NULL, NULL, WIG_TYPE_TAB_LAYOUT, WIG_TAB_LAYOUT_HORIZONTAL,
                                              G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);

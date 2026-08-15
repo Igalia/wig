@@ -34,7 +34,7 @@ typedef struct {
   GSignalGroup *active_web_view_signals;
   GSignalGroup *back_forward_list_signals;
   GHashTable *web_view_signal_groups;
-  GHashTable *crashed_web_views;
+  gboolean loading;
   GtkWidget *back_history_popover;
   GtkWidget *forward_history_popover;
   GtkWidget *permissions_button;
@@ -49,9 +49,12 @@ G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE(WigWindowBase, wig_window_base, GTK_TYPE_APP
 
 typedef enum {
   PROP_ID = 1,
+  PROP_LOADING,
 } WigWindowBaseProps;
 
-static GParamSpec *props[PROP_ID + 1];
+static GParamSpec *props[PROP_LOADING + 1];
+
+static void wig_window_base_update_loading_actions(WigWindowBase *self);
 static guint next_window_id = 1;
 
 static void wig_window_base_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
@@ -60,6 +63,9 @@ static void wig_window_base_get_property(GObject *object, guint prop_id, GValue 
   switch ((WigWindowBaseProps)prop_id) {
   case PROP_ID:
     g_value_set_uint(value, priv->id);
+    break;
+  case PROP_LOADING:
+    g_value_set_boolean(value, priv->loading);
     break;
   default:
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
@@ -73,6 +79,15 @@ static void wig_window_base_set_property(GObject *object, guint prop_id, const G
   case PROP_ID:
     priv->id = g_value_get_uint(value);
     break;
+  case PROP_LOADING: {
+    gboolean loading = g_value_get_boolean(value);
+    if (priv->loading != loading) {
+      priv->loading = loading;
+      wig_window_base_update_loading_actions(WIG_WINDOW_BASE(object));
+      g_object_notify_by_pspec(object, props[PROP_LOADING]);
+    }
+    break;
+  }
   default:
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
@@ -344,38 +359,11 @@ static void wig_window_base_update_navigation_actions(WigWindowBase *self)
   g_simple_action_set_enabled(G_SIMPLE_ACTION(action), web_view && webkit_web_view_can_go_forward(web_view));
 }
 
-/* A web view whose process died keeps reporting the load it never finished, so
- * the crashed ones are tracked here rather than trusting "is-loading". */
 static void wig_window_base_update_loading_actions(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
-  WebKitWebView *web_view = get_active_web_view(self);
-  gboolean crashed = web_view && priv->crashed_web_views && g_hash_table_contains(priv->crashed_web_views, web_view);
-  gboolean is_loading = web_view && !crashed && webkit_web_view_is_loading(web_view);
   GAction *action = g_action_map_lookup_action(G_ACTION_MAP(self), "stop-reload");
-  g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(is_loading));
-
-  WigWindowBaseClass *klass = WIG_WINDOW_BASE_GET_CLASS(self);
-  if (klass->loading_changed)
-    klass->loading_changed(self, is_loading);
-}
-
-static void wig_window_base_on_load_changed(WigWindowBase *self, WebKitLoadEvent load_event, WebKitWebView *web_view)
-{
-  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
-  if (load_event == WEBKIT_LOAD_STARTED)
-    g_hash_table_remove(priv->crashed_web_views, web_view);
-
-  wig_window_base_update_loading_actions(self);
-}
-
-static void wig_window_base_on_web_process_terminated(WigWindowBase *self, WebKitWebProcessTerminationReason reason,
-                                                      WebKitWebView *web_view)
-{
-  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
-  g_hash_table_add(priv->crashed_web_views, web_view);
-
-  wig_window_base_update_loading_actions(self);
+  g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(priv->loading));
 }
 
 static void wig_window_base_on_back_forward_list_changed(WigWindowBase *self, WebKitBackForwardListItem *item_added,
@@ -679,7 +667,6 @@ static void wig_window_base_dispose(GObject *object)
   g_clear_object(&priv->active_web_view_signals);
   g_clear_object(&priv->back_forward_list_signals);
   g_clear_pointer(&priv->web_view_signal_groups, g_hash_table_unref);
-  g_clear_pointer(&priv->crashed_web_views, g_hash_table_unref);
   g_clear_object(&priv->active_web_view);
   g_clear_object(&priv->toplevel);
   g_clear_pointer(&priv->back_history_popover, gtk_widget_unparent);
@@ -701,6 +688,10 @@ static void wig_window_base_class_init(WigWindowBaseClass *klass)
 
   props[PROP_ID] = g_param_spec_uint("id", NULL, NULL, 0, G_MAXUINT, 0,
                                      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+  /* Bound to the active tab: a view that crashed or gave up on a load keeps
+   * claiming it is loading, and only the tab knows an error page replaced it. */
+  props[PROP_LOADING] = g_param_spec_boolean("loading", NULL, NULL, FALSE,
+                                             G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
   g_object_class_install_properties(object_class, G_N_ELEMENTS(props), props);
 }
 
@@ -735,7 +726,6 @@ static void wig_window_base_init(WigWindowBase *self)
   g_signal_group_connect_swapped(priv->back_forward_list_signals, "changed",
                                  G_CALLBACK(wig_window_base_on_back_forward_list_changed), self);
   priv->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
-  priv->crashed_web_views = g_hash_table_new(g_direct_hash, g_direct_equal);
 }
 
 void wig_window_base_set_toplevel(WigWindowBase *self, WPEToplevel *toplevel)
@@ -796,9 +786,6 @@ void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_vie
     return;
 
   GSignalGroup *signals = g_signal_group_new(WEBKIT_TYPE_WEB_VIEW);
-  g_signal_group_connect_swapped(signals, "load-changed", G_CALLBACK(wig_window_base_on_load_changed), self);
-  g_signal_group_connect_swapped(signals, "web-process-terminated",
-                                 G_CALLBACK(wig_window_base_on_web_process_terminated), self);
   g_signal_group_connect_swapped(signals, "run-file-chooser", G_CALLBACK(wig_window_base_on_run_file_chooser), self);
 #if HAVE_COLOR_CHOOSER_SUPPORT
   g_signal_group_connect_swapped(signals, "run-color-chooser", G_CALLBACK(wig_window_base_on_run_color_chooser), self);
@@ -820,7 +807,6 @@ void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_vie
   if (signals)
     g_signal_group_set_target(signals, NULL);
   g_hash_table_remove(priv->web_view_signal_groups, web_view);
-  g_hash_table_remove(priv->crashed_web_views, web_view);
 }
 
 void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web_view)
@@ -839,7 +825,6 @@ void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web
                             web_view ? webkit_web_view_get_back_forward_list(web_view) : NULL);
   g_set_object(&priv->active_web_view, web_view);
   wig_window_base_update_navigation_actions(self);
-  wig_window_base_update_loading_actions(self);
   update_permissions(self);
 }
 
