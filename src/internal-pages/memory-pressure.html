@@ -10,7 +10,7 @@
 
 <body>
   <h1>Memory Pressure Settings</h1>
-  <p class='desc'>Configure how WebKit responds to memory pressure events. Changes apply globally to the network process.</p>
+  <p class='desc'>Configure how WebKit responds to memory pressure events. Only network processes started afterwards pick the settings up, so a running one keeps what it started with.</p>
 
   <form id='mp-form'>
     <label for='memory_limit'>Memory limit</label>

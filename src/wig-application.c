@@ -564,6 +564,11 @@ static void wig_application_startup(GApplication *application)
   g_autofree char *data_dir = g_build_filename(g_get_user_data_dir(), "com.igalia.wig", NULL);
   g_autofree char *state_dir = g_build_filename(g_get_user_state_dir(), "com.igalia.wig", NULL);
   g_autofree char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
+
+  /* Only network sessions created after this call pick the settings up. */
+  app->memory_pressure_settings = webkit_memory_pressure_settings_new();
+  webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
+
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
   g_autoptr(GError) history_error = NULL;
   app->history_store = wig_history_store_new(state_dir, &history_error);
@@ -585,8 +590,6 @@ static void wig_application_startup(GApplication *application)
   webkit_website_data_manager_set_favicons_enabled(
       webkit_network_session_get_website_data_manager(app->network_session), TRUE);
 #endif
-  app->memory_pressure_settings = webkit_memory_pressure_settings_new();
-  webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
   app->downloads = wig_downloads_manager_new(app->network_session);
   app->user_content_manager = webkit_user_content_manager_new();
   g_autofree char *filters_dir = g_build_filename(data_dir, "content-filters", NULL);
