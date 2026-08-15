@@ -1040,7 +1040,7 @@ static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigatio
   wig_window_add_web_view(new_win, web_view);
   g_signal_connect_object(web_view, "ready-to-show", G_CALLBACK(wig_window_web_view_ready_to_show), new_win,
                           G_CONNECT_SWAPPED);
-  return web_view;
+  return g_steal_pointer(&web_view);
 }
 
 static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
