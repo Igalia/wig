@@ -4,6 +4,6 @@
     <file>wig-application.css</file>
   </gresource>
   <gresource prefix="/com/igalia/wig/history">
-    <file alias="history-schema.sql">history-schema.sql</file>
+    <file alias="history-schema.sql">history/history-schema.sql</file>
   </gresource>
 </gresources>
