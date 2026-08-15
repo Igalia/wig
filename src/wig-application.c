@@ -306,6 +306,28 @@ static const GActionEntry app_update_actions[] = {
   { "restart-to-update", wig_application_restart_to_update_action },
 };
 
+/* Enchant looks dictionaries up by language tag, so the encoding and modifier
+ * suffixes a locale name carries have to go, and "C" names no language at all.
+ * Handing WebKit no language at all would leave it free to fall back to whatever
+ * dictionary happens to be installed first, which underlines every word. */
+static void wig_application_enable_spell_checking(WigApplication *app)
+{
+  g_autoptr(GStrvBuilder) builder = g_strv_builder_new();
+  for (const char *const *name = g_get_language_names(); *name; name++) {
+    if (g_str_equal(*name, "C") || g_str_equal(*name, "POSIX") || strpbrk(*name, ".@"))
+      continue;
+    g_strv_builder_add(builder, *name);
+  }
+
+  g_auto(GStrv) languages = g_strv_builder_end(builder);
+  g_autofree char *joined = g_strjoinv(", ", languages);
+  g_debug("spell checking: languages %s", *languages ? joined : "(none)");
+
+  webkit_web_context_set_spell_checking_enabled(app->web_context, TRUE);
+  if (*languages)
+    webkit_web_context_set_spell_checking_languages(app->web_context, (const char *const *)languages);
+}
+
 static void wig_application_initialize_notification_permissions(WigApplication *app)
 {
   g_autolist(WebKitSecurityOrigin) allowed = wig_permissions_manager_list_origins(
@@ -603,6 +625,7 @@ static void wig_application_startup(GApplication *application)
                                                            "wig");
   webkit_security_manager_register_uri_scheme_as_secure(webkit_web_context_get_security_manager(app->web_context),
                                                         "wig");
+  wig_application_enable_spell_checking(app);
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, "enable-encrypted-media", TRUE,
                                                         NULL);
   wig_features_apply_overrides(app->web_settings, app->settings);
