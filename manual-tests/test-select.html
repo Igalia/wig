@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Select Element Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    select { font-size: 0.95em; padding: 4px; }
+    select.wide { width: 100%; }
+    button {
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.95em;
+      cursor: pointer;
+    }
+    button:hover { background: #1c71d8; }
+    .result {
+      font-size: 0.88em;
+      margin-top: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+    }
+    code { background: #ececec; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<h1>Select Element Tests</h1>
+<p class="subtitle">Covers what <code>WebKitWebView::show-option-menu</code> can hand over.</p>
+
+<section>
+  <h2>Plain list</h2>
+  <p class="desc">Third item is pre-selected: the menu should open with it highlighted and focused.</p>
+  <select id="plain">
+    <option>First</option>
+    <option>Second</option>
+    <option selected>Third (selected)</option>
+    <option>Fourth</option>
+  </select>
+  <div class="result" id="result-plain">value: Third (selected)</div>
+</section>
+
+<section>
+  <h2>Groups and disabled items</h2>
+  <p class="desc">
+    <code>&lt;optgroup&gt;</code> labels should read as headings and not be pickable; their options should be
+    indented. The disabled option should be greyed out and refuse clicks.
+  </p>
+  <select id="groups">
+    <optgroup label="Fruit">
+      <option>Apple</option>
+      <option>Banana</option>
+      <option disabled>Cherry (disabled)</option>
+    </optgroup>
+    <optgroup label="Vegetables">
+      <option>Carrot</option>
+      <option>Potato</option>
+    </optgroup>
+    <option>Ungrouped</option>
+  </select>
+  <div class="result" id="result-groups">value: Apple</div>
+</section>
+
+<section>
+  <h2>Separators</h2>
+  <p class="desc">
+    An option with an empty label arrives as a separator item: it should draw as a line, and be neither
+    focusable nor clickable.
+  </p>
+  <select id="separators">
+    <option>Above</option>
+    <option></option>
+    <option>Below</option>
+  </select>
+  <div class="result" id="result-separators">value: Above</div>
+</section>
+
+<section>
+  <h2>Long list</h2>
+  <p class="desc">
+    60 items, with #45 selected. The menu should cap its height and scroll, opening scrolled to the
+    selected item rather than at the top.
+  </p>
+  <select id="long"></select>
+  <div class="result" id="result-long">value: Item 45</div>
+</section>
+
+<section>
+  <h2>Wide element</h2>
+  <p class="desc">The menu should be at least as wide as the element it drops out of, not just as wide as its longest label.</p>
+  <select id="wide" class="wide">
+    <option>Short</option>
+    <option>Also short</option>
+  </select>
+  <div class="result" id="result-wide">value: Short</div>
+</section>
+
+<section>
+  <h2>Element removed while the menu is open</h2>
+  <p class="desc">
+    Opens the menu, then deletes the <code>&lt;select&gt;</code> two seconds later. WebKit emits
+    <code>WebKitOptionMenu::close</code> and the menu should disappear on its own — no stale popup left
+    hanging over the page.
+  </p>
+  <select id="doomed">
+    <option>Open me, then wait</option>
+    <option>Second</option>
+    <option>Third</option>
+  </select>
+  <button onclick="removeSoon()">Arm the removal (2s)</button>
+  <div class="result" id="result-doomed">idle</div>
+</section>
+
+<section>
+  <h2>Long labels</h2>
+  <p class="desc">Labels far wider than the element: they should ellipsize rather than stretch the menu off-screen.</p>
+  <select id="longlabels">
+    <option>Short one</option>
+    <option>A label so long that it has no business being in a dropdown menu at all, and yet here it is, going on and on</option>
+  </select>
+  <div class="result" id="result-longlabels">value: Short one</div>
+</section>
+
+<script>
+  const longSelect = document.getElementById('long');
+  for (let i = 1; i <= 60; i++) {
+    const option = document.createElement('option');
+    option.textContent = `Item ${i}`;
+    option.selected = (i === 45);
+    longSelect.appendChild(option);
+  }
+
+  for (const select of document.querySelectorAll('select')) {
+    const result = document.getElementById('result-' + select.id);
+    if (!result)
+      continue;
+    select.addEventListener('change', () => {
+      result.textContent = `value: ${select.value}`;
+    });
+  }
+
+  function removeSoon() {
+    const result = document.getElementById('result-doomed');
+    result.textContent = 'removing the element in 2s — open the menu now';
+    setTimeout(() => {
+      const doomed = document.getElementById('doomed');
+      if (doomed)
+        doomed.remove();
+      result.textContent = 'element removed — the menu should be gone';
+    }, 2000);
+  }
+</script>
+</body>
+</html>

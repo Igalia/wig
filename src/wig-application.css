@@ -142,6 +142,30 @@ wig-error-page {
   font-family: monospace;
 }
 
+/* Adwaita pads menus vertically only, since its own menu items run edge to edge.
+ * These items are rounded rows, so they need the same gap on every side, and the
+ * list must not paint its view background over the menu's. */
+popover.menu > contents {
+  padding: 1px 4px;
+}
+
+popover.menu list {
+  background: none;
+  color: inherit;
+}
+
+popover.menu list row {
+  min-height: 0;
+  padding: 5px 8px;
+  margin: 1px 0;
+  border-radius: 6px;
+}
+
+popover.menu list row:selected {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+
 wig-search-bar .search-bar-box {
   background-color: @window_bg_color;
   border-top: 1px solid alpha(@borders, 0.5);

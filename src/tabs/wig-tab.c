@@ -26,6 +26,7 @@
 #include "wig-crash-page.h"
 #include "wig-error-page.h"
 #include "wig-favicon.h"
+#include "wig-option-menu.h"
 #include "wig-script-dialog.h"
 #include "wig-tls-error-page.h"
 #include "wig-utils.h"
@@ -39,6 +40,7 @@ struct _WigTab {
   GtkWidget *view_overlay;
   GtkWidget *web_view_widget;
   GtkWidget *error_page;
+  GtkWidget *option_menu;
   char *error_uri;
   GtkWidget *status_label;
   GIcon *icon;
@@ -82,6 +84,24 @@ static gboolean wig_tab_on_script_dialog(WigTab *self, WebKitScriptDialog *dialo
 static gboolean wig_tab_on_authenticate(WigTab *self, WebKitAuthenticationRequest *request)
 {
   wig_auth_dialog_show(GTK_OVERLAY(self->view_overlay), request);
+  return TRUE;
+}
+
+static void wig_tab_option_menu_closed(WigTab *self)
+{
+  g_clear_pointer(&self->option_menu, gtk_widget_unparent);
+}
+
+static gboolean wig_tab_on_show_option_menu(WigTab *self, WebKitOptionMenu *menu, WebKitRectangle *rectangle)
+{
+  g_debug("tab %u: option menu with %u item(s) at %d,%d %dx%d", self->id, webkit_option_menu_get_n_items(menu),
+          rectangle->x, rectangle->y, rectangle->width, rectangle->height);
+
+  g_clear_pointer(&self->option_menu, gtk_widget_unparent);
+
+  self->option_menu = wig_option_menu_show(self->web_view_widget, menu, rectangle);
+  g_signal_connect_object(self->option_menu, "closed", G_CALLBACK(wig_tab_option_menu_closed), self, G_CONNECT_SWAPPED);
+
   return TRUE;
 }
 
@@ -295,6 +315,7 @@ static void wig_tab_dispose(GObject *object)
 {
   WigTab *self = WIG_TAB(object);
   g_clear_object(&self->icon);
+  g_clear_pointer(&self->option_menu, gtk_widget_unparent);
   if (self->web_view)
     g_signal_handlers_disconnect_by_data(self->web_view, self);
   g_clear_object(&self->web_view);
@@ -516,6 +537,8 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_signal_connect_object(web_view, "load-changed", G_CALLBACK(wig_tab_on_load_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "script-dialog", G_CALLBACK(wig_tab_on_script_dialog), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "authenticate", G_CALLBACK(wig_tab_on_authenticate), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "show-option-menu", G_CALLBACK(wig_tab_on_show_option_menu), self,
+                          G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "web-process-terminated", G_CALLBACK(wig_tab_on_web_process_terminated), self,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "load-failed-with-tls-errors", G_CALLBACK(wig_tab_on_load_failed_with_tls_errors),
