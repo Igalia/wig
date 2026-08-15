@@ -22,11 +22,18 @@
 
 #pragma once
 
-#include <tmpl-glib.h>
-#include <wpe/webkit.h>
+#include <adwaita.h>
 
-#define WIG_SETTINGS_PAGE_URI "wig:settings"
+G_BEGIN_DECLS
 
-gboolean uri_is_settings_page(const char *uri);
-TmplScope *handle_settings_uri(WebKitURISchemeRequest *request, GSettings *settings);
-void update_settings_page(WebKitWebView *web_view, GSettings *settings);
+GtkWidget *wig_settings_switch_row_new(GSettings *settings, const char *key, const char *title, const char *subtitle);
+
+/* @nicks holds the value stored for each of @labels, in the same order, and ends
+ * with NULL. It reaches the binding as its user data, which is why it is not
+ * const all the way down. */
+GtkWidget *wig_settings_combo_row_new(GSettings *settings, const char *key, const char *title, const char *subtitle,
+                                      const char **nicks, const char *const *labels);
+
+void wig_settings_search_engine_rows_add(AdwPreferencesGroup *group, GSettings *settings);
+
+G_END_DECLS

@@ -30,10 +30,10 @@
 #include "internal-pages/wig-history.h"
 #include "internal-pages/wig-internal-page.h"
 #include "internal-pages/wig-memory-pressure.h"
-#include "internal-pages/wig-settings-page.h"
 #include "internal-pages/wig-user-scripts.h"
 #include "internal-pages/wig-user-styles.h"
 #include "internal-pages/wig-website-data.h"
+#include "settings/wig-settings-page.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
 #include "wig-settings.h"
@@ -61,7 +61,6 @@ struct _WigApplication {
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
   WebKitWebsitePolicies *website_policies;
 #endif
-  WebKitWebView *settings_view; /* weak */
 
   WigSession *session;
   gboolean quitting;
@@ -199,11 +198,6 @@ static void on_web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent lo
 {
   g_debug("[load-changed] web_view=%p event=%s (%d) uri=%s", (void *)web_view, wig_load_event_name(load_event),
           load_event, webkit_web_view_get_uri(web_view) ? webkit_web_view_get_uri(web_view) : "(null)");
-
-  if (load_event == WEBKIT_LOAD_FINISHED && uri_is_settings_page(webkit_web_view_get_uri(web_view))) {
-    g_set_weak_pointer(&app->settings_view, web_view);
-    update_settings_page(web_view, app->settings);
-  }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
@@ -393,9 +387,9 @@ static void wig_application_about_scheme_cb(WebKitURISchemeRequest *request, gpo
     handle_website_data_uri(request, manager);
     return; // async
   } else if (uri_is_settings_page(uri)) {
-    g_set_weak_pointer(&app->settings_view, web_view);
-    scope = handle_settings_uri(request, app->settings);
-    html = wig_internal_page_render("/com/igalia/wig/internal-pages/settings.html", scope);
+    /* The settings are a widget the tab shows over this document, which only has
+     * to commit so the address behaves like any other. */
+    html = g_strdup("<!DOCTYPE html>");
   } else if (g_str_has_prefix(uri, "wig:history")) {
     scope = handle_history_uri(request, app->history_store);
     html = wig_internal_page_render("/com/igalia/wig/internal-pages/history.html", scope);
@@ -452,12 +446,6 @@ static void wig_application_settings_changed(GSettings *settings, const char *ke
   if (g_str_equal(key, "https-navigation-policy"))
     wig_application_update_website_policies(app);
 #endif
-
-  if (!app->settings_view || webkit_web_view_is_loading(app->settings_view)
-      || !uri_is_settings_page(webkit_web_view_get_uri(app->settings_view)))
-    return;
-
-  update_settings_page(app->settings_view, settings);
 }
 
 static void on_notification_clicked_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -538,6 +526,16 @@ static GSList *wig_application_collect_session_windows(gpointer user_data)
 
   return windows;
 }
+
+/* Settings named after a WebKitSettings property drive that property, so a new
+ * one of those is a key in the schema, a row in the page, and a name here. */
+static const char *const web_settings_keys[] = {
+  "javascript-can-open-windows-automatically",
+  "auto-load-images",
+  "media-playback-requires-user-gesture",
+  "zoom-text-only",
+  "enable-javascript",
+};
 
 static void wig_application_startup(GApplication *application)
 {
@@ -629,6 +627,8 @@ static void wig_application_startup(GApplication *application)
   app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, "enable-encrypted-media", TRUE,
                                                         NULL);
   wig_features_apply_overrides(app->web_settings, app->settings);
+  for (guint i = 0; i < G_N_ELEMENTS(web_settings_keys); i++)
+    g_settings_bind(app->settings, web_settings_keys[i], app->web_settings, web_settings_keys[i], G_SETTINGS_BIND_GET);
 
   /* The sandbox refuses paths that do not exist yet, and the CDM is only staged
    * there on first use. */
@@ -687,7 +687,6 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
   g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
   g_clear_object(&app->downloads);
-  g_clear_weak_pointer(&app->settings_view);
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
   g_clear_object(&app->website_policies);
 #endif

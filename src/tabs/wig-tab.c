@@ -28,6 +28,7 @@
 #include "wig-favicon.h"
 #include "wig-option-menu.h"
 #include "wig-script-dialog.h"
+#include "wig-settings-page.h"
 #include "wig-tls-error-page.h"
 #include "wig-unresponsive-dialog.h"
 #include "wig-utils.h"
@@ -43,6 +44,7 @@ struct _WigTab {
   GtkWidget *view_overlay;
   GtkWidget *web_view_widget;
   GtkWidget *error_page;
+  GtkWidget *native_page;
   GtkWidget *option_menu;
   GtkWidget *unresponsive_dialog;
   guint unresponsive_timeout_id;
@@ -546,6 +548,31 @@ static void wig_tab_on_title_changed(WigTab *self)
     wig_tab_set_title(self, title);
 }
 
+/* Some pages wig serves are built as widgets rather than documents. The view
+ * still navigates to them, so everything hung off the address keeps working, but
+ * what it drew is covered up and the widget carries the title the document would
+ * have had. */
+static void wig_tab_show_native_page(WigTab *self, GtkWidget *page, const char *title)
+{
+  self->native_page = page;
+
+  gtk_widget_set_visible(self->web_view_widget, FALSE);
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), page);
+  gtk_widget_grab_focus(page);
+
+  wig_tab_set_title(self, title);
+}
+
+static void wig_tab_clear_native_page(WigTab *self)
+{
+  if (!self->native_page)
+    return;
+
+  gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), self->native_page);
+  self->native_page = NULL;
+  gtk_widget_set_visible(self->web_view_widget, TRUE);
+}
+
 /* Once a load commits, an empty title means the page genuinely has none, so fall
  * back to the hostname.  A real title, if any, arrives via notify::title. */
 static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
@@ -558,10 +585,16 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
     self->restoring_icon = FALSE;
     wig_tab_set_hovered_link(self, NULL, NULL);
     wig_tab_clear_error_page(self);
+    wig_tab_clear_native_page(self);
   }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
+
+  if (uri_is_settings_page(webkit_web_view_get_uri(self->web_view))) {
+    wig_tab_show_native_page(self, wig_settings_page_new(), WIG_SETTINGS_PAGE_TITLE);
+    return;
+  }
 
   const char *title = webkit_web_view_get_title(self->web_view);
   if (title && *title)

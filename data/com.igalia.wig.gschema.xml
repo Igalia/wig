@@ -42,6 +42,36 @@
       <summary>Search Engine</summary>
       <description>A URL template where %s is replaced by the escaped search terms.</description>
     </key>
+
+    <key name="javascript-can-open-windows-automatically" type="b">
+      <default>false</default>
+      <summary>Allow Pop-up Windows</summary>
+      <description>Whether a page can open a window without the user asking it to.</description>
+    </key>
+
+    <key name="auto-load-images" type="b">
+      <default>true</default>
+      <summary>Load Images</summary>
+      <description>Whether images are fetched as a page loads.</description>
+    </key>
+
+    <key name="media-playback-requires-user-gesture" type="b">
+      <default>false</default>
+      <summary>Require a Click Before Media Plays</summary>
+      <description>Whether audio and video wait for the user to start them rather than playing on their own.</description>
+    </key>
+
+    <key name="zoom-text-only" type="b">
+      <default>false</default>
+      <summary>Zoom Text Only</summary>
+      <description>Whether zooming resizes only the text, leaving images and layout at their own size.</description>
+    </key>
+
+    <key name="enable-javascript" type="b">
+      <default>true</default>
+      <summary>JavaScript</summary>
+      <description>Whether the scripts a page carries are run.</description>
+    </key>
   </schema>
 
 </schemalist>

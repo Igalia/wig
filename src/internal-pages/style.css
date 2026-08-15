@@ -775,111 +775,7 @@ tr.active td {
   word-break: break-word;
 }
 
-/* === Settings page === */
-
-.settings-list {
-  overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 16px 18px;
-}
-
-.setting-row + .setting-row {
-  border-top: 1px solid var(--border);
-}
-
-.setting-text {
-  min-width: 0;
-}
-
-.setting-name {
-  display: block;
-  font-weight: 600;
-}
-
-.setting-desc {
-  margin: 3px 0 0;
-  color: var(--text-dim);
-  font-size: 0.9em;
-  line-height: 1.35;
-}
-
-.setting-control {
-  flex: none;
-}
-
-.setting-switch {
-  position: relative;
-  display: inline-flex;
-  width: 42px;
-  height: 24px;
-  cursor: pointer;
-}
-
-.setting-switch input {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.setting-switch-track {
-  width: 100%;
-  height: 100%;
-  box-sizing: border-box;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--btn-bg);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 12%);
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.setting-switch-track::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
-  transition: transform 0.15s;
-}
-
-.setting-switch:hover .setting-switch-track {
-  background: var(--btn-hover);
-}
-
-.setting-switch input:checked + .setting-switch-track {
-  border-color: color-mix(in srgb, var(--accent) 75%, black);
-  background: var(--accent);
-}
-
-.setting-switch:hover input:checked + .setting-switch-track {
-  background: color-mix(in srgb, var(--accent) 88%, white);
-}
-
-.setting-switch input:checked + .setting-switch-track::after {
-  transform: translateX(18px);
-}
-
-.setting-switch input:focus-visible + .setting-switch-track {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 2px;
-}
+/* === Select control, used by the feature list === */
 
 .setting-select {
   position: relative;
@@ -957,20 +853,8 @@ tr.active td {
 }
 
 @media (max-width: 520px) {
-  .setting-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .setting-select {
-    width: 100%;
-  }
-
+  .setting-select,
   .setting-select select {
     width: 100%;
-  }
-
-  .setting-switch {
-    align-self: flex-start;
   }
 }
