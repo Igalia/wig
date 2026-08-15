@@ -28,6 +28,8 @@ G_BEGIN_DECLS
 
 GtkWidget *wig_settings_switch_row_new(GSettings *settings, const char *key, const char *title, const char *subtitle);
 
+GtkWidget *wig_settings_entry_row_new(GSettings *settings, const char *key, const char *title);
+
 GtkWidget *wig_settings_combo_row_new(GSettings *settings, const char *key, const char *title, const char *subtitle,
                                       const char **nicks, const char *const *labels);
 

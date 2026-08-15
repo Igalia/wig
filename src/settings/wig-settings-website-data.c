@@ -23,8 +23,18 @@
 #include "wig-settings-website-data.h"
 
 #include "wig-application.h"
+#include "wig-settings-rows.h"
 
 #include <wpe/webkit.h>
+
+static const struct {
+  const char *key;
+  const char *title;
+  const char *description;
+} storage_settings[] = {
+  { "enable-html5-local-storage", "Local Storage", "Let a page keep localStorage between visits." },
+  { "enable-html5-database", "Databases", "Let a page keep data in an indexedDB of its own." },
+};
 
 static const struct {
   WebKitWebsiteDataTypes type;
@@ -307,6 +317,9 @@ static void wig_settings_website_data_build_row(WigSettingsWebsiteData *self, Ad
 
 void wig_settings_website_data_index(WigSettingsSearch *search, const char *pane, const char *pane_title)
 {
+  for (guint i = 0; i < G_N_ELEMENTS(storage_settings); i++)
+    wig_settings_search_add(search, storage_settings[i].title, storage_settings[i].description, pane, pane_title);
+
   for (guint i = 0; i < G_N_ELEMENTS(data_types); i++)
     wig_settings_search_add(search, data_types[i].name, NULL, pane, pane_title);
 }
@@ -361,6 +374,19 @@ static void wig_settings_website_data_init(WigSettingsWebsiteData *self)
 
   self->page = adw_preferences_page_new();
   gtk_widget_set_parent(self->page, GTK_WIDGET(self));
+
+  GSettings *wig_settings = wig_application_get_settings(wig_application_get());
+  AdwPreferencesGroup *storage = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+
+  adw_preferences_group_set_title(storage, "Storage");
+  adw_preferences_group_set_description(storage, "What sites may keep here.");
+
+  for (guint i = 0; i < G_N_ELEMENTS(storage_settings); i++)
+    adw_preferences_group_add(storage,
+                              wig_settings_switch_row_new(wig_settings, storage_settings[i].key,
+                                                          storage_settings[i].title, storage_settings[i].description));
+
+  adw_preferences_page_add(ADW_PREFERENCES_PAGE(self->page), storage);
 
   AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   adw_preferences_group_set_title(group, "Website Data");

@@ -16,61 +16,96 @@
     <key name="restore-tabs" type="b">
       <default>true</default>
       <summary>Restore Tabs on Startup</summary>
-      <description>Whether the windows and tabs that were open when wig was last closed are opened again.</description>
     </key>
 
     <key name="tab-layout" enum="com.igalia.wig.TabLayout">
       <default>'horizontal'</default>
       <summary>Tab Layout</summary>
-      <description>Whether tabs are listed in a bar above the page or in a sidebar beside it.</description>
     </key>
 
     <key name="feature-overrides" type="a{sb}">
       <default>{}</default>
       <summary>Feature Overrides</summary>
-      <description>WebKit feature identifiers mapped to the value they are forced to on startup. Features left out of this list keep whatever value WebKit defaults them to.</description>
     </key>
 
     <key name="https-navigation-policy" enum="com.igalia.wig.HTTPSNavigationPolicy">
       <default>'keep-as-requested'</default>
       <summary>HTTPS Navigation</summary>
-      <description>Whether navigations typed as http are upgraded to https. HTTPS-First falls back to http when the https load fails, HTTPS-Only reports an error instead.</description>
     </key>
 
     <key name="search-engine" type="s">
       <default>'https://duckduckgo.com/?q=%s'</default>
       <summary>Search Engine</summary>
-      <description>A URL template where %s is replaced by the escaped search terms.</description>
     </key>
 
     <key name="javascript-can-open-windows-automatically" type="b">
       <default>false</default>
       <summary>Allow Pop-up Windows</summary>
-      <description>Whether a page can open a window without the user asking it to.</description>
     </key>
 
     <key name="auto-load-images" type="b">
       <default>true</default>
       <summary>Load Images</summary>
-      <description>Whether images are fetched as a page loads.</description>
     </key>
 
     <key name="media-playback-requires-user-gesture" type="b">
       <default>false</default>
       <summary>Require a Click Before Media Plays</summary>
-      <description>Whether audio and video wait for the user to start them rather than playing on their own.</description>
     </key>
 
     <key name="zoom-text-only" type="b">
       <default>false</default>
       <summary>Zoom Text Only</summary>
-      <description>Whether zooming resizes only the text, leaving images and layout at their own size.</description>
     </key>
 
     <key name="enable-javascript" type="b">
       <default>true</default>
       <summary>JavaScript</summary>
-      <description>Whether the scripts a page carries are run.</description>
+    </key>
+
+    <key name="enable-webgl" type="b">
+      <default>true</default>
+      <summary>WebGL</summary>
+    </key>
+
+    <key name="enable-media" type="b">
+      <default>true</default>
+      <summary>Audio and Video</summary>
+    </key>
+
+    <key name="enable-encrypted-media" type="b">
+      <default>true</default>
+      <summary>Protected Content</summary>
+    </key>
+
+    <key name="enable-media-stream" type="b">
+      <default>true</default>
+      <summary>Camera and Microphone</summary>
+    </key>
+
+    <key name="enable-webrtc" type="b">
+      <default>true</default>
+      <summary>WebRTC</summary>
+    </key>
+
+    <key name="enable-html5-local-storage" type="b">
+      <default>true</default>
+      <summary>Local Storage</summary>
+    </key>
+
+    <key name="enable-html5-database" type="b">
+      <default>true</default>
+      <summary>Databases</summary>
+    </key>
+
+    <key name="enable-developer-extras" type="b">
+      <default>true</default>
+      <summary>Developer Tools</summary>
+    </key>
+
+    <key name="user-agent" type="s">
+      <default>''</default>
+      <summary>User Agent</summary>
     </key>
   </schema>
 

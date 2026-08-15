@@ -151,9 +151,11 @@ static void wig_settings_page_new_pane(WigSettingsPage *self, Pane *pane, const 
  * is offered along with the pane it would be found in. */
 static void pane_index(Pane *pane, GtkWidget *row)
 {
+  const char *description = ADW_IS_ACTION_ROW(row) ? adw_action_row_get_subtitle(ADW_ACTION_ROW(row)) : NULL;
+
   wig_settings_search_add(WIG_SETTINGS_SEARCH(pane->page->search),
-                          adw_preferences_row_get_title(ADW_PREFERENCES_ROW(row)),
-                          adw_action_row_get_subtitle(ADW_ACTION_ROW(row)), pane->name, pane->title);
+                          adw_preferences_row_get_title(ADW_PREFERENCES_ROW(row)), description, pane->name,
+                          pane->title);
 }
 
 static void pane_add(Pane *pane, GtkWidget *row)
@@ -193,6 +195,11 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
   /* The template it reveals is part of the same setting, so only the row naming
    * the engine is worth finding. */
   pane_index(&pane, wig_settings_search_engine_rows_add(pane.group, settings));
+
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "enable-developer-extras", "Developer Tools",
+                                       "Offer the web inspector in the context menu of a page."));
+  pane_add(&pane, wig_settings_entry_row_new(settings, "user-agent", "User Agent"));
 }
 
 static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings *settings)
@@ -219,6 +226,23 @@ static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings 
            wig_settings_switch_row_new(settings, "zoom-text-only", "Zoom Text Only",
                                        "Resize only the text when zooming, leaving images and layout at "
                                        "their own size."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "enable-webgl", "WebGL",
+                                       "Let a page render WebGL, used for games and other 3D software typically."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "enable-media", "Audio and Video",
+                                       "Toggle support for all audio and video."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "enable-encrypted-media", "Protected Content",
+                                       "Play media requiring a DRM module (modules must be provided)"));
+  pane_add(&pane,
+           wig_settings_switch_row_new(settings, "enable-media-stream", "Camera and Microphone",
+                                       "Let a page ask for the camera or the microphone. Each site still has "
+                                       "to be allowed separately."));
+  pane_add(&pane,
+           wig_settings_switch_row_new(
+               settings, "enable-webrtc", "WebRTC",
+               "Enable WebRTC often used for conferencing software, exposes some network information."));
 }
 
 /* The feature lists are pages of their own rather than rows in a group, so they

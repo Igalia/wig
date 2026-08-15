@@ -494,6 +494,15 @@ static const char *const web_settings_keys[] = {
   "media-playback-requires-user-gesture",
   "zoom-text-only",
   "enable-javascript",
+  "enable-developer-extras",
+  "enable-webgl",
+  "enable-media",
+  "enable-encrypted-media",
+  "enable-media-stream",
+  "enable-webrtc",
+  "enable-html5-local-storage",
+  "enable-html5-database",
+  "user-agent",
 };
 
 static void wig_application_startup(GApplication *application)
@@ -580,8 +589,7 @@ static void wig_application_startup(GApplication *application)
   webkit_security_manager_register_uri_scheme_as_empty_document(
       webkit_web_context_get_security_manager(app->web_context), "wig");
   wig_application_enable_spell_checking(app);
-  app->web_settings = webkit_settings_new_with_settings("enable-developer-extras", TRUE, "enable-encrypted-media", TRUE,
-                                                        NULL);
+  app->web_settings = webkit_settings_new();
   wig_features_apply_overrides(app->web_settings, app->settings);
   for (guint i = 0; i < G_N_ELEMENTS(web_settings_keys); i++)
     g_settings_bind(app->settings, web_settings_keys[i], app->web_settings, web_settings_keys[i], G_SETTINGS_BIND_GET);

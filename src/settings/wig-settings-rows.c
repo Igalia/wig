@@ -47,6 +47,16 @@ GtkWidget *wig_settings_switch_row_new(GSettings *settings, const char *key, con
   return row;
 }
 
+GtkWidget *wig_settings_entry_row_new(GSettings *settings, const char *key, const char *title)
+{
+  GtkWidget *row = adw_entry_row_new();
+
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+  g_settings_bind(settings, key, row, "text", G_SETTINGS_BIND_DEFAULT);
+
+  return row;
+}
+
 static void combo_value_setup(GtkSignalListItemFactory *factory, GObject *object)
 {
   GtkWidget *label = gtk_label_new(NULL);
