@@ -590,6 +590,7 @@ static void wig_application_startup(GApplication *application)
   app->user_content_manager = webkit_user_content_manager_new();
   g_autofree char *filters_dir = g_build_filename(data_dir, "content-filters", NULL);
   app->content_filter_store = webkit_user_content_filter_store_new(filters_dir);
+  wig_content_filters_load_saved(app->user_content_manager, app->content_filter_store);
   app->web_context = webkit_web_context_new();
   g_signal_connect_swapped(app->web_context, "initialize-notification-permissions",
                            G_CALLBACK(wig_application_initialize_notification_permissions), app);

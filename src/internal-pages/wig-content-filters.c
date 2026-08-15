@@ -212,3 +212,46 @@ void handle_content_filters_uri(WebKitURISchemeRequest *request, WebKitUserConte
 
   do_fetch_identifiers(state);
 }
+
+typedef struct {
+  WebKitUserContentManager *manager;
+  char *identifier;
+} LoadSavedState;
+
+static void on_load_saved_done(GObject *source, GAsyncResult *res, gpointer user_data)
+{
+  LoadSavedState *load = user_data;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(WebKitUserContentFilter) filter = webkit_user_content_filter_store_load_finish(
+      WEBKIT_USER_CONTENT_FILTER_STORE(source), res, &error);
+
+  if (filter) {
+    webkit_user_content_manager_add_filter(load->manager, filter);
+    g_debug("content-filters: restored filter '%s'", load->identifier);
+  } else {
+    g_warning("content-filters: failed to restore '%s': %s", load->identifier, error->message);
+  }
+
+  g_object_unref(load->manager);
+  g_free(load->identifier);
+  g_free(load);
+}
+
+static void on_load_saved_fetch_done(GObject *source, GAsyncResult *res, gpointer user_data)
+{
+  g_autoptr(WebKitUserContentManager) manager = user_data;
+  WebKitUserContentFilterStore *store = WEBKIT_USER_CONTENT_FILTER_STORE(source);
+  g_auto(GStrv) identifiers = webkit_user_content_filter_store_fetch_identifiers_finish(store, res);
+
+  for (char **id = identifiers; id && *id; id++) {
+    LoadSavedState *load = g_new0(LoadSavedState, 1);
+    load->manager = g_object_ref(manager);
+    load->identifier = g_strdup(*id);
+    webkit_user_content_filter_store_load(store, *id, NULL, on_load_saved_done, load);
+  }
+}
+
+void wig_content_filters_load_saved(WebKitUserContentManager *manager, WebKitUserContentFilterStore *store)
+{
+  webkit_user_content_filter_store_fetch_identifiers(store, NULL, on_load_saved_fetch_done, g_object_ref(manager));
+}

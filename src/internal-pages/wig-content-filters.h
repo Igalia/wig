@@ -26,3 +26,5 @@
 
 void handle_content_filters_uri(WebKitURISchemeRequest *request, WebKitUserContentManager *manager,
                                 WebKitUserContentFilterStore *store);
+
+void wig_content_filters_load_saved(WebKitUserContentManager *manager, WebKitUserContentFilterStore *store);
