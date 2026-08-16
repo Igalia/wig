@@ -166,6 +166,13 @@ config_h.set10(
         dependencies: wpe_webkit_dep,
     ),
 )
+config_h.set10(
+    'HAVE_APPLICATION_MANIFEST_SUPPORT',
+    cc.has_function(
+        'webkit_web_view_get_application_manifest_finish',
+        dependencies: wpe_webkit_dep,
+    ),
+)
 configure_file(output: 'config.h', configuration: config_h)
 add_project_arguments(
     '-include',

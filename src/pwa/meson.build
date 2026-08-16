@@ -1,4 +1,9 @@
 pwa_sources = files(
+    'wig-app-installer-native.c',
+    'wig-app-installer-portal.c',
+    'wig-app-installer.c',
+    'wig-pwa-desktop-integration.c',
+    'wig-pwa-icon.c',
     'wig-pwa-launch-handler.c',
     'wig-pwa-navigation-policy.c',
     'wig-pwa-protocol-handlers.c',
@@ -28,3 +33,15 @@ pwa_protocol_handlers_test = executable(
     dependencies: [wpe_webkit_dep, json_glib_dep],
 )
 test('pwa-protocol-handlers', pwa_protocol_handlers_test)
+
+pwa_desktop_integration_test = executable(
+    'test-pwa-desktop-integration',
+    sources: files(
+        'test-pwa-desktop-integration.c',
+        'wig-app-installer-native.c',
+        'wig-app-installer.c',
+        'wig-pwa-desktop-integration.c',
+    ),
+    dependencies: [gio_dep],
+)
+test('pwa-desktop-integration', pwa_desktop_integration_test)

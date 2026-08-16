@@ -52,6 +52,7 @@ wig_exe = executable(
         libwpeplatformgtk_dep,
         wpe_webkit_dep,
         adw_dep,
+        gio_dep,
         libpsl_dep,
         sqlite_dep,
         libsoup_dep,
