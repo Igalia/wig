@@ -36,6 +36,10 @@ static const struct {
   { "enable-html5-database", "Databases", "Let a page keep data in an indexedDB of its own." },
 };
 
+/* Ordered as WebKitCookieAcceptPolicy is. */
+static const char *cookie_policy_nicks[] = { "always", "never", "no-third-party", NULL };
+static const char *const cookie_policy_labels[] = { "Always", "Never", "Not From Other Sites", NULL };
+
 static const struct {
   WebKitWebsiteDataTypes type;
   const char *name;
@@ -80,9 +84,12 @@ struct _WigSettingsWebsiteData {
   GtkWidget parent;
 
   WebKitWebsiteDataManager *manager;
+  WebKitCookieManager *cookies_manager;
 
   GtkWidget *page;
   TypeRow types[G_N_ELEMENTS(data_types)];
+  TypeRow *cookies_row; /* points into types */
+  GPtrArray *cookie_rows; /* borrowed rows currently under it */
   gboolean populated;
 };
 
@@ -209,6 +216,11 @@ static void website_data_set_total(TypeRow *type_row, guint64 total)
   gtk_label_set_label(GTK_LABEL(type_row->total), formatted ? formatted : "");
 }
 
+static gboolean type_row_is_cookies(TypeRow *type_row)
+{
+  return type_row_type(type_row) == WEBKIT_WEBSITE_DATA_COOKIES;
+}
+
 static void website_data_list(TypeRow *type_row)
 {
   g_autoptr(GArray) origins = g_array_new(FALSE, FALSE, sizeof(Origin));
@@ -228,16 +240,19 @@ static void website_data_list(TypeRow *type_row)
 
   g_array_sort(origins, compare_by_size);
 
-  for (guint i = 0; i < origins->len; i++) {
-    GtkWidget *row = website_data_origin_row(type_row, &g_array_index(origins, Origin, i));
+  if (!type_row_is_cookies(type_row)) {
+    for (guint i = 0; i < origins->len; i++) {
+      GtkWidget *row = website_data_origin_row(type_row, &g_array_index(origins, Origin, i));
 
-    adw_expander_row_add_row(type_row->row, row);
-    g_ptr_array_add(type_row->entries, row);
+      adw_expander_row_add_row(type_row->row, row);
+      g_ptr_array_add(type_row->entries, row);
+    }
+
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(type_row->status), "Nothing stored");
+    gtk_widget_set_visible(type_row->status, type_row->entries->len == 0);
   }
 
   website_data_set_total(type_row, total);
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(type_row->status), "Nothing stored");
-  gtk_widget_set_visible(type_row->status, type_row->entries->len == 0);
 }
 
 static void on_look_done(GObject *source, GAsyncResult *result, gpointer user_data)
@@ -315,8 +330,288 @@ static void wig_settings_website_data_build_row(WigSettingsWebsiteData *self, Ad
   adw_preferences_group_add(group, GTK_WIDGET(type_row->row));
 }
 
+static void website_data_look_cookies(WigSettingsWebsiteData *self);
+
+typedef struct {
+  WigSettingsWebsiteData *pane; /* borrowed */
+  SoupCookie *cookie;
+} CookieRequest;
+
+static void cookie_request_free(gpointer data)
+{
+  CookieRequest *request = data;
+
+  g_object_unref(request->pane);
+  g_clear_pointer(&request->cookie, soup_cookie_free);
+  g_free(request);
+}
+
+static void on_cookie_deleted(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WigSettingsWebsiteData) self = WIG_SETTINGS_WEBSITE_DATA(user_data);
+  g_autoptr(GError) error = NULL;
+
+  if (!webkit_cookie_manager_delete_cookie_finish(WEBKIT_COOKIE_MANAGER(source), result, &error))
+    g_warning("website-data: could not delete cookie: %s", error->message);
+
+  /* Whatever is left is what the list should show, whether it worked or not. */
+  website_data_look_cookies(self);
+}
+
+static void cookie_removed(GtkButton *button, CookieRequest *request)
+{
+  WigSettingsWebsiteData *self = request->pane;
+  GtkWidget *popover = gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER);
+
+  /* The row the popover belongs to is about to be taken away with it. */
+  if (popover)
+    gtk_popover_popdown(GTK_POPOVER(popover));
+
+  g_debug("website-data: deleting cookie '%s' for '%s'", soup_cookie_get_name(request->cookie),
+          soup_cookie_get_domain(request->cookie));
+  webkit_cookie_manager_delete_cookie(self->cookies_manager, request->cookie, NULL, on_cookie_deleted,
+                                      g_object_ref(self));
+}
+
+static void cookie_detail_add(GtkBox *box, const char *name, const char *value)
+{
+  GtkWidget *caption = gtk_label_new(name);
+  gtk_widget_add_css_class(caption, "caption");
+  gtk_widget_add_css_class(caption, "dim-label");
+  gtk_label_set_xalign(GTK_LABEL(caption), 0.0);
+  gtk_box_append(box, caption);
+
+  GtkWidget *label = gtk_label_new(value);
+  gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+  gtk_label_set_selectable(GTK_LABEL(label), TRUE);
+  gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+  gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD_CHAR);
+  gtk_label_set_max_width_chars(GTK_LABEL(label), 40);
+  gtk_widget_set_margin_bottom(label, 6);
+  gtk_box_append(box, label);
+}
+
+/* A value can be an entire token, so the details scroll rather than growing the
+ * popover past the window. */
+static GtkWidget *website_data_cookie_popover(SoupCookie *cookie, CookieRequest *request)
+{
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
+  cookie_detail_add(GTK_BOX(box), "Name", soup_cookie_get_name(cookie));
+  cookie_detail_add(GTK_BOX(box), "Path", soup_cookie_get_path(cookie));
+  cookie_detail_add(GTK_BOX(box), "Value", soup_cookie_get_value(cookie));
+
+  GtkWidget *remove = gtk_button_new_with_label("Delete Cookie");
+  gtk_widget_add_css_class(remove, "destructive-action");
+  gtk_widget_set_margin_top(remove, 6);
+  /* The row is thrown away and made again on every look, so the cookie it stands
+   * for is kept alive by the handler that would delete it. */
+  g_signal_connect_data(remove, "clicked", G_CALLBACK(cookie_removed), request,
+                        (GClosureNotify)(void (*)(void))cookie_request_free, 0);
+  gtk_box_append(GTK_BOX(box), remove);
+
+  GtkWidget *scroller = gtk_scrolled_window_new();
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), box);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scroller), TRUE);
+  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroller), TRUE);
+  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scroller), 300);
+  gtk_widget_set_margin_top(box, 6);
+  gtk_widget_set_margin_bottom(box, 6);
+  gtk_widget_set_margin_start(box, 6);
+  gtk_widget_set_margin_end(box, 6);
+
+  GtkWidget *popover = gtk_popover_new();
+  gtk_popover_set_child(GTK_POPOVER(popover), scroller);
+
+  return popover;
+}
+
+static void cookie_row_activated(AdwActionRow *row, GtkPopover *popover)
+{
+  gtk_popover_popup(popover);
+}
+
+static GtkWidget *website_data_cookie_row(WigSettingsWebsiteData *self, SoupCookie *cookie)
+{
+  GtkWidget *row = adw_action_row_new();
+
+  /* A cookie is named by whoever set it, which is not markup. */
+  adw_preferences_row_set_use_markup(ADW_PREFERENCES_ROW(row), FALSE);
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), soup_cookie_get_name(cookie));
+  gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), TRUE);
+
+  CookieRequest *request = g_new0(CookieRequest, 1);
+  request->pane = g_object_ref(self);
+  request->cookie = soup_cookie_copy(cookie);
+
+  /* What a cookie holds is worth a look rather than a column, so the row says
+   * only its name and the rest is behind it. */
+  GtkWidget *popover = website_data_cookie_popover(cookie, request);
+  gtk_widget_set_parent(popover, row);
+  g_signal_connect_swapped(row, "destroy", G_CALLBACK(gtk_widget_unparent), popover);
+  g_signal_connect(row, "activated", G_CALLBACK(cookie_row_activated), popover);
+
+  return row;
+}
+
+/* Clearing a site means deleting each of its cookies, which the manager only
+ * does one at a time. They go one after another rather than all at once so the
+ * list is looked at again once, after the last of them is gone. */
+typedef struct {
+  WigSettingsWebsiteData *pane; /* borrowed */
+  GPtrArray *cookies;
+  guint next;
+} CookiesClear;
+
+static void cookies_clear_free(gpointer data)
+{
+  CookiesClear *clear = data;
+
+  g_object_unref(clear->pane);
+  g_clear_pointer(&clear->cookies, g_ptr_array_unref);
+  g_free(clear);
+}
+
+static void cookies_clear_step(CookiesClear *clear);
+
+static void on_cookie_cleared(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(GError) error = NULL;
+
+  if (!webkit_cookie_manager_delete_cookie_finish(WEBKIT_COOKIE_MANAGER(source), result, &error))
+    g_warning("website-data: could not delete cookie: %s", error->message);
+
+  cookies_clear_step(user_data);
+}
+
+static void cookies_clear_step(CookiesClear *clear)
+{
+  if (clear->next == clear->cookies->len) {
+    website_data_look_cookies(clear->pane);
+    cookies_clear_free(clear);
+    return;
+  }
+
+  webkit_cookie_manager_delete_cookie(clear->pane->cookies_manager, g_ptr_array_index(clear->cookies, clear->next++),
+                                      NULL, on_cookie_cleared, clear);
+}
+
+static void cookies_cleared(GtkButton *button, CookiesClear *held)
+{
+  CookiesClear *clear = g_new0(CookiesClear, 1);
+
+  g_debug("website-data: deleting all %u cookie(s) for '%s'", held->cookies->len,
+          held->cookies->len ? soup_cookie_get_domain(g_ptr_array_index(held->cookies, 0)) : "(none)");
+
+  clear->pane = g_object_ref(held->pane);
+  clear->cookies = g_ptr_array_ref(held->cookies);
+  cookies_clear_step(clear);
+}
+
+static int compare_cookies(gconstpointer first, gconstpointer second)
+{
+  return g_strcmp0(soup_cookie_get_name(*(SoupCookie *const *)first),
+                   soup_cookie_get_name(*(SoupCookie *const *)second));
+}
+
+static void website_data_list_cookies(WigSettingsWebsiteData *self, GList *cookies)
+{
+  TypeRow *type_row = self->cookies_row;
+
+  /* A look outlives the pane that asked for it, so one that comes back after the
+   * tab has gone has nothing left to fill in. */
+  if (!self->cookie_rows)
+    return;
+
+  for (guint i = 0; i < self->cookie_rows->len; i++)
+    adw_expander_row_remove(type_row->row, g_ptr_array_index(self->cookie_rows, i));
+
+  g_ptr_array_set_size(self->cookie_rows, 0);
+
+  /* Cookies arrive in no particular order and a site sets several, so they are
+   * gathered under the domain that set them rather than listed one long list. */
+  g_autoptr(GHashTable) domains = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
+                                                        (GDestroyNotify)g_ptr_array_unref);
+
+  for (GList *l = cookies; l; l = l->next) {
+    const char *domain = soup_cookie_get_domain(l->data);
+    GPtrArray *of_domain = g_hash_table_lookup(domains, domain);
+
+    if (!of_domain) {
+      of_domain = g_ptr_array_new();
+      g_hash_table_insert(domains, g_strdup(domain), of_domain);
+    }
+
+    g_ptr_array_add(of_domain, l->data);
+  }
+
+  g_autoptr(GList) names = g_hash_table_get_keys(domains);
+  names = g_list_sort(g_steal_pointer(&names), (GCompareFunc)g_strcmp0);
+
+  for (GList *l = names; l; l = l->next) {
+    GPtrArray *of_domain = g_hash_table_lookup(domains, l->data);
+    g_ptr_array_sort(of_domain, compare_cookies);
+
+    GtkWidget *row = adw_expander_row_new();
+    adw_preferences_row_set_use_markup(ADW_PREFERENCES_ROW(row), FALSE);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), l->data);
+
+    g_autofree char *summary = g_strdup_printf("%u cookie%s", of_domain->len, of_domain->len == 1 ? "" : "s");
+    adw_expander_row_set_subtitle(ADW_EXPANDER_ROW(row), summary);
+
+    /* The button holds the cookies it would delete, so clearing a site does not
+     * have to go looking for them again. */
+    CookiesClear *held = g_new0(CookiesClear, 1);
+    held->pane = g_object_ref(self);
+    held->cookies = g_ptr_array_new_with_free_func((GDestroyNotify)soup_cookie_free);
+    for (guint i = 0; i < of_domain->len; i++)
+      g_ptr_array_add(held->cookies, soup_cookie_copy(g_ptr_array_index(of_domain, i)));
+
+    g_autofree char *tooltip = g_strdup_printf("Delete Cookies for %s", (const char *)l->data);
+    /* The trash is what a row for one site carries throughout this pane; the
+     * clear-all icon belongs to the row above, which really does clear the lot. */
+    GtkWidget *clear = gtk_button_new_from_icon_name("user-trash-symbolic");
+    gtk_widget_set_tooltip_text(clear, tooltip);
+    gtk_widget_set_valign(clear, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(clear, "flat");
+    g_signal_connect_data(clear, "clicked", G_CALLBACK(cookies_cleared), held,
+                          (GClosureNotify)(void (*)(void))cookies_clear_free, 0);
+    adw_expander_row_add_suffix(ADW_EXPANDER_ROW(row), clear);
+
+    for (guint i = 0; i < of_domain->len; i++)
+      adw_expander_row_add_row(ADW_EXPANDER_ROW(row), website_data_cookie_row(self, g_ptr_array_index(of_domain, i)));
+
+    adw_expander_row_add_row(type_row->row, row);
+    g_ptr_array_add(self->cookie_rows, row);
+  }
+
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(type_row->status), "Nothing stored");
+  gtk_widget_set_visible(type_row->status, self->cookie_rows->len == 0);
+}
+
+static void on_cookies_looked(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WigSettingsWebsiteData) self = WIG_SETTINGS_WEBSITE_DATA(user_data);
+  g_autoptr(GError) error = NULL;
+  GList *cookies = webkit_cookie_manager_get_all_cookies_finish(WEBKIT_COOKIE_MANAGER(source), result, &error);
+
+  if (error)
+    g_warning("website-data: could not look at the cookies: %s", error->message);
+
+  website_data_list_cookies(self, cookies);
+  g_list_free_full(cookies, (GDestroyNotify)soup_cookie_free);
+}
+
+static void website_data_look_cookies(WigSettingsWebsiteData *self)
+{
+  webkit_cookie_manager_get_all_cookies(self->cookies_manager, NULL, on_cookies_looked, g_object_ref(self));
+}
+
 void wig_settings_website_data_index(WigSettingsSearch *search, const char *pane, const char *pane_title)
 {
+  wig_settings_search_add(search, "Accept Cookies", "Which sites may leave a cookie here.", pane, pane_title);
+
   for (guint i = 0; i < G_N_ELEMENTS(storage_settings); i++)
     wig_settings_search_add(search, storage_settings[i].title, storage_settings[i].description, pane, pane_title);
 
@@ -338,6 +633,8 @@ static void wig_settings_website_data_map(GtkWidget *widget)
   self->populated = TRUE;
   for (guint i = 0; i < G_N_ELEMENTS(data_types); i++)
     website_data_look(&self->types[i]);
+
+  website_data_look_cookies(self);
 }
 
 static void wig_settings_website_data_dispose(GObject *object)
@@ -350,6 +647,8 @@ static void wig_settings_website_data_dispose(GObject *object)
     g_clear_pointer(&self->types[i].entries, g_ptr_array_unref);
     g_clear_list(&self->types[i].stored, (GDestroyNotify)webkit_website_data_unref);
   }
+
+  g_clear_pointer(&self->cookie_rows, g_ptr_array_unref);
 
   G_OBJECT_CLASS(wig_settings_website_data_parent_class)->dispose(object);
 }
@@ -371,6 +670,7 @@ static void wig_settings_website_data_init(WigSettingsWebsiteData *self)
   WebKitNetworkSession *session = wig_application_get_network_session(wig_application_get());
 
   self->manager = webkit_network_session_get_website_data_manager(session);
+  self->cookies_manager = webkit_network_session_get_cookie_manager(session);
 
   self->page = adw_preferences_page_new();
   gtk_widget_set_parent(self->page, GTK_WIDGET(self));
@@ -386,14 +686,25 @@ static void wig_settings_website_data_init(WigSettingsWebsiteData *self)
                               wig_settings_switch_row_new(wig_settings, storage_settings[i].key,
                                                           storage_settings[i].title, storage_settings[i].description));
 
+  adw_preferences_group_add(storage,
+                            wig_settings_combo_row_new(wig_settings, "cookie-accept-policy", "Accept Cookies",
+                                                       "Which sites may leave a cookie here. Not From Other Sites "
+                                                       "turns away anything set by a site the page merely embeds.",
+                                                       cookie_policy_nicks, cookie_policy_labels));
+
   adw_preferences_page_add(ADW_PREFERENCES_PAGE(self->page), storage);
 
   AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   adw_preferences_group_set_title(group, "Website Data");
   adw_preferences_group_set_description(group, "What sites have stored here, by the kind of storage they used.");
 
-  for (guint i = 0; i < G_N_ELEMENTS(data_types); i++)
+  for (guint i = 0; i < G_N_ELEMENTS(data_types); i++) {
     wig_settings_website_data_build_row(self, group, i);
+    if (type_row_is_cookies(&self->types[i]))
+      self->cookies_row = &self->types[i];
+  }
+
+  self->cookie_rows = g_ptr_array_new();
 
   adw_preferences_page_add(ADW_PREFERENCES_PAGE(self->page), group);
 }

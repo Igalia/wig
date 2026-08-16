@@ -12,6 +12,12 @@
     <value nick="https-only" value="2"/>
   </enum>
 
+  <enum id="com.igalia.wig.CookieAcceptPolicy">
+    <value nick="always" value="0"/>
+    <value nick="never" value="1"/>
+    <value nick="no-third-party" value="2"/>
+  </enum>
+
   <schema id="com.igalia.wig" path="/com/igalia/wig/">
     <key name="restore-tabs" type="b">
       <default>true</default>
@@ -31,6 +37,11 @@
     <key name="https-navigation-policy" enum="com.igalia.wig.HTTPSNavigationPolicy">
       <default>'keep-as-requested'</default>
       <summary>HTTPS Navigation</summary>
+    </key>
+
+    <key name="cookie-accept-policy" enum="com.igalia.wig.CookieAcceptPolicy">
+      <default>'no-third-party'</default>
+      <summary>Accept Cookies</summary>
     </key>
 
     <key name="search-engine" type="s">

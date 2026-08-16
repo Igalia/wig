@@ -348,3 +348,22 @@ wig-tab.selected {
   font-weight: 700;
   text-transform: uppercase;
 }
+
+
+/* libadwaita points an expander's arrow by the state of any expander it is
+ * inside of, not its own, so a nested one is drawn open the moment the row
+ * above it opens. Each arrow is pointed by the row it actually belongs to:
+ * an expander's own arrow is the one under its header list, and its children
+ * hang off the revealer instead, so this cannot reach any deeper. */
+list.nested > row.expander:not(:checked) > box > list > row image.expander-row-arrow {
+  color: inherit;
+  opacity: var(--dim-opacity);
+}
+
+list.nested > row.expander:not(:checked) > box > list > row image.expander-row-arrow:dir(ltr) {
+  -gtk-icon-transform: rotate(0.5turn);
+}
+
+list.nested > row.expander:not(:checked) > box > list > row image.expander-row-arrow:dir(rtl) {
+  -gtk-icon-transform: rotate(-0.5turn);
+}

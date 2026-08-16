@@ -379,6 +379,23 @@ static void wig_application_init(WigApplication *app)
   app->permissions_manager = wig_permissions_manager_new(state_dir);
 }
 
+static void wig_application_update_cookie_policy(WigApplication *app)
+{
+  WebKitCookieAcceptPolicy policy = (WebKitCookieAcceptPolicy)g_settings_get_enum(app->settings,
+                                                                                  "cookie-accept-policy");
+
+  g_debug("cookies: accepting %s",
+          policy == WEBKIT_COOKIE_POLICY_ACCEPT_ALWAYS      ? "all of them"
+              : policy == WEBKIT_COOKIE_POLICY_ACCEPT_NEVER ? "none of them"
+                                                            : "only the site being visited");
+  webkit_cookie_manager_set_accept_policy(webkit_network_session_get_cookie_manager(app->network_session), policy);
+}
+
+static void wig_application_cookie_policy_changed(WigApplication *app)
+{
+  wig_application_update_cookie_policy(app);
+}
+
 static const char *autoplay_policy_name(WebKitAutoplayPolicy autoplay)
 {
   switch (autoplay) {
@@ -594,6 +611,9 @@ static void wig_application_startup(GApplication *application)
   g_autofree char *cookies_path = g_build_filename(data_dir, "cookies.sqlite", NULL);
   webkit_cookie_manager_set_persistent_storage(webkit_network_session_get_cookie_manager(app->network_session),
                                                cookies_path, WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
+  wig_application_update_cookie_policy(app);
+  g_signal_connect_object(app->settings, "changed::cookie-accept-policy",
+                          G_CALLBACK(wig_application_cookie_policy_changed), app, G_CONNECT_SWAPPED);
 #if HAVE_FAVICON_SUPPORT
   webkit_website_data_manager_set_favicons_enabled(
       webkit_network_session_get_website_data_manager(app->network_session), TRUE);
