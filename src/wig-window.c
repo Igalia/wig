@@ -25,7 +25,6 @@
 #include "mcp/wig-mcp-server.h"
 #include "wig-application.h"
 #include "wig-bookmark-popover.h"
-#include "wig-context-menu.h"
 #include "wig-downloads-button.h"
 #include "wig-entry-completion-popover.h"
 #include "wig-new-tab-page.h"
@@ -69,7 +68,6 @@ struct _WigWindow {
   GtkWidget *tab_stack;
   GtkWidget *search_bar;
   GtkWidget *overview_button;
-  WebKitWebView *current_web_view;
   guint progress_timeout_id;
   gboolean suppress_entry_completion;
   gboolean url_entry_focused;
@@ -116,6 +114,11 @@ static void wig_window_set_property(GObject *object, guint prop_id, const GValue
     wig_window_set_tab_layout(win, (WigTabLayout)g_value_get_enum(value));
     break;
   }
+}
+
+static WebKitWebView *wig_window_active_web_view(WigWindow *win)
+{
+  return wig_window_base_get_active_web_view(WIG_WINDOW_BASE(win));
 }
 
 /* The window shows whether the tab being looked at is loading, which is not the
@@ -178,7 +181,7 @@ static void wig_window_save_tab_to_history(WigWindow *win, WigTab *tab)
 {
   WigSessionWindow *closed = wig_session_window_new(wig_window_base_get_id(WIG_WINDOW_BASE(win)));
   wig_session_window_add_tab(closed, wig_tab_get_session_state(tab), wig_tab_get_title(tab), wig_tab_get_uri(tab),
-                             win->current_web_view == wig_tab_get_web_view(tab), wig_tab_get_pinned(tab));
+                             wig_window_active_web_view(win) == wig_tab_get_web_view(tab), wig_tab_get_pinned(tab));
   wig_session_push_closed_window(wig_application_get_session(wig_application_get()), closed);
 }
 
@@ -463,17 +466,19 @@ static void wig_window_toggle_inspector(GSimpleAction *action, GVariant *paramet
 {
   WigWindow *win = WIG_WINDOW(user_data);
 
-  if (win->current_web_view)
-    webkit_web_view_toggle_inspector(win->current_web_view);
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  if (web_view)
+    webkit_web_view_toggle_inspector(web_view);
 }
 
 static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  if (!web_view)
     return;
 
-  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, win->current_web_view);
+  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
   if (tab)
     wig_tab_list_close(win->tab_list, tab);
 }
@@ -559,7 +564,7 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
   for (guint i = 0; i < n_tabs; i++) {
     WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
     wig_session_window_add_tab(captured, wig_tab_get_session_state(tab), wig_tab_get_title(tab), wig_tab_get_uri(tab),
-                               wig_tab_get_web_view(tab) == win->current_web_view, wig_tab_get_pinned(tab));
+                               wig_tab_get_web_view(tab) == wig_window_active_web_view(win), wig_tab_get_pinned(tab));
   }
 
   return captured;
@@ -825,7 +830,8 @@ static void wig_window_bookmark_uri(GSimpleAction *action, GVariant *parameter, 
 
   wig_bookmark_popover_ensure_bookmarked(popover);
 
-  WPEView *wpe_view = win->current_web_view ? webkit_web_view_get_wpe_view(win->current_web_view) : NULL;
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  WPEView *wpe_view = web_view ? webkit_web_view_get_wpe_view(web_view) : NULL;
   GtkWidget *view = wpe_view ? wpe_view_gtk_get_widget(WPE_VIEW_GTK(wpe_view)) : NULL;
   graphene_point_t in_view = GRAPHENE_POINT_INIT((float)win->context_menu_target.x, (float)win->context_menu_target.y);
   graphene_point_t in_window;
@@ -844,10 +850,11 @@ static void wig_window_copy_text(GSimpleAction *action, GVariant *parameter, gpo
 static void wig_window_copy_selection(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
-  if (!win->current_web_view)
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  if (!web_view)
     return;
 
-  webkit_web_view_execute_editing_command(win->current_web_view, WEBKIT_EDITING_COMMAND_COPY);
+  webkit_web_view_execute_editing_command(web_view, WEBKIT_EDITING_COMMAND_COPY);
 }
 
 static const GActionEntry context_menu_actions[] = {
@@ -919,11 +926,12 @@ static void wig_window_tab_copy_link(WigTabList *list, guint tab_id, WigWindow *
 
 static char *wig_window_current_page_uri(WigWindow *win)
 {
-  const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  const char *url = web_view ? webkit_web_view_get_uri(web_view) : NULL;
 
   g_autoptr(WigTab) tab = NULL;
-  if (win->current_web_view && (!url || !*url)) {
-    tab = wig_window_get_tab_for_web_view(win, win->current_web_view);
+  if (web_view && (!url || !*url)) {
+    tab = wig_window_get_tab_for_web_view(win, web_view);
     if (tab)
       url = wig_tab_get_page_uri(tab);
   }
@@ -949,7 +957,8 @@ static void wig_window_update_bookmark_button(WigWindow *win)
     return;
 
   g_autofree char *uri = wig_window_current_page_uri(win);
-  g_autoptr(WigTab) tab = win->current_web_view ? wig_window_get_tab_for_web_view(win, win->current_web_view) : NULL;
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  g_autoptr(WigTab) tab = web_view ? wig_window_get_tab_for_web_view(win, web_view) : NULL;
 
   wig_bookmark_popover_set_page(WIG_BOOKMARK_POPOVER(win->bookmark_popover), uri, tab ? wig_tab_get_title(tab) : NULL);
   gtk_widget_set_sensitive(win->bookmark_button,
@@ -974,13 +983,14 @@ static void wig_window_update_url(WigWindow *win)
   if (win->url_entry_focused && win->url_entry_edited)
     return;
 
-  const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  const char *url = web_view ? webkit_web_view_get_uri(web_view) : NULL;
 
   /* A load that failed before committing leaves the view without a URI, so the
    * address of the page the tab is showing in its place stands in for it. */
   g_autoptr(WigTab) tab = NULL;
-  if (win->current_web_view && (!url || !*url)) {
-    tab = wig_window_get_tab_for_web_view(win, win->current_web_view);
+  if (web_view && (!url || !*url)) {
+    tab = wig_window_get_tab_for_web_view(win, web_view);
     if (tab)
       url = wig_tab_get_page_uri(tab);
   }
@@ -1014,7 +1024,7 @@ static void wig_window_clear_load_progress(WigWindow *win)
 static void wig_window_web_process_terminated(WigWindow *win, WebKitWebProcessTerminationReason reason,
                                               WebKitWebView *web_view)
 {
-  if (web_view == win->current_web_view)
+  if (web_view == wig_window_active_web_view(win))
     wig_window_clear_load_progress(win);
 }
 
@@ -1025,7 +1035,8 @@ static void wig_window_update_load_progress(WigWindow *win)
     return;
   }
 
-  gdouble progress = win->current_web_view ? webkit_web_view_get_estimated_load_progress(win->current_web_view) : 0;
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  gdouble progress = web_view ? webkit_web_view_get_estimated_load_progress(web_view) : 0;
   gtk_entry_set_progress_fraction(GTK_ENTRY(win->url_entry), progress);
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
   if (progress == 1.0)
@@ -1044,16 +1055,16 @@ static void wig_window_load_progress_changed(WigWindow *win, GParamSpec *pspec, 
 
 static void wig_window_load_uri(WigWindow *win, const char *uri)
 {
-  g_debug("[load-uri] win=%p current_web_view=%p uri=%s", (void *)win, (void *)win->current_web_view,
-          uri ? uri : "(null)");
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  g_debug("[load-uri] win=%p current_web_view=%p uri=%s", (void *)win, (void *)web_view, uri ? uri : "(null)");
 
-  if (!win->current_web_view)
+  if (!web_view)
     return;
 
   WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
-  wig_application_mark_typed_navigation(app, win->current_web_view, uri);
-  wig_application_mark_internal_navigation(app, win->current_web_view, uri);
-  webkit_web_view_load_uri(win->current_web_view, uri);
+  wig_application_mark_typed_navigation(app, web_view, uri);
+  wig_application_mark_internal_navigation(app, web_view, uri);
+  webkit_web_view_load_uri(web_view, uri);
   WigTab *selected = wig_tab_list_get_active(win->tab_list);
   if (selected)
     gtk_widget_grab_focus(wig_tab_get_widget(selected));
@@ -1525,106 +1536,18 @@ static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigatio
   return g_steal_pointer(&web_view);
 }
 
-/* The hit test says a selection was clicked but not what is in it, and nothing in
- * the UI process keeps a copy, so the page is asked. */
-static const char SELECTED_TEXT_SCRIPT[] = "(() => {"
-                                           "  const active = document.activeElement;"
-                                           "  if (active && typeof active.selectionStart === 'number')"
-                                           "    return active.value.substring(active.selectionStart, "
-                                           "active.selectionEnd);"
-                                           "  return getSelection().toString();"
-                                           "})()";
-
-typedef struct {
-  WigWindow *win;
-  GMenu *menu;
-  GMenu *search_section;
-  GSimpleActionGroup *action_group;
-  GdkRectangle target;
-  gboolean has_position;
-} WigContextMenuRequest;
-
-static void wig_context_menu_request_free(WigContextMenuRequest *request)
-{
-  g_clear_object(&request->win);
-  g_clear_object(&request->menu);
-  g_clear_object(&request->search_section);
-  g_clear_object(&request->action_group);
-  g_free(request);
-}
-
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigContextMenuRequest, wig_context_menu_request_free)
-
-static gboolean wig_window_present_context_menu(WigWindow *win, GMenu *menu, GSimpleActionGroup *action_group,
-                                                GdkRectangle *target)
-{
-  if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
-    return FALSE;
-
-  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(win->current_web_view)), G_MENU_MODEL(menu),
-                                 G_ACTION_GROUP(action_group), target);
-  return TRUE;
-}
-
-static void wig_window_selected_text_ready(GObject *source, GAsyncResult *result, gpointer user_data)
-{
-  g_autoptr(WigContextMenuRequest) request = user_data;
-  WebKitWebView *web_view = WEBKIT_WEB_VIEW(source);
-  g_autoptr(GError) error = NULL;
-  g_autoptr(JSCValue) value = webkit_web_view_evaluate_javascript_finish(web_view, result, &error);
-  if (!value)
-    g_debug("context-menu: the page did not give up its selection%s%s", error ? ": " : "", error ? error->message : "");
-
-  /* The menu is about the view that was asked, which the window may have moved
-   * on from while the web process was answering. */
-  if (request->win->current_web_view != web_view)
-    return;
-
-  g_autofree char *selected_text = value && jsc_value_is_string(value) ? jsc_value_to_string(value) : NULL;
-  g_debug("context-menu: selection is '%s'", selected_text ? selected_text : "");
-  if (selected_text && *selected_text) {
-    WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(request->win)));
-    g_autofree char *search_engine = g_settings_get_string(wig_application_get_settings(app), "search-engine");
-    wig_context_menu_add_search_item(request->search_section, selected_text, search_engine);
-  }
-
-  wig_window_present_context_menu(request->win, request->menu, request->action_group,
-                                  request->has_position ? &request->target : NULL);
-}
-
 static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
                                                  WebKitHitTestResult *hit_test_result, WebKitWebView *web_view)
 {
-  if (web_view != win->current_web_view)
+  if (web_view != wig_window_active_web_view(win))
     return FALSE;
-
-  /* WebKit empties the menu the moment this handler returns, so everything it
-   * proposed has to be taken now, before the page is asked for the selection. */
-  g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
-  g_autoptr(GMenu) search_section = NULL;
-  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, &search_section);
-
-  GdkRectangle target = { 0, 0, 1, 1 };
-  gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
 
   /* Anything the menu goes on to offer is about what was under the pointer, so
    * a popover it opens belongs there rather than wherever the window last was. */
-  win->context_menu_target = target;
+  win->context_menu_target = (GdkRectangle) { 0, 0, 1, 1 };
+  webkit_context_menu_get_position(context_menu, &win->context_menu_target.x, &win->context_menu_target.y);
 
-  if (webkit_hit_test_result_context_is_selection(hit_test_result)) {
-    WigContextMenuRequest *request = g_new0(WigContextMenuRequest, 1);
-    request->win = g_object_ref(win);
-    request->menu = g_steal_pointer(&menu);
-    request->search_section = g_steal_pointer(&search_section);
-    request->action_group = g_steal_pointer(&action_group);
-    request->target = target;
-    request->has_position = has_position;
-    webkit_web_view_evaluate_javascript(web_view, SELECTED_TEXT_SCRIPT, -1, "wig", NULL, NULL,
-                                        wig_window_selected_text_ready, request);
-    return TRUE;
-  }
-
-  return wig_window_present_context_menu(win, menu, action_group, has_position ? &target : NULL);
+  return wig_window_base_show_context_menu(WIG_WINDOW_BASE(win), context_menu, hit_test_result);
 }
 
 static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResult *hit_test_result, guint modifiers,
@@ -1739,7 +1662,6 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
     wig_tab_load_discarded(tab);
 
   WebKitWebView *web_view = tab ? wig_tab_get_web_view(tab) : NULL;
-  g_set_object(&win->current_web_view, web_view);
   g_signal_group_set_target(win->active_web_view_signals, web_view);
   g_signal_group_set_target(win->active_tab_signals, tab);
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(win), web_view);
@@ -2152,7 +2074,6 @@ static void wig_window_dispose(GObject *object)
 static void wig_window_finalize(GObject *object)
 {
   WigWindow *win = WIG_WINDOW(object);
-  g_clear_object(&win->current_web_view);
   g_clear_object(&win->context_menu_action_group);
 
   G_OBJECT_CLASS(wig_window_parent_class)->finalize(object);

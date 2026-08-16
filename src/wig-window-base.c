@@ -23,10 +23,12 @@
 #include "wig-window-base.h"
 
 #include "wig-application.h"
+#include "wig-context-menu.h"
 #include "wig-downloads-button.h"
 #include "wig-emoji-chooser.h"
 #include "wig-favicon.h"
 #include "wig-permissions-popover.h"
+#include "wpe-view-gtk.h"
 
 typedef struct {
   guint id;
@@ -912,4 +914,104 @@ const char *wig_window_base_get_active_origin(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->active_origin;
+}
+
+/* The hit test says a selection was clicked but not what is in it, and nothing in
+ * the UI process keeps a copy, so the page is asked. */
+static const char SELECTED_TEXT_SCRIPT[] = "(() => {"
+                                           "  const active = document.activeElement;"
+                                           "  if (active && typeof active.selectionStart === 'number')"
+                                           "    return active.value.substring(active.selectionStart, "
+                                           "active.selectionEnd);"
+                                           "  return getSelection().toString();"
+                                           "})()";
+
+typedef struct {
+  WigWindowBase *window;
+  GMenu *menu;
+  GMenu *search_section;
+  GSimpleActionGroup *action_group;
+  GdkRectangle target;
+  gboolean has_position;
+} ContextMenuRequest;
+
+static void context_menu_request_free(ContextMenuRequest *request)
+{
+  g_clear_object(&request->window);
+  g_clear_object(&request->menu);
+  g_clear_object(&request->search_section);
+  g_clear_object(&request->action_group);
+  g_free(request);
+}
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(ContextMenuRequest, context_menu_request_free)
+
+static gboolean present_context_menu(WigWindowBase *self, GMenu *menu, GSimpleActionGroup *action_group,
+                                     GdkRectangle *target)
+{
+  if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
+    return FALSE;
+
+  WebKitWebView *web_view = get_active_web_view(self);
+  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)), G_MENU_MODEL(menu),
+                                 G_ACTION_GROUP(action_group), target);
+  return TRUE;
+}
+
+static void selected_text_ready(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(ContextMenuRequest) request = user_data;
+  WebKitWebView *web_view = WEBKIT_WEB_VIEW(source);
+  g_autoptr(GError) error = NULL;
+  g_autoptr(JSCValue) value = webkit_web_view_evaluate_javascript_finish(web_view, result, &error);
+  if (!value)
+    g_debug("context-menu: the page did not give up its selection%s%s", error ? ": " : "", error ? error->message : "");
+
+  /* The menu is about the view that was asked, which the window may have moved
+   * on from while the web process was answering. */
+  if (get_active_web_view(request->window) != web_view)
+    return;
+
+  g_autofree char *selected_text = value && jsc_value_is_string(value) ? jsc_value_to_string(value) : NULL;
+  g_debug("context-menu: selection is '%s'", selected_text ? selected_text : "");
+  if (selected_text && *selected_text) {
+    WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(request->window)));
+    g_autofree char *search_engine = g_settings_get_string(wig_application_get_settings(app), "search-engine");
+    wig_context_menu_add_search_item(request->search_section, selected_text, search_engine);
+  }
+
+  present_context_menu(request->window, request->menu, request->action_group,
+                       request->has_position ? &request->target : NULL);
+}
+
+gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMenu *context_menu,
+                                           WebKitHitTestResult *hit_test_result)
+{
+  WebKitWebView *web_view = get_active_web_view(self);
+  if (!web_view)
+    return FALSE;
+
+  /* WebKit empties the menu the moment this handler returns, so everything it
+   * proposed has to be taken now, before the page is asked for the selection. */
+  g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
+  g_autoptr(GMenu) search_section = NULL;
+  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, &search_section);
+
+  GdkRectangle target = { 0, 0, 1, 1 };
+  gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
+
+  if (webkit_hit_test_result_context_is_selection(hit_test_result)) {
+    ContextMenuRequest *request = g_new0(ContextMenuRequest, 1);
+    request->window = g_object_ref(self);
+    request->menu = g_steal_pointer(&menu);
+    request->search_section = g_steal_pointer(&search_section);
+    request->action_group = g_steal_pointer(&action_group);
+    request->target = target;
+    request->has_position = has_position;
+    webkit_web_view_evaluate_javascript(web_view, SELECTED_TEXT_SCRIPT, -1, "wig", NULL, NULL, selected_text_ready,
+                                        request);
+    return TRUE;
+  }
+
+  return present_context_menu(self, menu, action_group, has_position ? &target : NULL);
 }
