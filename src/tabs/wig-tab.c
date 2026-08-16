@@ -23,6 +23,7 @@
 #include "wig-tab.h"
 
 #include "wig-auth-dialog.h"
+#include "wig-blank-page.h"
 #include "wig-crash-page.h"
 #include "wig-downloads-page.h"
 #include "wig-error-page.h"
@@ -699,6 +700,14 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
       wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
     else
       wig_tab_show_native_page(self, wig_downloads_page_new(uri));
+    return;
+  }
+
+  /* Whatever is left of wig's own addresses commits an empty document, and so
+   * does about:blank; both are shown as the nothing they are. */
+  if (uri_is_blank_page(uri)) {
+    if (!WIG_IS_BLANK_PAGE(self->native_page))
+      wig_tab_show_native_page(self, wig_blank_page_new(uri));
     return;
   }
 
