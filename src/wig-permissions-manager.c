@@ -41,6 +41,13 @@ typedef struct {
   WigPermissionsManager *manager; /* borrowed */
   char *origin;
   WigPermissions *permissions;
+  gboolean has_autoplay;
+  WebKitAutoplayPolicy autoplay;
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  gboolean has_https_navigation;
+  WebKitHTTPSNavigationPolicy https_navigation;
+#endif
+  char *user_agent;
   gint64 last_visited;
   gulong notify_id;
 } WigPermissionOrigin;
@@ -97,9 +104,19 @@ static gboolean permission_origin_has_decisions(WigPermissionOrigin *record)
   return FALSE;
 }
 
+static gboolean permission_origin_has_policies(WigPermissionOrigin *record)
+{
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+  if (record->has_https_navigation)
+    return TRUE;
+#endif
+
+  return record->has_autoplay || record->user_agent != NULL;
+}
+
 static gboolean permission_origin_has_data(WigPermissionOrigin *record)
 {
-  return record->last_visited || permission_origin_has_decisions(record);
+  return record->last_visited || permission_origin_has_decisions(record) || permission_origin_has_policies(record);
 }
 
 static void permission_origin_free(WigPermissionOrigin *record)
@@ -107,6 +124,7 @@ static void permission_origin_free(WigPermissionOrigin *record)
   if (record->notify_id)
     g_signal_handler_disconnect(record->permissions, record->notify_id);
   g_clear_object(&record->permissions);
+  g_free(record->user_agent);
   g_free(record->origin);
   g_free(record);
 }
@@ -154,6 +172,66 @@ static const char *permission_state_to_string(WebKitPermissionState state)
     return "prompt";
   }
 }
+
+static const char *autoplay_to_string(WebKitAutoplayPolicy autoplay)
+{
+  switch (autoplay) {
+  case WEBKIT_AUTOPLAY_ALLOW:
+    return "allow";
+  case WEBKIT_AUTOPLAY_ALLOW_WITHOUT_SOUND:
+    return "allow-without-sound";
+  case WEBKIT_AUTOPLAY_DENY:
+    return "deny";
+  }
+
+  return "allow-without-sound";
+}
+
+static gboolean autoplay_from_string(const char *autoplay, WebKitAutoplayPolicy *result)
+{
+  if (g_strcmp0(autoplay, "allow") == 0)
+    *result = WEBKIT_AUTOPLAY_ALLOW;
+  else if (g_strcmp0(autoplay, "allow-without-sound") == 0)
+    *result = WEBKIT_AUTOPLAY_ALLOW_WITHOUT_SOUND;
+  else if (g_strcmp0(autoplay, "deny") == 0)
+    *result = WEBKIT_AUTOPLAY_DENY;
+  else
+    return FALSE;
+
+  return TRUE;
+}
+
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+/* Named as the setting's own values are, so a site overriding it reads the same
+ * way in the file as the setting it is overriding. */
+static const char *https_navigation_to_string(WebKitHTTPSNavigationPolicy https_navigation)
+{
+  switch (https_navigation) {
+  case WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_FIRST:
+    return "https-first";
+  case WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_ONLY:
+    return "https-only";
+  case WEBKIT_HTTPS_NAVIGATION_POLICY_KEEP_AS_REQUESTED:
+    break;
+  }
+
+  return "keep-as-requested";
+}
+
+static gboolean https_navigation_from_string(const char *https_navigation, WebKitHTTPSNavigationPolicy *result)
+{
+  if (g_strcmp0(https_navigation, "keep-as-requested") == 0)
+    *result = WEBKIT_HTTPS_NAVIGATION_POLICY_KEEP_AS_REQUESTED;
+  else if (g_strcmp0(https_navigation, "https-first") == 0)
+    *result = WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_FIRST;
+  else if (g_strcmp0(https_navigation, "https-only") == 0)
+    *result = WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_ONLY;
+  else
+    return FALSE;
+
+  return TRUE;
+}
+#endif
 
 static gboolean permission_state_from_string(const char *state, WebKitPermissionState *result)
 {
@@ -211,8 +289,8 @@ static void wig_permissions_manager_expire(WigPermissionsManager *self)
     }
 
     /* With no answer left to remember there is no reason to keep recording that
-     * the origin was ever visited. */
-    if (!permission_origin_has_decisions(record)) {
+     * the origin was ever visited, unless it is still being treated specially. */
+    if (!permission_origin_has_decisions(record) && !permission_origin_has_policies(record)) {
       g_hash_table_iter_remove(&iter);
       forgotten++;
     }
@@ -290,6 +368,26 @@ gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **erro
       wig_permissions_set_state(record->permissions, kind, parsed_state);
     }
 
+    g_autofree char *autoplay = g_key_file_get_string(key_file, groups[i], "autoplay", NULL);
+    if (autoplay) {
+      record->has_autoplay = autoplay_from_string(autoplay, &record->autoplay);
+      if (!record->has_autoplay)
+        g_warning("permissions: ignoring invalid %s.autoplay value '%s'", groups[i], autoplay);
+    }
+
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+    g_autofree char *https_navigation = g_key_file_get_string(key_file, groups[i], "https-navigation", NULL);
+    if (https_navigation) {
+      record->has_https_navigation = https_navigation_from_string(https_navigation, &record->https_navigation);
+      if (!record->has_https_navigation)
+        g_warning("permissions: ignoring invalid %s.https-navigation value '%s'", groups[i], https_navigation);
+    }
+#endif
+
+    record->user_agent = g_key_file_get_string(key_file, groups[i], "user-agent", NULL);
+    if (record->user_agent && !*record->user_agent)
+      g_clear_pointer(&record->user_agent, g_free);
+
     if (!permission_origin_has_data(record)) {
       permission_origin_free(record);
       continue;
@@ -346,6 +444,16 @@ void wig_permissions_manager_save(WigPermissionsManager *self)
       if (state != WEBKIT_PERMISSION_STATE_PROMPT && !wig_permissions_is_session_only(record->permissions, kind))
         g_key_file_set_string(key_file, group, name, permission_state_to_string(state));
     }
+
+    if (record->has_autoplay)
+      g_key_file_set_string(key_file, group, "autoplay", autoplay_to_string(record->autoplay));
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+    if (record->has_https_navigation)
+      g_key_file_set_string(key_file, group, "https-navigation", https_navigation_to_string(record->https_navigation));
+#endif
+    if (record->user_agent)
+      g_key_file_set_string(key_file, group, "user-agent", record->user_agent);
+
     saved++;
   }
 
@@ -423,14 +531,11 @@ WigPermissions *wig_permissions_manager_lookup(WigPermissionsManager *self, cons
   return record && permission_origin_has_decisions(record) ? record->permissions : NULL;
 }
 
-WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, const char *origin)
+static WigPermissionOrigin *permission_origin_ensure(WigPermissionsManager *self, const char *origin)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-  g_return_val_if_fail(origin != NULL, NULL);
-
   WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
   if (record)
-    return record->permissions;
+    return record;
 
   record = permission_origin_new(self, origin);
   record->last_visited = current_visit_timestamp();
@@ -441,7 +546,15 @@ WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, cons
   wig_permissions_manager_queue_save(self);
   g_signal_emit(self, signals[SIGNAL_CHANGED], 0, origin);
 
-  return record->permissions;
+  return record;
+}
+
+WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, const char *origin)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
+  g_return_val_if_fail(origin != NULL, NULL);
+
+  return permission_origin_ensure(self, origin)->permissions;
 }
 
 void wig_permissions_manager_visit(WigPermissionsManager *self, const char *origin)
@@ -462,6 +575,185 @@ void wig_permissions_manager_visit(WigPermissionsManager *self, const char *orig
   record->last_visited = timestamp;
   self->dirty = TRUE;
   wig_permissions_manager_queue_save(self);
+}
+
+/* A policy is the browser's own doing, so unlike a permission it is recorded for
+ * an origin the user has never been to and kept until they say otherwise. */
+static void wig_permissions_manager_policy_changed(WigPermissionsManager *self, const char *origin)
+{
+  self->dirty = TRUE;
+  wig_permissions_manager_queue_save(self);
+  g_signal_emit(self, signals[SIGNAL_CHANGED], 0, origin);
+}
+
+gboolean wig_permissions_manager_get_autoplay(WigPermissionsManager *self, const char *origin,
+                                              WebKitAutoplayPolicy *autoplay)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), FALSE);
+
+  WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
+  if (!record || !record->has_autoplay)
+    return FALSE;
+
+  /* Asking only whether the site has a rule of its own is a fair question. */
+  if (autoplay)
+    *autoplay = record->autoplay;
+  return TRUE;
+}
+
+void wig_permissions_manager_set_autoplay(WigPermissionsManager *self, const char *origin,
+                                          WebKitAutoplayPolicy autoplay)
+{
+  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
+  g_return_if_fail(origin != NULL);
+
+  WigPermissionOrigin *record = permission_origin_ensure(self, origin);
+  if (record->has_autoplay && record->autoplay == autoplay)
+    return;
+
+  g_debug("permissions: autoplay for %s is now %s", origin, autoplay_to_string(autoplay));
+  record->has_autoplay = TRUE;
+  record->autoplay = autoplay;
+  wig_permissions_manager_policy_changed(self, origin);
+}
+
+void wig_permissions_manager_clear_autoplay(WigPermissionsManager *self, const char *origin)
+{
+  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
+  g_return_if_fail(origin != NULL);
+
+  WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
+  if (!record || !record->has_autoplay)
+    return;
+
+  g_debug("permissions: autoplay for %s is left to whatever every other site gets", origin);
+  record->has_autoplay = FALSE;
+  wig_permissions_manager_policy_changed(self, origin);
+}
+
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+gboolean wig_permissions_manager_get_https_navigation(WigPermissionsManager *self, const char *origin,
+                                                      WebKitHTTPSNavigationPolicy *https_navigation)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), FALSE);
+
+  WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
+  if (!record || !record->has_https_navigation)
+    return FALSE;
+
+  if (https_navigation)
+    *https_navigation = record->https_navigation;
+  return TRUE;
+}
+
+void wig_permissions_manager_set_https_navigation(WigPermissionsManager *self, const char *origin,
+                                                  WebKitHTTPSNavigationPolicy https_navigation)
+{
+  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
+  g_return_if_fail(origin != NULL);
+
+  WigPermissionOrigin *record = permission_origin_ensure(self, origin);
+  if (record->has_https_navigation && record->https_navigation == https_navigation)
+    return;
+
+  g_debug("permissions: https navigation for %s is now %s", origin, https_navigation_to_string(https_navigation));
+  record->has_https_navigation = TRUE;
+  record->https_navigation = https_navigation;
+  wig_permissions_manager_policy_changed(self, origin);
+}
+
+void wig_permissions_manager_clear_https_navigation(WigPermissionsManager *self, const char *origin)
+{
+  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
+  g_return_if_fail(origin != NULL);
+
+  WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
+  if (!record || !record->has_https_navigation)
+    return;
+
+  g_debug("permissions: https navigation for %s is left to the setting", origin);
+  record->has_https_navigation = FALSE;
+  wig_permissions_manager_policy_changed(self, origin);
+}
+
+GList *wig_permissions_manager_list_https_navigation_sites(WigPermissionsManager *self,
+                                                           WebKitHTTPSNavigationPolicy https_navigation)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
+
+  GList *sites = NULL;
+
+  GHashTableIter iter;
+  gpointer value;
+  g_hash_table_iter_init(&iter, self->origins);
+  while (g_hash_table_iter_next(&iter, NULL, &value)) {
+    WigPermissionOrigin *record = value;
+    if (record->has_https_navigation && record->https_navigation == https_navigation)
+      sites = g_list_prepend(sites, g_strdup(record->origin));
+  }
+
+  return g_list_sort(sites, (GCompareFunc)g_strcmp0);
+}
+#endif
+
+const char *wig_permissions_manager_get_user_agent(WigPermissionsManager *self, const char *origin)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
+
+  WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
+  return record ? record->user_agent : NULL;
+}
+
+void wig_permissions_manager_set_user_agent(WigPermissionsManager *self, const char *origin, const char *user_agent)
+{
+  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
+  g_return_if_fail(origin != NULL);
+
+  if (user_agent && !*user_agent)
+    user_agent = NULL;
+
+  WigPermissionOrigin *record = permission_origin_ensure(self, origin);
+  if (!g_set_str(&record->user_agent, user_agent))
+    return;
+
+  g_debug("permissions: user agent for %s is now '%s'", origin, user_agent ? user_agent : "(the usual one)");
+  wig_permissions_manager_policy_changed(self, origin);
+}
+
+GList *wig_permissions_manager_list_autoplay_sites(WigPermissionsManager *self, WebKitAutoplayPolicy autoplay)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
+
+  GList *sites = NULL;
+
+  GHashTableIter iter;
+  gpointer value;
+  g_hash_table_iter_init(&iter, self->origins);
+  while (g_hash_table_iter_next(&iter, NULL, &value)) {
+    WigPermissionOrigin *record = value;
+    if (record->has_autoplay && record->autoplay == autoplay)
+      sites = g_list_prepend(sites, g_strdup(record->origin));
+  }
+
+  return g_list_sort(sites, (GCompareFunc)g_strcmp0);
+}
+
+GList *wig_permissions_manager_list_user_agent_sites(WigPermissionsManager *self)
+{
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
+
+  GList *sites = NULL;
+
+  GHashTableIter iter;
+  gpointer value;
+  g_hash_table_iter_init(&iter, self->origins);
+  while (g_hash_table_iter_next(&iter, NULL, &value)) {
+    WigPermissionOrigin *record = value;
+    if (record->user_agent)
+      sites = g_list_prepend(sites, g_strdup(record->origin));
+  }
+
+  return g_list_sort(sites, (GCompareFunc)g_strcmp0);
 }
 
 GList *wig_permissions_manager_list_sites(WigPermissionsManager *self, WigPermissionKind kind,

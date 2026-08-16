@@ -37,6 +37,27 @@ WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, cons
 void wig_permissions_manager_visit(WigPermissionsManager *self, const char *origin);
 GList *wig_permissions_manager_list_sites(WigPermissionsManager *self, WigPermissionKind kind,
                                           WebKitPermissionState state);
+
+gboolean wig_permissions_manager_get_autoplay(WigPermissionsManager *self, const char *origin,
+                                              WebKitAutoplayPolicy *autoplay);
+void wig_permissions_manager_set_autoplay(WigPermissionsManager *self, const char *origin,
+                                          WebKitAutoplayPolicy autoplay);
+void wig_permissions_manager_clear_autoplay(WigPermissionsManager *self, const char *origin);
+GList *wig_permissions_manager_list_autoplay_sites(WigPermissionsManager *self, WebKitAutoplayPolicy autoplay);
+
+#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+gboolean wig_permissions_manager_get_https_navigation(WigPermissionsManager *self, const char *origin,
+                                                      WebKitHTTPSNavigationPolicy *https_navigation);
+void wig_permissions_manager_set_https_navigation(WigPermissionsManager *self, const char *origin,
+                                                  WebKitHTTPSNavigationPolicy https_navigation);
+void wig_permissions_manager_clear_https_navigation(WigPermissionsManager *self, const char *origin);
+GList *wig_permissions_manager_list_https_navigation_sites(WigPermissionsManager *self,
+                                                           WebKitHTTPSNavigationPolicy https_navigation);
+#endif
+
+const char *wig_permissions_manager_get_user_agent(WigPermissionsManager *self, const char *origin);
+void wig_permissions_manager_set_user_agent(WigPermissionsManager *self, const char *origin, const char *user_agent);
+GList *wig_permissions_manager_list_user_agent_sites(WigPermissionsManager *self);
 GList *wig_permissions_manager_list_origins(WigPermissionsManager *self, WigPermissionKind kind,
                                             WebKitPermissionState state);
 void wig_permissions_manager_save(WigPermissionsManager *self);

@@ -52,9 +52,6 @@ struct _WigApplication {
   WebKitUserContentFilterStore *content_filter_store;
 
   GSettings *settings;
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
-  WebKitWebsitePolicies *website_policies;
-#endif
 
   WigSession *session;
   gboolean quitting;
@@ -382,28 +379,56 @@ static void wig_application_init(WigApplication *app)
   app->permissions_manager = wig_permissions_manager_new(state_dir);
 }
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
-static void wig_application_update_website_policies(WigApplication *app)
+static const char *autoplay_policy_name(WebKitAutoplayPolicy autoplay)
 {
-  int policy = g_settings_get_enum(app->settings, "https-navigation-policy");
-  g_autoptr(WebKitWebsitePolicies) policies = webkit_website_policies_new_with_policies("https-navigation-policy",
-                                                                                        policy, NULL);
-  g_set_object(&app->website_policies, policies);
+  switch (autoplay) {
+  case WEBKIT_AUTOPLAY_ALLOW:
+    return "anything";
+  case WEBKIT_AUTOPLAY_ALLOW_WITHOUT_SOUND:
+    return "only what is muted";
+  case WEBKIT_AUTOPLAY_DENY:
+    return "nothing";
+  }
+
+  return "only what is muted";
 }
 
-WebKitWebsitePolicies *wig_application_get_website_policies(WigApplication *app)
+/* Policies are made for each navigation rather than kept and handed out again:
+ * they carry what has been decided about the site being navigated to, so two
+ * navigations only share one if they are going to the same place. */
+WebKitWebsitePolicies *wig_application_create_website_policies(WigApplication *app, const char *uri)
 {
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
-  return app->website_policies;
-}
-#endif
+  g_autoptr(WebKitSecurityOrigin) origin = uri ? webkit_security_origin_new_for_uri(uri) : NULL;
+  g_autofree char *site = origin ? webkit_security_origin_to_string(origin) : NULL;
 
-static void wig_application_settings_changed(GSettings *settings, const char *key, WigApplication *app)
-{
+  /* Autoplay without sound is what the property carries when nothing is passed,
+   * so a site with no rule of its own is left as every other site is. */
+  WebKitAutoplayPolicy autoplay = WEBKIT_AUTOPLAY_ALLOW_WITHOUT_SOUND;
+  wig_permissions_manager_get_autoplay(app->permissions_manager, site, &autoplay);
+
+  /* No user agent of its own is the default of the property, so a site without
+   * one is told whatever every other site is told. */
+  const char *user_agent = wig_permissions_manager_get_user_agent(app->permissions_manager, site);
+
+  /* Only a site being treated differently is worth saying anything about; the
+   * rest would be a line for every navigation saying nothing happened. */
+  if (autoplay != WEBKIT_AUTOPLAY_ALLOW_WITHOUT_SOUND || user_agent)
+    g_debug("policies: %s plays %s and is told '%s'", site, autoplay_policy_name(autoplay),
+            user_agent ? user_agent : "the usual");
+
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
-  if (g_str_equal(key, "https-navigation-policy"))
-    wig_application_update_website_policies(app);
+  /* The setting says what to do with sites in general, and a site with a rule of
+   * its own says what to do with that one. */
+  WebKitHTTPSNavigationPolicy https_navigation = (WebKitHTTPSNavigationPolicy)g_settings_get_enum(
+      app->settings, "https-navigation-policy");
+  wig_permissions_manager_get_https_navigation(app->permissions_manager, site, &https_navigation);
+
+  return webkit_website_policies_new_with_policies("autoplay", autoplay, "custom-user-agent", user_agent,
+                                                   "https-navigation-policy", https_navigation, NULL);
+#else
+  return webkit_website_policies_new_with_policies("autoplay", autoplay, "custom-user-agent", user_agent, NULL);
 #endif
 }
 
@@ -519,11 +544,6 @@ static void wig_application_startup(GApplication *application)
   g_action_map_add_action_entries(G_ACTION_MAP(application), app_actions, G_N_ELEMENTS(app_actions), application);
 
   app->settings = wig_settings_new();
-  g_signal_connect_object(app->settings, "changed", G_CALLBACK(wig_application_settings_changed), app,
-                          G_CONNECT_DEFAULT);
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
-  wig_application_update_website_policies(app);
-#endif
 
   g_autoptr(GAction) tab_layout_action = g_settings_create_action(app->settings, "tab-layout");
   g_action_map_add_action(G_ACTION_MAP(application), tab_layout_action);
@@ -651,9 +671,6 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
   g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
   g_clear_object(&app->downloads);
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
-  g_clear_object(&app->website_policies);
-#endif
   g_clear_object(&app->settings);
   g_clear_object(&app->user_content_manager);
   g_clear_pointer(&app->user_scripts, g_ptr_array_unref);
