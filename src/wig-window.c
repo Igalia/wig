@@ -28,6 +28,7 @@
 #include "wig-downloads-button.h"
 #include "wig-entry-completion-popover.h"
 #include "wig-new-tab-page.h"
+#include "wig-pwa-icon.h"
 #include "wig-search-bar.h"
 #include "wig-settings-page.h"
 #include "wig-tab-bar.h"
@@ -58,6 +59,8 @@ struct _WigWindow {
   GtkWidget *link_bookmark_popover;
   GdkRectangle context_menu_target;
   GtkWidget *entry_completion_popover;
+  GtkWidget *pwa_button;
+  GtkWidget *install_popover;
   WigTabList *tab_list;
   WigTabSwitcher *tab_switcher;
   GtkWidget *content_box;
@@ -115,6 +118,8 @@ static void wig_window_set_property(GObject *object, guint prop_id, const GValue
     break;
   }
 }
+
+static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web_view);
 
 static WebKitWebView *wig_window_active_web_view(WigWindow *win)
 {
@@ -307,12 +312,262 @@ WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, Web
   return NULL;
 }
 
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+static void wig_window_install_icon_loaded(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  GtkImage *image = GTK_IMAGE(user_data);
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GInputStream) stream = g_loadable_icon_load_finish(G_LOADABLE_ICON(source), result, NULL, &error);
+  if (!stream) {
+    g_object_unref(image);
+    return;
+  }
+
+  g_autoptr(GBytes) bytes = g_input_stream_read_bytes(stream, 10 * 1024 * 1024, NULL, &error);
+  if (!bytes) {
+    g_object_unref(image);
+    return;
+  }
+
+  g_autoptr(GdkTexture) texture = gdk_texture_new_from_bytes(bytes, &error);
+  if (texture)
+    gtk_image_set_from_paintable(image, GDK_PAINTABLE(texture));
+
+  g_object_unref(image);
+}
+
+static void wig_window_close_install_web_app_popover(WigWindow *win)
+{
+  if (win->install_popover)
+    gtk_popover_popdown(GTK_POPOVER(win->install_popover));
+}
+
+typedef struct {
+  WigWindow *window;
+  WebKitWebView *web_view;
+  char *id;
+} WigWindowInstallContext;
+
+static void wig_window_install_context_free(WigWindowInstallContext *context)
+{
+  g_clear_object(&context->window);
+  g_clear_object(&context->web_view);
+  g_clear_pointer(&context->id, g_free);
+  g_free(context);
+}
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigWindowInstallContext, wig_window_install_context_free)
+
+static void wig_window_install_web_app_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WigWindowInstallContext) context = user_data;
+  g_autoptr(GError) error = NULL;
+  if (!wig_pwa_manager_install_finish(WIG_PWA_MANAGER(source), result, &error)) {
+    g_warning("Failed to install web app: %s", error->message);
+    if (context->window->install_popover)
+      gtk_widget_set_sensitive(context->window->install_popover, TRUE);
+    return;
+  }
+
+  if (!wig_application_adopt_web_app(wig_application_get(), context->id, context->web_view, &error)) {
+    g_warning("Failed to open installed web app: %s", error->message);
+    if (context->window->install_popover)
+      gtk_widget_set_sensitive(context->window->install_popover, TRUE);
+    return;
+  }
+
+  wig_window_close_install_web_app_popover(context->window);
+}
+
+static void wig_window_install_web_app(WigWindow *win)
+{
+  WebKitApplicationManifest *manifest = wig_window_active_web_view(win)
+      ? wig_window_base_get_application_manifest(WIG_WINDOW_BASE(win), wig_window_active_web_view(win))
+      : NULL;
+  if (!manifest)
+    return;
+
+  const char *id = webkit_application_manifest_get_id(manifest);
+  if (!id)
+    return;
+
+  gtk_widget_set_sensitive(win->install_popover, FALSE);
+  WigWindowInstallContext *context = g_new0(WigWindowInstallContext, 1);
+  context->window = g_object_ref(win);
+  context->web_view = g_object_ref(wig_window_active_web_view(win));
+  context->id = g_strdup(id);
+  wig_pwa_manager_install_async(wig_application_get_pwa_manager(wig_application_get()), manifest, NULL,
+                                wig_window_install_web_app_finished, context);
+}
+
+static void wig_window_show_install_web_app_popover(WigWindow *win)
+{
+  WebKitApplicationManifest *manifest = wig_window_active_web_view(win)
+      ? wig_window_base_get_application_manifest(WIG_WINDOW_BASE(win), wig_window_active_web_view(win))
+      : NULL;
+  if (!manifest)
+    return;
+
+  g_clear_pointer(&win->install_popover, gtk_widget_unparent);
+
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  gtk_widget_set_margin_top(box, 12);
+  gtk_widget_set_margin_bottom(box, 12);
+  gtk_widget_set_margin_start(box, 12);
+  gtk_widget_set_margin_end(box, 12);
+  gtk_widget_set_size_request(box, 280, -1);
+
+  GtkWidget *details = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+  GtkWidget *image = gtk_image_new_from_icon_name("web-browser-symbolic");
+  gtk_image_set_pixel_size(GTK_IMAGE(image), 64);
+  gtk_box_append(GTK_BOX(details), image);
+
+  GtkWidget *labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  gtk_widget_set_hexpand(labels, TRUE);
+  const char *title = webkit_application_manifest_get_short_name(manifest);
+  if (!title || !*title)
+    title = webkit_application_manifest_get_name(manifest);
+  if (!title || !*title)
+    title = webkit_web_view_get_title(wig_window_active_web_view(win));
+  if (!title || !*title)
+    title = "Web App";
+  GtkWidget *title_label = gtk_label_new(title);
+  gtk_widget_add_css_class(title_label, "title-3");
+  gtk_label_set_xalign(GTK_LABEL(title_label), 0.0f);
+  gtk_label_set_ellipsize(GTK_LABEL(title_label), PANGO_ELLIPSIZE_END);
+  gtk_box_append(GTK_BOX(labels), title_label);
+
+  const char *uri = webkit_application_manifest_get_start_uri(manifest);
+  if (!uri || !*uri)
+    uri = webkit_web_view_get_uri(wig_window_active_web_view(win));
+  GtkWidget *uri_label = gtk_label_new(uri);
+  gtk_widget_add_css_class(uri_label, "dim-label");
+  gtk_label_set_xalign(GTK_LABEL(uri_label), 0.0f);
+  gtk_label_set_ellipsize(GTK_LABEL(uri_label), PANGO_ELLIPSIZE_MIDDLE);
+  gtk_label_set_max_width_chars(GTK_LABEL(uri_label), 28);
+  gtk_box_append(GTK_BOX(labels), uri_label);
+  gtk_box_append(GTK_BOX(details), labels);
+  gtk_box_append(GTK_BOX(box), details);
+
+  GtkWidget *question = gtk_label_new("Install this web app?");
+  gtk_label_set_xalign(GTK_LABEL(question), 0.0f);
+  gtk_box_append(GTK_BOX(box), question);
+
+  GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_widget_set_halign(actions, GTK_ALIGN_END);
+  GtkWidget *cancel_button = gtk_button_new_with_label("Cancel");
+  g_signal_connect_object(cancel_button, "clicked", G_CALLBACK(wig_window_close_install_web_app_popover), win,
+                          G_CONNECT_SWAPPED);
+  gtk_box_append(GTK_BOX(actions), cancel_button);
+  GtkWidget *install_button = gtk_button_new_with_label("Install");
+  gtk_widget_add_css_class(install_button, "suggested-action");
+  g_signal_connect_object(install_button, "clicked", G_CALLBACK(wig_window_install_web_app), win, G_CONNECT_SWAPPED);
+  gtk_box_append(GTK_BOX(actions), install_button);
+  gtk_box_append(GTK_BOX(box), actions);
+
+  WebKitApplicationManifestIcon *const *icons = webkit_application_manifest_get_icons(manifest);
+  for (guint i = 0; icons && icons[i]; i++) {
+    const char *const *sizes = webkit_application_manifest_icon_get_sizes(icons[i]);
+    g_autoptr(GString) sizes_description = g_string_new(NULL);
+    for (guint j = 0; sizes && sizes[j]; j++) {
+      if (j)
+        g_string_append_c(sizes_description, ' ');
+      g_string_append(sizes_description, sizes[j]);
+    }
+    g_debug("web app icon %u: uri=%s, sizes=%s, mime-type=%s, maskable=%d, monochrome=%d", i,
+            webkit_application_manifest_icon_get_uri(icons[i]), sizes_description->str,
+            webkit_application_manifest_icon_get_mime_type(icons[i]),
+            webkit_application_manifest_icon_get_is_maskable(icons[i]),
+            webkit_application_manifest_icon_get_is_monochrome(icons[i]));
+  }
+  int scale_factor = gtk_widget_get_scale_factor(win->pwa_button);
+  int requested_size = 64 * scale_factor;
+  WebKitApplicationManifestIcon *icon = wig_pwa_icon_select(icons, requested_size);
+  if (icon) {
+    g_debug("using web app icon %s at %d physical pixels", webkit_application_manifest_icon_get_uri(icon),
+            requested_size);
+    g_loadable_icon_load_async(G_LOADABLE_ICON(icon), requested_size, NULL, wig_window_install_icon_loaded,
+                               g_object_ref(image));
+  }
+
+  win->install_popover = gtk_popover_new();
+  gtk_popover_set_child(GTK_POPOVER(win->install_popover), box);
+  gtk_widget_set_parent(win->install_popover, win->pwa_button);
+  gtk_popover_popup(GTK_POPOVER(win->install_popover));
+}
+
+static void wig_window_pwa_button_clicked(WigWindow *win)
+{
+  WebKitApplicationManifest *manifest = wig_window_active_web_view(win)
+      ? wig_window_base_get_application_manifest(WIG_WINDOW_BASE(win), wig_window_active_web_view(win))
+      : NULL;
+  if (!manifest)
+    return;
+
+  const char *id = webkit_application_manifest_get_id(manifest);
+  if (!id || !*id)
+    return;
+
+  WigPwaManager *manager = wig_application_get_pwa_manager(wig_application_get());
+  g_autoptr(GError) error = NULL;
+  if (!wig_pwa_manager_is_installed(manager, id, &error)) {
+    if (error) {
+      g_warning("Failed to check whether web app is installed: %s", error->message);
+      return;
+    }
+    wig_window_show_install_web_app_popover(win);
+    return;
+  }
+
+  if (!wig_application_adopt_web_app(wig_application_get(), id, wig_window_active_web_view(win), &error))
+    g_warning("Failed to open installed web app: %s", error->message);
+}
+
+static void wig_window_update_pwa_button(WigWindow *win)
+{
+  WebKitApplicationManifest *manifest = wig_window_active_web_view(win)
+      ? wig_window_base_get_application_manifest(WIG_WINDOW_BASE(win), wig_window_active_web_view(win))
+      : NULL;
+  const char *id = manifest ? webkit_application_manifest_get_id(manifest) : NULL;
+  gboolean visible = id && *id;
+  gboolean installed = FALSE;
+  g_autoptr(GError) error = NULL;
+  if (visible)
+    installed = wig_pwa_manager_is_installed(wig_application_get_pwa_manager(wig_application_get()), id, &error);
+
+  if ((!visible || installed) && win->install_popover)
+    gtk_popover_popdown(GTK_POPOVER(win->install_popover));
+  gtk_button_set_icon_name(GTK_BUTTON(win->pwa_button),
+                           installed ? "window-new-symbolic" : "system-software-install-symbolic");
+  gtk_widget_set_tooltip_text(win->pwa_button,
+                              error           ? "Web app state unavailable"
+                                  : installed ? "Open in web app window"
+                                              : "Install web app");
+  gtk_widget_set_sensitive(win->pwa_button, error == NULL);
+  gtk_widget_set_visible(win->pwa_button, visible);
+}
+
+static void wig_window_pwa_manager_changed(WigWindow *win, const char *id, WigPwaManager *manager)
+{
+  wig_window_update_pwa_button(win);
+}
+#endif
+
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
                                          WebKitPolicyDecisionType decision_type, WebKitWebView *web_view);
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation,
                                                  WebKitWebView *opener);
 static void wig_window_web_process_terminated(WigWindow *win, WebKitWebProcessTerminationReason reason,
                                               WebKitWebView *web_view);
+
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+static void wig_window_application_manifest_changed(WigWindowBase *base, WebKitWebView *web_view)
+{
+  WigWindow *win = WIG_WINDOW(base);
+  if (wig_window_active_web_view(win) == web_view)
+    wig_window_update_pwa_button(win);
+}
+#endif
 
 static void wig_window_attach_web_view(WigWindow *win, WebKitWebView *web_view)
 {
@@ -341,6 +596,7 @@ static void wig_window_detach_web_view(WigWindow *win, WebKitWebView *web_view)
   if (signals)
     g_signal_group_set_target(signals, NULL);
   g_hash_table_remove(win->web_view_signal_groups, web_view);
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_web_view_ready_to_show, win);
   wig_window_base_detach_web_view(WIG_WINDOW_BASE(win), web_view);
 }
 
@@ -1232,6 +1488,37 @@ static void wig_window_click_pressed(GtkGestureClick *gesture, int n_press, doub
   gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
 }
 
+static gboolean wig_window_open_link_in_pwa(WigWindow *win, WebKitNavigationAction *action)
+{
+  if (webkit_navigation_action_get_navigation_type(action) != WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
+      || webkit_navigation_action_get_mouse_button(action) == WPE_BUTTON_MIDDLE
+      || !webkit_navigation_action_is_user_gesture(action))
+    return FALSE;
+
+  WebKitURIRequest *request = webkit_navigation_action_get_request(action);
+  if (g_strcmp0(webkit_uri_request_get_http_method(request), "GET") != 0)
+    return FALSE;
+
+  WigApplication *application = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+  g_autoptr(GError) error = NULL;
+  const char *uri = webkit_uri_request_get_uri(request);
+  g_autofree char *id = wig_pwa_manager_find_for_primary_scope(wig_application_get_pwa_manager(application), uri,
+                                                               &error);
+  if (error) {
+    g_warning("pwa: failed to match browser navigation: %s", error->message);
+    return FALSE;
+  }
+  if (!id)
+    return FALSE;
+  if (!wig_application_open_web_app(application, id, uri, &error)) {
+    g_warning("pwa: failed to open primary-scope browser link: %s", error->message);
+    return FALSE;
+  }
+
+  g_debug("pwa: opened primary-scope browser link in app %s: %s", id, uri);
+  return TRUE;
+}
+
 static const char *wig_decision_type_name(WebKitPolicyDecisionType type)
 {
   switch (type) {
@@ -1285,6 +1572,11 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
 
   WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(
       WEBKIT_NAVIGATION_POLICY_DECISION(decision));
+  if (wig_window_open_link_in_pwa(win, action)) {
+    webkit_policy_decision_ignore(decision);
+    return TRUE;
+  }
+
   WebKitNavigationType nav_type = webkit_navigation_action_get_navigation_type(action);
   WebKitURIRequest *request = webkit_navigation_action_get_request(action);
   const char *request_uri = request ? webkit_uri_request_get_uri(request) : NULL;
@@ -1515,6 +1807,9 @@ static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation,
                                                  WebKitWebView *opener)
 {
+  if (wig_window_open_link_in_pwa(win, navigation))
+    return NULL;
+
   const char *target_uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(navigation));
   const char *target_scheme = g_uri_peek_scheme(target_uri);
   if (g_strcmp0(target_scheme, "wig") == 0) {
@@ -1675,6 +1970,9 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
     wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
 
   wig_window_reset_url_entry(win);
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+  wig_window_update_pwa_button(win);
+#endif
 
   wig_window_update_load_progress(win);
 
@@ -1920,6 +2218,17 @@ static void wig_window_constructed(GObject *object)
   gtk_widget_add_css_class(entry_box, "linked");
   gtk_box_append(GTK_BOX(entry_box), wig_window_base_get_permissions_button(WIG_WINDOW_BASE(win)));
   gtk_box_append(GTK_BOX(entry_box), win->url_entry);
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+  win->pwa_button = gtk_button_new_from_icon_name("system-software-install-symbolic");
+  gtk_widget_add_css_class(win->pwa_button, "flat");
+  gtk_widget_set_tooltip_text(win->pwa_button, "Install web app");
+  gtk_widget_set_visible(win->pwa_button, FALSE);
+  g_signal_connect_object(win->pwa_button, "clicked", G_CALLBACK(wig_window_pwa_button_clicked), win,
+                          G_CONNECT_SWAPPED);
+  gtk_box_append(GTK_BOX(entry_box), win->pwa_button);
+  g_signal_connect_object(wig_application_get_pwa_manager(wig_application_get()), "changed",
+                          G_CALLBACK(wig_window_pwa_manager_changed), win, G_CONNECT_SWAPPED);
+#endif
 
   win->link_bookmark_popover = wig_bookmark_popover_new();
   gtk_widget_set_parent(win->link_bookmark_popover, GTK_WIDGET(win));
@@ -2059,6 +2368,7 @@ static void wig_window_dispose(GObject *object)
   g_clear_pointer(&win->entry_completion_popover, gtk_widget_unparent);
   g_clear_object(&win->bookmark_popover);
   g_clear_pointer(&win->link_bookmark_popover, gtk_widget_unparent);
+  g_clear_pointer(&win->install_popover, gtk_widget_unparent);
   if (win->active_web_view_signals)
     g_signal_group_set_target(win->active_web_view_signals, NULL);
   if (win->active_tab_signals)
@@ -2130,6 +2440,11 @@ static void wig_window_class_init(WigWindowClass *klass)
   gobject_class->finalize = wig_window_finalize;
   gobject_class->get_property = wig_window_get_property;
   gobject_class->set_property = wig_window_set_property;
+
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+  WigWindowBaseClass *base_class = WIG_WINDOW_BASE_CLASS(klass);
+  base_class->application_manifest_changed = wig_window_application_manifest_changed;
+#endif
 
   props[PROP_TAB_LAYOUT] = g_param_spec_enum("tab-layout", NULL, NULL, WIG_TYPE_TAB_LAYOUT, WIG_TAB_LAYOUT_HORIZONTAL,
                                              G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);

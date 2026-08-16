@@ -36,7 +36,7 @@ typedef struct {
   WebKitWebView *active_web_view;
   GSignalGroup *active_web_view_signals;
   GSignalGroup *back_forward_list_signals;
-  GHashTable *web_view_signal_groups;
+  GHashTable *web_views;
   gboolean loading;
   GtkWidget *back_history_popover;
   GtkWidget *forward_history_popover;
@@ -48,6 +48,25 @@ typedef struct {
   WigPermissionsManager *permissions_manager; /* borrowed from application */
   char *active_origin;
 } WigWindowBasePrivate;
+
+typedef struct {
+  GSignalGroup *signals;
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+  WebKitApplicationManifest *application_manifest;
+  GCancellable *application_manifest_cancellable;
+#endif
+} WigWebViewState;
+
+static void wig_web_view_state_free(WigWebViewState *state)
+{
+  g_clear_object(&state->signals);
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+  g_cancellable_cancel(state->application_manifest_cancellable);
+  g_clear_object(&state->application_manifest_cancellable);
+  g_clear_object(&state->application_manifest);
+#endif
+  g_free(state);
+}
 
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE(WigWindowBase, wig_window_base, GTK_TYPE_APPLICATION_WINDOW)
 
@@ -266,6 +285,96 @@ static gboolean query_permission_state(WebKitWebView *web_view, WebKitPermission
   webkit_permission_state_query_finish(query, state);
   return TRUE;
 }
+
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+static void application_manifest_refreshed(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(GError) error = NULL;
+  if (!wig_pwa_manager_install_finish(WIG_PWA_MANAGER(source), result, &error))
+    g_warning("Failed to refresh installed web app: %s", error->message);
+}
+
+static void refresh_installed_web_app(WigWindowBase *self, WebKitApplicationManifest *manifest)
+{
+  const char *id = manifest ? webkit_application_manifest_get_id(manifest) : NULL;
+  if (!id || !*id)
+    return;
+
+  WigPwaManager *manager = wig_application_get_pwa_manager(wig_application_get());
+  g_autoptr(GError) error = NULL;
+  if (wig_pwa_manager_is_installed(manager, id, &error)) {
+    g_debug("pwa: refreshing installed web app %s from page manifest", id);
+    wig_pwa_manager_refresh_async(manager, manifest, NULL, application_manifest_refreshed, NULL);
+  } else if (error) {
+    g_warning("Failed to check whether web app is installed: %s", error->message);
+  }
+}
+
+static void set_application_manifest(WigWindowBase *self, WebKitWebView *web_view, WebKitApplicationManifest *manifest)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  WigWebViewState *state = g_hash_table_lookup(priv->web_views, web_view);
+  if (!state || !g_set_object(&state->application_manifest, manifest))
+    return;
+
+  g_debug("pwa: application manifest for %s: %s", webkit_web_view_get_uri(web_view),
+          manifest ? webkit_application_manifest_get_id(manifest) : "(none)");
+  refresh_installed_web_app(self, manifest);
+
+  WigWindowBaseClass *klass = WIG_WINDOW_BASE_GET_CLASS(self);
+  if (klass->application_manifest_changed)
+    klass->application_manifest_changed(self, web_view);
+}
+
+static void application_manifest_received(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(GError) error = NULL;
+  g_autoptr(WebKitApplicationManifest) manifest = webkit_web_view_get_application_manifest_finish(
+      WEBKIT_WEB_VIEW(source), result, &error);
+  /* The window may already be gone when the request was cancelled. */
+  if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    return;
+  if (error)
+    g_warning("Failed to get application manifest: %s", error->message);
+
+  set_application_manifest(WIG_WINDOW_BASE(user_data), WEBKIT_WEB_VIEW(source), manifest);
+}
+
+static void request_application_manifest(WigWindowBase *self, WebKitWebView *web_view, WigWebViewState *state)
+{
+  g_cancellable_cancel(state->application_manifest_cancellable);
+  g_clear_object(&state->application_manifest_cancellable);
+  state->application_manifest_cancellable = g_cancellable_new();
+  webkit_web_view_get_application_manifest(web_view, state->application_manifest_cancellable,
+                                           application_manifest_received, self);
+}
+
+static void web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_event, WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  WigWebViewState *state = g_hash_table_lookup(priv->web_views, web_view);
+  if (!state)
+    return;
+
+  /* Clearing on commit rather than start keeps the manifest of a page whose provisional load fails. */
+  if (load_event == WEBKIT_LOAD_COMMITTED) {
+    g_cancellable_cancel(state->application_manifest_cancellable);
+    set_application_manifest(self, web_view, NULL);
+  } else if (load_event == WEBKIT_LOAD_FINISHED) {
+    request_application_manifest(self, web_view, state);
+  }
+}
+
+WebKitApplicationManifest *wig_window_base_get_application_manifest(WigWindowBase *self, WebKitWebView *web_view)
+{
+  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
+  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
+
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  WigWebViewState *state = g_hash_table_lookup(priv->web_views, web_view);
+  return state ? state->application_manifest : NULL;
+}
+#endif
 
 static void wig_window_base_go_back(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
@@ -733,7 +842,7 @@ static void wig_window_base_dispose(GObject *object)
     g_signal_group_set_target(priv->back_forward_list_signals, NULL);
   g_clear_object(&priv->active_web_view_signals);
   g_clear_object(&priv->back_forward_list_signals);
-  g_clear_pointer(&priv->web_view_signal_groups, g_hash_table_unref);
+  g_clear_pointer(&priv->web_views, g_hash_table_unref);
   g_clear_object(&priv->active_web_view);
   g_clear_object(&priv->toplevel);
   g_clear_pointer(&priv->back_history_popover, gtk_widget_unparent);
@@ -792,7 +901,7 @@ static void wig_window_base_init(WigWindowBase *self)
   priv->back_forward_list_signals = g_signal_group_new(WEBKIT_TYPE_BACK_FORWARD_LIST);
   g_signal_group_connect_swapped(priv->back_forward_list_signals, "changed",
                                  G_CALLBACK(wig_window_base_on_back_forward_list_changed), self);
-  priv->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
+  priv->web_views = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)wig_web_view_state_free);
 }
 
 void wig_window_base_set_toplevel(WigWindowBase *self, WPEToplevel *toplevel)
@@ -835,7 +944,7 @@ void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_vie
   g_assert(priv->toplevel != NULL);
 
   wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), priv->toplevel);
-  if (g_hash_table_contains(priv->web_view_signal_groups, web_view))
+  if (g_hash_table_contains(priv->web_views, web_view))
     return;
 
   GSignalGroup *signals = g_signal_group_new(WEBKIT_TYPE_WEB_VIEW);
@@ -846,17 +955,26 @@ void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_vie
   g_signal_group_connect(signals, "show-notification", G_CALLBACK(show_notification), self);
   g_signal_group_connect(signals, "permission-request", G_CALLBACK(permission_requested), self);
   g_signal_group_connect(signals, "query-permission-state", G_CALLBACK(query_permission_state), self);
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+  g_signal_group_connect(signals, "load-changed", G_CALLBACK(web_view_load_changed), self);
+#endif
   g_signal_group_set_target(signals, web_view);
-  g_hash_table_insert(priv->web_view_signal_groups, web_view, signals);
+  WigWebViewState *state = g_new0(WigWebViewState, 1);
+  state->signals = signals;
+  g_hash_table_insert(priv->web_views, web_view, state);
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+  if (!webkit_web_view_is_loading(web_view))
+    request_application_manifest(self, web_view, state);
+#endif
 }
 
 void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_view)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
-  GSignalGroup *signals = g_hash_table_lookup(priv->web_view_signal_groups, web_view);
-  if (signals)
-    g_signal_group_set_target(signals, NULL);
-  g_hash_table_remove(priv->web_view_signal_groups, web_view);
+  WigWebViewState *state = g_hash_table_lookup(priv->web_views, web_view);
+  if (state)
+    g_signal_group_set_target(state->signals, NULL);
+  g_hash_table_remove(priv->web_views, web_view);
 
   WPEView *view = webkit_web_view_get_wpe_view(web_view);
   if (wpe_view_get_toplevel(view) == priv->toplevel)

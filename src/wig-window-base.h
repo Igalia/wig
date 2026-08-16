@@ -33,6 +33,8 @@ G_DECLARE_DERIVABLE_TYPE(WigWindowBase, wig_window_base, WIG, WINDOW_BASE, GtkAp
 
 struct _WigWindowBaseClass {
   GtkApplicationWindowClass parent_class;
+
+  void (*application_manifest_changed)(WigWindowBase *self, WebKitWebView *web_view);
 };
 
 guint wig_window_base_get_id(WigWindowBase *self);
@@ -48,6 +50,9 @@ void wig_window_base_set_loading(WigWindowBase *self, gboolean loading);
 GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self);
 GtkWidget *wig_window_base_get_downloads_button(WigWindowBase *self);
 const char *wig_window_base_get_active_origin(WigWindowBase *self);
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+WebKitApplicationManifest *wig_window_base_get_application_manifest(WigWindowBase *self, WebKitWebView *web_view);
+#endif
 gboolean wig_window_base_handle_download_response(WebKitPolicyDecision *decision,
                                                   WebKitPolicyDecisionType decision_type);
 gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMenu *context_menu,
