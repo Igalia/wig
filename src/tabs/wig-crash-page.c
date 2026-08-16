@@ -22,18 +22,19 @@
 
 #include "wig-crash-page.h"
 
+#include "wig-native-page.h"
 #include "wig-page-details.h"
 
 #include <adwaita.h>
 
 struct _WigCrashPage {
-  GtkWidget parent;
+  WigNativePage parent;
 
   GtkWidget *status_page;
   char *details;
 };
 
-G_DEFINE_FINAL_TYPE(WigCrashPage, wig_crash_page, GTK_TYPE_WIDGET)
+G_DEFINE_FINAL_TYPE(WigCrashPage, wig_crash_page, WIG_TYPE_NATIVE_PAGE)
 
 enum {
   RELOAD_SIGNAL,
@@ -103,7 +104,6 @@ static void wig_crash_page_class_init(WigCrashPageClass *klass)
 
   object_class->dispose = wig_crash_page_dispose;
 
-  gtk_widget_class_set_layout_manager_type(widget_class, GTK_TYPE_BIN_LAYOUT);
   gtk_widget_class_set_css_name(widget_class, "wig-crash-page");
 
   signals[RELOAD_SIGNAL] = g_signal_new("reload", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,

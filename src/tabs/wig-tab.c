@@ -47,13 +47,11 @@ struct _WigTab {
   WebKitWebView *web_view;
   GtkWidget *view_overlay;
   GtkWidget *web_view_widget;
-  GtkWidget *error_page;
   GtkWidget *native_page;
   GtkWidget *option_menu;
   GtkWidget *unresponsive_dialog;
   guint unresponsive_timeout_id;
   gboolean unresponsive;
-  char *error_uri;
   GtkWidget *status_label;
   GIcon *icon;
   char *title;
@@ -84,10 +82,10 @@ typedef enum {
   PROP_SELECTED,
   PROP_PLAYING_AUDIO,
   PROP_MUTED,
-  PROP_ERROR_URI,
+  PROP_PAGE_URI,
 } WigTabProps;
 
-static GParamSpec *props[PROP_ERROR_URI + 1];
+static GParamSpec *props[PROP_PAGE_URI + 1];
 
 enum {
   CAPTURE_CHANGED,
@@ -256,37 +254,14 @@ static gboolean wig_tab_on_show_option_menu(WigTab *self, WebKitOptionMenu *menu
   return TRUE;
 }
 
-/* A failed load leaves the view with an empty URI, so the address the page is
- * complaining about is kept here for the entry to fall back on. */
-static void wig_tab_show_error_page(WigTab *self, GtkWidget *page, const char *failing_uri)
-{
-  self->error_page = page;
-  g_set_str(&self->error_uri, failing_uri);
-
-  gtk_widget_set_visible(self->web_view_widget, FALSE);
-  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), page);
-
-  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ERROR_URI]);
-}
-
-static void wig_tab_clear_error_page(WigTab *self)
-{
-  if (!self->error_page)
-    return;
-
-  gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), self->error_page);
-  self->error_page = NULL;
-  g_clear_pointer(&self->error_uri, g_free);
-  gtk_widget_set_visible(self->web_view_widget, TRUE);
-
-  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ERROR_URI]);
-}
+static void wig_tab_show_native_page(WigTab *self, GtkWidget *page);
+static void wig_tab_clear_native_page(WigTab *self);
 
 static void wig_tab_error_page_reload(WigTab *self)
 {
-  g_autofree char *uri = g_strdup(self->error_uri);
+  g_autofree char *uri = g_strdup(wig_tab_get_page_uri(self));
 
-  wig_tab_clear_error_page(self);
+  wig_tab_clear_native_page(self);
 
   /* Nothing committed, so there is nothing for a reload to repeat. */
   if (uri)
@@ -297,7 +272,7 @@ static void wig_tab_error_page_reload(WigTab *self)
 
 static void wig_tab_error_page_go_back(WigTab *self)
 {
-  wig_tab_clear_error_page(self);
+  wig_tab_clear_native_page(self);
   webkit_web_view_go_back(self->web_view);
 }
 
@@ -305,7 +280,7 @@ static void wig_tab_error_page_go_back(WigTab *self)
  * covers every later load of the same host with the same certificate. */
 static void wig_tab_tls_error_page_proceed(WigTab *self)
 {
-  WigTlsErrorPage *page = WIG_TLS_ERROR_PAGE(self->error_page);
+  WigTlsErrorPage *page = WIG_TLS_ERROR_PAGE(self->native_page);
   g_autofree char *uri = g_strdup(wig_tls_error_page_get_uri(page));
   g_autofree char *host = g_strdup(wig_tls_error_page_get_host(page));
   g_autoptr(GTlsCertificate) certificate = g_object_ref(wig_tls_error_page_get_certificate(page));
@@ -315,7 +290,7 @@ static void wig_tab_tls_error_page_proceed(WigTab *self)
   webkit_network_session_allow_tls_certificate_for_host(webkit_web_view_get_network_session(self->web_view),
                                                         certificate, host);
 
-  wig_tab_clear_error_page(self);
+  wig_tab_clear_native_page(self);
   webkit_web_view_load_uri(self->web_view, uri);
 }
 
@@ -327,13 +302,13 @@ static gboolean wig_tab_on_load_failed_with_tls_errors(WigTab *self, const char 
   g_object_set(self, "loading", FALSE, NULL);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
-  wig_tab_clear_error_page(self);
+  wig_tab_clear_native_page(self);
   GtkWidget *page = wig_tls_error_page_new(failing_uri, certificate, errors,
                                            webkit_web_view_can_go_back(self->web_view));
   g_signal_connect_object(page, "proceed", G_CALLBACK(wig_tab_tls_error_page_proceed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(page, "go-back", G_CALLBACK(wig_tab_error_page_go_back), self, G_CONNECT_SWAPPED);
 
-  wig_tab_show_error_page(self, page, failing_uri);
+  wig_tab_show_native_page(self, page);
 
   return TRUE;
 }
@@ -345,12 +320,12 @@ static gboolean wig_tab_on_load_failed(WigTab *self, WebKitLoadEvent load_event,
   g_object_set(self, "loading", FALSE, NULL);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
-  wig_tab_clear_error_page(self);
+  wig_tab_clear_native_page(self);
   GtkWidget *page = wig_error_page_new(failing_uri, error, webkit_web_view_can_go_back(self->web_view));
   g_signal_connect_object(page, "reload", G_CALLBACK(wig_tab_error_page_reload), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(page, "go-back", G_CALLBACK(wig_tab_error_page_go_back), self, G_CONNECT_SWAPPED);
 
-  wig_tab_show_error_page(self, page, failing_uri);
+  wig_tab_show_native_page(self, page);
 
   return TRUE;
 }
@@ -369,13 +344,13 @@ static void wig_tab_on_web_process_terminated(WigTab *self, WebKitWebProcessTerm
   wig_tab_set_unresponsive(self, FALSE);
   wig_tab_dismiss_unresponsive_dialog(self);
 
-  wig_tab_clear_error_page(self);
+  wig_tab_clear_native_page(self);
   GtkWidget *page = wig_crash_page_new(self->web_view, reason, self->id);
   g_signal_connect_object(page, "reload", G_CALLBACK(wig_tab_error_page_reload), self, G_CONNECT_SWAPPED);
 
   /* The crashed view keeps the address of what it was showing, so the entry
    * needs no fallback of its own here. */
-  wig_tab_show_error_page(self, page, NULL);
+  wig_tab_show_native_page(self, page);
 }
 
 G_DEFINE_FINAL_TYPE(WigTab, wig_tab, G_TYPE_OBJECT)
@@ -415,8 +390,8 @@ static void wig_tab_get_property(GObject *object, guint prop_id, GValue *value, 
   case PROP_MUTED:
     g_value_set_boolean(value, self->muted);
     break;
-  case PROP_ERROR_URI:
-    g_value_set_string(value, self->error_uri);
+  case PROP_PAGE_URI:
+    g_value_set_string(value, wig_tab_get_page_uri(self));
     break;
   }
 }
@@ -461,7 +436,7 @@ static void wig_tab_set_property(GObject *object, guint prop_id, const GValue *v
     }
     break;
   }
-  case PROP_ERROR_URI:
+  case PROP_PAGE_URI:
     break;
   }
 }
@@ -477,7 +452,6 @@ static void wig_tab_dispose(GObject *object)
   g_clear_object(&self->web_view);
   g_clear_object(&self->view_overlay);
   self->web_view_widget = NULL;
-  self->error_page = NULL;
   G_OBJECT_CLASS(wig_tab_parent_class)->dispose(object);
 }
 
@@ -485,7 +459,6 @@ static void wig_tab_finalize(GObject *object)
 {
   WigTab *self = WIG_TAB(object);
   g_free(self->title);
-  g_free(self->error_uri);
   G_OBJECT_CLASS(wig_tab_parent_class)->finalize(object);
 }
 
@@ -513,8 +486,8 @@ static void wig_tab_class_init(WigTabClass *klass)
       "playing-audio", NULL, NULL, FALSE, G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
   props[PROP_MUTED] = g_param_spec_boolean("muted", NULL, NULL, FALSE,
                                            G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
-  props[PROP_ERROR_URI] = g_param_spec_string("error-uri", NULL, NULL, NULL,
-                                              G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
+  props[PROP_PAGE_URI] = g_param_spec_string("page-uri", NULL, NULL, NULL,
+                                             G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
 
@@ -568,6 +541,8 @@ static void wig_tab_native_page_uri_changed(WigTab *self, GParamSpec *pspec, Wig
 {
   const char *uri = wig_native_page_get_uri(page);
 
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PAGE_URI]);
+
   if (!uri || g_strcmp0(uri, webkit_web_view_get_uri(self->web_view)) == 0)
     return;
 
@@ -587,7 +562,14 @@ static void wig_tab_show_native_page(WigTab *self, GtkWidget *page)
   g_signal_connect_object(page, "notify::title", G_CALLBACK(wig_tab_native_page_title_changed), self,
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(page, "notify::uri", G_CALLBACK(wig_tab_native_page_uri_changed), self, G_CONNECT_SWAPPED);
-  wig_tab_set_title(self, wig_native_page_get_title(WIG_NATIVE_PAGE(page)));
+
+  /* A page that says nothing about what it is called leaves the tab the title
+   * it already had, which for a failed load is the page it was leaving. */
+  const char *title = wig_native_page_get_title(WIG_NATIVE_PAGE(page));
+  if (title && *title)
+    wig_tab_set_title(self, title);
+
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PAGE_URI]);
 }
 
 static void wig_tab_clear_native_page(WigTab *self)
@@ -598,6 +580,8 @@ static void wig_tab_clear_native_page(WigTab *self)
   gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), self->native_page);
   self->native_page = NULL;
   gtk_widget_set_visible(self->web_view_widget, TRUE);
+
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PAGE_URI]);
 }
 
 /* A native page answers to every address of the page it is, panes included, so
@@ -673,7 +657,6 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
       wig_tab_set_icon(self, NULL);
     self->restoring_icon = FALSE;
     wig_tab_set_hovered_link(self, NULL, NULL);
-    wig_tab_clear_error_page(self);
 
     /* Moving between panes would otherwise take the page down and put an empty
      * document on screen until the next one commits. */
@@ -924,9 +907,14 @@ const char *wig_tab_get_uri(WigTab *self)
 
 /* Set while an error page stands in for a load that never committed, so the
  * entry can keep showing the address the user asked for. */
-const char *wig_tab_get_error_uri(WigTab *self)
+/* A load that fails before committing leaves the view without an address, so
+ * what the page shown in its place stands for is the address the tab is at. */
+const char *wig_tab_get_page_uri(WigTab *self)
 {
-  return self->error_uri;
+  if (!WIG_IS_NATIVE_PAGE(self->native_page))
+    return NULL;
+
+  return wig_native_page_get_uri(WIG_NATIVE_PAGE(self->native_page));
 }
 
 gboolean wig_tab_get_discarded(WigTab *self)

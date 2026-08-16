@@ -22,13 +22,13 @@
 
 #pragma once
 
-#include <gtk/gtk.h>
+#include "wig-native-page.h"
 #include <wpe/webkit.h>
 
 G_BEGIN_DECLS
 
 #define WIG_TYPE_TLS_ERROR_PAGE (wig_tls_error_page_get_type())
-G_DECLARE_FINAL_TYPE(WigTlsErrorPage, wig_tls_error_page, WIG, TLS_ERROR_PAGE, GtkWidget)
+G_DECLARE_FINAL_TYPE(WigTlsErrorPage, wig_tls_error_page, WIG, TLS_ERROR_PAGE, WigNativePage)
 
 GtkWidget *wig_tls_error_page_new(const char *failing_uri, GTlsCertificate *certificate, GTlsCertificateFlags errors,
                                   gboolean can_go_back);

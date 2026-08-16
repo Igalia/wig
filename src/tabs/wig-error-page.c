@@ -22,19 +22,19 @@
 
 #include "wig-error-page.h"
 
+#include "wig-native-page.h"
 #include "wig-page-details.h"
 
 #include <adwaita.h>
 #include <wpe/webkit.h>
 
 struct _WigErrorPage {
-  GtkWidget parent;
+  WigNativePage parent;
 
   GtkWidget *status_page;
-  char *uri;
 };
 
-G_DEFINE_FINAL_TYPE(WigErrorPage, wig_error_page, GTK_TYPE_WIDGET)
+G_DEFINE_FINAL_TYPE(WigErrorPage, wig_error_page, WIG_TYPE_NATIVE_PAGE)
 
 enum {
   RELOAD_SIGNAL,
@@ -137,7 +137,6 @@ static void wig_error_page_dispose(GObject *object)
   WigErrorPage *self = WIG_ERROR_PAGE(object);
 
   g_clear_pointer(&self->status_page, gtk_widget_unparent);
-  g_clear_pointer(&self->uri, g_free);
 
   G_OBJECT_CLASS(wig_error_page_parent_class)->dispose(object);
 }
@@ -149,7 +148,6 @@ static void wig_error_page_class_init(WigErrorPageClass *klass)
 
   object_class->dispose = wig_error_page_dispose;
 
-  gtk_widget_class_set_layout_manager_type(widget_class, GTK_TYPE_BIN_LAYOUT);
   gtk_widget_class_set_css_name(widget_class, "wig-error-page");
 
   signals[RELOAD_SIGNAL] = g_signal_new("reload", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
@@ -169,9 +167,7 @@ GtkWidget *wig_error_page_new(const char *failing_uri, const GError *error, gboo
   g_assert(failing_uri != NULL);
   g_assert(error != NULL);
 
-  WigErrorPage *self = WIG_ERROR_PAGE(g_object_new(WIG_TYPE_ERROR_PAGE, NULL));
-
-  self->uri = g_strdup(failing_uri);
+  WigErrorPage *self = WIG_ERROR_PAGE(g_object_new(WIG_TYPE_ERROR_PAGE, "uri", failing_uri, NULL));
 
   adw_status_page_set_icon_name(ADW_STATUS_PAGE(self->status_page), error_icon_name(error));
   adw_status_page_set_title(ADW_STATUS_PAGE(self->status_page), error_title(error));
@@ -222,5 +218,5 @@ const char *wig_error_page_get_uri(WigErrorPage *self)
 {
   g_assert(WIG_IS_ERROR_PAGE(self));
 
-  return self->uri;
+  return wig_native_page_get_uri(WIG_NATIVE_PAGE(self));
 }

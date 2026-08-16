@@ -710,12 +710,12 @@ static void wig_window_update_url(WigWindow *win)
   const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
 
   /* A load that failed before committing leaves the view without a URI, so the
-   * address the tab is showing an error page for stands in for it. */
+   * address of the page the tab is showing in its place stands in for it. */
   g_autoptr(WigTab) tab = NULL;
   if (win->current_web_view && (!url || !*url)) {
     tab = wig_window_get_tab_for_web_view(win, win->current_web_view);
     if (tab)
-      url = wig_tab_get_error_uri(tab);
+      url = wig_tab_get_page_uri(tab);
   }
 
   win->suppress_entry_completion = TRUE;
@@ -1608,7 +1608,7 @@ static void wig_window_init(WigWindow *win)
   g_signal_group_connect_swapped(win->active_web_view_signals, "mouse-target-changed",
                                  G_CALLBACK(wig_window_on_mouse_target_changed), win);
   win->active_tab_signals = g_signal_group_new(WIG_TYPE_TAB);
-  g_signal_group_connect_swapped(win->active_tab_signals, "notify::error-uri", G_CALLBACK(wig_window_update_url), win);
+  g_signal_group_connect_swapped(win->active_tab_signals, "notify::page-uri", G_CALLBACK(wig_window_update_url), win);
   g_signal_connect(win, "notify::loading", G_CALLBACK(wig_window_loading_changed), NULL);
 
   win->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);

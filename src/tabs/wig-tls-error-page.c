@@ -22,20 +22,20 @@
 
 #include "wig-tls-error-page.h"
 
+#include "wig-native-page.h"
 #include "wig-page-details.h"
 
 #include <adwaita.h>
 
 struct _WigTlsErrorPage {
-  GtkWidget parent;
+  WigNativePage parent;
 
   GtkWidget *status_page;
-  char *uri;
   char *host;
   GTlsCertificate *certificate;
 };
 
-G_DEFINE_FINAL_TYPE(WigTlsErrorPage, wig_tls_error_page, GTK_TYPE_WIDGET)
+G_DEFINE_FINAL_TYPE(WigTlsErrorPage, wig_tls_error_page, WIG_TYPE_NATIVE_PAGE)
 
 enum {
   PROCEED_SIGNAL,
@@ -103,7 +103,6 @@ static void wig_tls_error_page_dispose(GObject *object)
   WigTlsErrorPage *self = WIG_TLS_ERROR_PAGE(object);
 
   g_clear_pointer(&self->status_page, gtk_widget_unparent);
-  g_clear_pointer(&self->uri, g_free);
   g_clear_pointer(&self->host, g_free);
   g_clear_object(&self->certificate);
 
@@ -117,7 +116,6 @@ static void wig_tls_error_page_class_init(WigTlsErrorPageClass *klass)
 
   object_class->dispose = wig_tls_error_page_dispose;
 
-  gtk_widget_class_set_layout_manager_type(widget_class, GTK_TYPE_BIN_LAYOUT);
   gtk_widget_class_set_css_name(widget_class, "wig-tls-error-page");
 
   signals[PROCEED_SIGNAL] = g_signal_new("proceed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
@@ -139,9 +137,7 @@ GtkWidget *wig_tls_error_page_new(const char *failing_uri, GTlsCertificate *cert
   g_assert(failing_uri != NULL);
   g_assert(G_IS_TLS_CERTIFICATE(certificate));
 
-  WigTlsErrorPage *self = WIG_TLS_ERROR_PAGE(g_object_new(WIG_TYPE_TLS_ERROR_PAGE, NULL));
-
-  self->uri = g_strdup(failing_uri);
+  WigTlsErrorPage *self = WIG_TLS_ERROR_PAGE(g_object_new(WIG_TYPE_TLS_ERROR_PAGE, "uri", failing_uri, NULL));
   self->certificate = g_object_ref(certificate);
 
   g_autoptr(GUri) parsed = g_uri_parse(failing_uri, G_URI_FLAGS_NONE, NULL);
@@ -209,7 +205,7 @@ const char *wig_tls_error_page_get_uri(WigTlsErrorPage *self)
 {
   g_assert(WIG_IS_TLS_ERROR_PAGE(self));
 
-  return self->uri;
+  return wig_native_page_get_uri(WIG_NATIVE_PAGE(self));
 }
 
 const char *wig_tls_error_page_get_host(WigTlsErrorPage *self)

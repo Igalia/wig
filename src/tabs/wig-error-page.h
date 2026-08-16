@@ -22,12 +22,12 @@
 
 #pragma once
 
-#include <gtk/gtk.h>
+#include "wig-native-page.h"
 
 G_BEGIN_DECLS
 
 #define WIG_TYPE_ERROR_PAGE (wig_error_page_get_type())
-G_DECLARE_FINAL_TYPE(WigErrorPage, wig_error_page, WIG, ERROR_PAGE, GtkWidget)
+G_DECLARE_FINAL_TYPE(WigErrorPage, wig_error_page, WIG, ERROR_PAGE, WigNativePage)
 
 GtkWidget *wig_error_page_new(const char *failing_uri, const GError *error, gboolean can_go_back);
 

@@ -22,13 +22,13 @@
 
 #pragma once
 
-#include <gtk/gtk.h>
+#include "wig-native-page.h"
 #include <wpe/webkit.h>
 
 G_BEGIN_DECLS
 
 #define WIG_TYPE_CRASH_PAGE (wig_crash_page_get_type())
-G_DECLARE_FINAL_TYPE(WigCrashPage, wig_crash_page, WIG, CRASH_PAGE, GtkWidget)
+G_DECLARE_FINAL_TYPE(WigCrashPage, wig_crash_page, WIG, CRASH_PAGE, WigNativePage)
 
 GtkWidget *wig_crash_page_new(WebKitWebView *web_view, WebKitWebProcessTerminationReason reason, guint tab_id);
 
