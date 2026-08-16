@@ -464,24 +464,41 @@ void wig_permissions_manager_visit(WigPermissionsManager *self, const char *orig
   wig_permissions_manager_queue_save(self);
 }
 
-GList *wig_permissions_manager_list_origins(WigPermissionsManager *self, WigPermissionKind kind,
-                                            WebKitPermissionState state)
+GList *wig_permissions_manager_list_sites(WigPermissionsManager *self, WigPermissionKind kind,
+                                          WebKitPermissionState state)
 {
-  GList *origins = NULL;
+  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
+
+  GList *sites = NULL;
 
   GHashTableIter iter;
   gpointer value;
   g_hash_table_iter_init(&iter, self->origins);
   while (g_hash_table_iter_next(&iter, NULL, &value)) {
     WigPermissionOrigin *record = value;
-    if (wig_permissions_get_state(record->permissions, kind) != state)
-      continue;
+    if (wig_permissions_get_state(record->permissions, kind) == state)
+      sites = g_list_prepend(sites, g_strdup(record->origin));
+  }
 
-    WebKitSecurityOrigin *origin = webkit_security_origin_new_for_uri(record->origin);
+  return g_list_sort(sites, (GCompareFunc)g_strcmp0);
+}
+
+/* An origin that cannot be read back as one is dropped: the caller wants origins
+ * to hand to WebKit, and one it would refuse is no use to it. Anything managing
+ * the answers on file asks for the sites instead, which are kept as they are. */
+GList *wig_permissions_manager_list_origins(WigPermissionsManager *self, WigPermissionKind kind,
+                                            WebKitPermissionState state)
+{
+  GList *sites = wig_permissions_manager_list_sites(self, kind, state);
+  GList *origins = NULL;
+
+  for (GList *l = sites; l; l = l->next) {
+    WebKitSecurityOrigin *origin = webkit_security_origin_new_for_uri(l->data);
     if (origin)
       origins = g_list_prepend(origins, origin);
   }
 
+  g_list_free_full(sites, g_free);
   return origins;
 }
 

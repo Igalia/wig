@@ -35,6 +35,8 @@ gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **erro
 WigPermissions *wig_permissions_manager_lookup(WigPermissionsManager *self, const char *origin);
 WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, const char *origin);
 void wig_permissions_manager_visit(WigPermissionsManager *self, const char *origin);
+GList *wig_permissions_manager_list_sites(WigPermissionsManager *self, WigPermissionKind kind,
+                                          WebKitPermissionState state);
 GList *wig_permissions_manager_list_origins(WigPermissionsManager *self, WigPermissionKind kind,
                                             WebKitPermissionState state);
 void wig_permissions_manager_save(WigPermissionsManager *self);
