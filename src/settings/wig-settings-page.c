@@ -27,6 +27,7 @@
 #include "wig-settings-filters.h"
 #include "wig-settings-memory.h"
 #include "wig-settings-permissions.h"
+#include "wig-settings-proxies.h"
 #include "wig-settings-rows.h"
 #include "wig-settings-search.h"
 #include "wig-settings-user-content.h"
@@ -295,6 +296,13 @@ static void wig_settings_page_add_permissions_pane(WigSettingsPage *self)
   wig_settings_permissions_index(WIG_SETTINGS_SEARCH(self->search), "permissions", "Permissions");
 }
 
+static void wig_settings_page_add_proxies_pane(WigSettingsPage *self)
+{
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_proxies_new(), "proxies", "Proxies",
+                                      "network-server-symbolic");
+  wig_settings_proxies_index(WIG_SETTINGS_SEARCH(self->search), "proxies", "Proxies");
+}
+
 static void wig_settings_page_add_website_data_pane(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_website_data_new(), "website-data",
@@ -461,6 +469,7 @@ static void wig_settings_page_init(WigSettingsPage *self)
   wig_settings_page_add_filters_pane(self);
   wig_settings_page_add_user_content_panes(self);
   wig_settings_page_add_permissions_pane(self);
+  wig_settings_page_add_proxies_pane(self);
   wig_settings_page_add_website_data_pane(self);
   wig_settings_page_add_memory_pane(self);
   g_signal_connect_object(stack, "notify::visible-child-name", G_CALLBACK(wig_settings_page_visible_pane_changed), self,

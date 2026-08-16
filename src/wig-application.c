@@ -396,6 +396,39 @@ static void wig_application_cookie_policy_changed(WigApplication *app)
   wig_application_update_cookie_policy(app);
 }
 
+/* Ordered as WebKitNetworkProxyMode is. */
+static void wig_application_update_proxy_settings(WigApplication *app)
+{
+  WebKitNetworkProxyMode mode = (WebKitNetworkProxyMode)g_settings_get_enum(app->settings, "proxy-mode");
+  g_autofree char *url = g_settings_get_string(app->settings, "proxy-url");
+  g_auto(GStrv) ignore_hosts = g_settings_get_strv(app->settings, "proxy-ignore-hosts");
+
+  /* Choosing a custom proxy comes before typing its address, and a custom proxy
+   * with nowhere to send anything would quietly become no proxy at all. Until
+   * there is an address to use, the system configuration stands. */
+  if (mode == WEBKIT_NETWORK_PROXY_MODE_CUSTOM && (!url || !*url)) {
+    g_debug("proxy: no proxy URL yet, leaving the system configuration in place");
+    mode = WEBKIT_NETWORK_PROXY_MODE_DEFAULT;
+  }
+
+  WebKitNetworkProxySettings *proxy_settings = NULL;
+  if (mode == WEBKIT_NETWORK_PROXY_MODE_CUSTOM)
+    proxy_settings = webkit_network_proxy_settings_new(url, (const char *const *)ignore_hosts);
+
+  g_debug("proxy: %s%s, %u site(s) bypassing it",
+          mode == WEBKIT_NETWORK_PROXY_MODE_DEFAULT        ? "as the system is configured"
+              : mode == WEBKIT_NETWORK_PROXY_MODE_NO_PROXY ? "none"
+                                                           : "through ",
+          mode == WEBKIT_NETWORK_PROXY_MODE_CUSTOM ? url : "", ignore_hosts ? g_strv_length(ignore_hosts) : 0);
+  webkit_network_session_set_proxy_settings(app->network_session, mode, proxy_settings);
+  g_clear_pointer(&proxy_settings, webkit_network_proxy_settings_free);
+}
+
+static void wig_application_proxy_settings_changed(WigApplication *app)
+{
+  wig_application_update_proxy_settings(app);
+}
+
 static const char *autoplay_policy_name(WebKitAutoplayPolicy autoplay)
 {
   switch (autoplay) {
@@ -614,6 +647,13 @@ static void wig_application_startup(GApplication *application)
   wig_application_update_cookie_policy(app);
   g_signal_connect_object(app->settings, "changed::cookie-accept-policy",
                           G_CALLBACK(wig_application_cookie_policy_changed), app, G_CONNECT_SWAPPED);
+  wig_application_update_proxy_settings(app);
+  g_signal_connect_object(app->settings, "changed::proxy-mode", G_CALLBACK(wig_application_proxy_settings_changed), app,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(app->settings, "changed::proxy-url", G_CALLBACK(wig_application_proxy_settings_changed), app,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(app->settings, "changed::proxy-ignore-hosts",
+                          G_CALLBACK(wig_application_proxy_settings_changed), app, G_CONNECT_SWAPPED);
 #if HAVE_FAVICON_SUPPORT
   webkit_website_data_manager_set_favicons_enabled(
       webkit_network_session_get_website_data_manager(app->network_session), TRUE);

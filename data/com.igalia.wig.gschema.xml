@@ -18,6 +18,12 @@
     <value nick="no-third-party" value="2"/>
   </enum>
 
+  <enum id="com.igalia.wig.ProxyMode">
+    <value nick="system" value="0"/>
+    <value nick="none" value="1"/>
+    <value nick="custom" value="2"/>
+  </enum>
+
   <schema id="com.igalia.wig" path="/com/igalia/wig/">
     <key name="restore-tabs" type="b">
       <default>true</default>
@@ -42,6 +48,21 @@
     <key name="cookie-accept-policy" enum="com.igalia.wig.CookieAcceptPolicy">
       <default>'no-third-party'</default>
       <summary>Accept Cookies</summary>
+    </key>
+
+    <key name="proxy-mode" enum="com.igalia.wig.ProxyMode">
+      <default>'system'</default>
+      <summary>Default Proxy</summary>
+    </key>
+
+    <key name="proxy-url" type="s">
+      <default>''</default>
+      <summary>Proxy URL</summary>
+    </key>
+
+    <key name="proxy-ignore-hosts" type="as">
+      <default>[]</default>
+      <summary>Sites That Bypass the Proxy</summary>
     </key>
 
     <key name="search-engine" type="s">

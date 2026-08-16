@@ -4,6 +4,7 @@ wig_settings_sources = files(
     'wig-settings-memory.c',
     'wig-settings-page.c',
     'wig-settings-permissions.c',
+    'wig-settings-proxies.c',
     'wig-settings-rows.c',
     'wig-settings-search.c',
     'wig-settings-user-content.c',
