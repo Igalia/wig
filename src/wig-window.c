@@ -1499,8 +1499,9 @@ static void wig_window_constructed(GObject *object)
   gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), G_MENU_MODEL(menu));
   gtk_header_bar_pack_end(GTK_HEADER_BAR(win->header_bar), menu_button);
 
-  WigApplication *app = wig_application_get();
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(win->header_bar), wig_window_base_get_downloads_button(WIG_WINDOW_BASE(win)));
 
+  WigApplication *app = wig_application_get();
   WigUpdateMonitor *update_monitor = wig_application_get_update_monitor(app);
   if (update_monitor) {
     win->update_button = gtk_button_new();
@@ -1510,8 +1511,6 @@ static void wig_window_constructed(GObject *object)
                             G_CONNECT_SWAPPED);
     wig_window_update_state_changed(win, NULL, update_monitor);
   }
-
-  gtk_header_bar_pack_end(GTK_HEADER_BAR(win->header_bar), wig_window_base_get_downloads_button(WIG_WINDOW_BASE(win)));
 
   win->tab_list = wig_tab_list_new();
   gtk_widget_insert_action_group(GTK_WIDGET(win), "tabs", G_ACTION_GROUP(wig_tab_list_get_action_group(win->tab_list)));
