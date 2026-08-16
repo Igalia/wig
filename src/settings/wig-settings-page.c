@@ -32,6 +32,7 @@
 #include "wig-settings-rows.h"
 #include "wig-settings-search.h"
 #include "wig-settings-user-content.h"
+#include "wig-settings-web-apps.h"
 #include "wig-settings-website-data.h"
 
 #include <adwaita.h>
@@ -320,6 +321,13 @@ static void wig_settings_page_add_proxies_pane(WigSettingsPage *self)
   wig_settings_proxies_index(WIG_SETTINGS_SEARCH(self->search), "proxies", "Proxies");
 }
 
+static void wig_settings_page_add_web_apps_pane(WigSettingsPage *self)
+{
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_web_apps_new(), "web-apps", "Web Apps",
+                                      "view-app-grid-symbolic");
+  wig_settings_web_apps_index(WIG_SETTINGS_SEARCH(self->search), "web-apps", "Web Apps");
+}
+
 static void wig_settings_page_add_website_data_pane(WigSettingsPage *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_website_data_new(), "website-data",
@@ -494,6 +502,7 @@ static void wig_settings_page_init(WigSettingsPage *self)
   wig_settings_page_add_user_content_panes(self);
   wig_settings_page_add_permissions_pane(self);
   wig_settings_page_add_proxies_pane(self);
+  wig_settings_page_add_web_apps_pane(self);
   wig_settings_page_add_website_data_pane(self);
   wig_settings_page_add_memory_pane(self);
   wig_settings_page_add_mcp_pane(self);
