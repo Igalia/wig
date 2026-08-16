@@ -609,6 +609,11 @@ static gboolean wig_tab_native_page_answers_to(WigTab *self, const char *uri)
   return wig_util_uris_are_same_page(wig_native_page_get_uri(WIG_NATIVE_PAGE(self->native_page)), uri);
 }
 
+GtkWidget *wig_tab_get_native_page(WigTab *self)
+{
+  return self->native_page;
+}
+
 gboolean wig_tab_start_search(WigTab *self)
 {
   if (!WIG_IS_NATIVE_PAGE(self->native_page))

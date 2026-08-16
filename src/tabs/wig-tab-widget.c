@@ -349,6 +349,12 @@ static void wig_tab_widget_snapshot_timeout(gpointer user_data)
   if (wig_tab_get_discarded(self->tab))
     return;
 
+  /* A native page is a widget drawn over an empty document, so WebKit has
+   * nothing to snapshot; the widget cannot stand in for it either, since GTK
+   * only draws a widget while its tab is the one on screen. */
+  if (wig_tab_get_native_page(self->tab))
+    return;
+
   const char *uri = webkit_web_view_get_uri(web_view);
   if (!uri || g_strcmp0(uri, "about:blank") == 0)
     return;
