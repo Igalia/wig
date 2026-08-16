@@ -36,10 +36,10 @@ void wig_app_installer_artifacts_free(WigAppInstallerArtifacts *artifacts)
 }
 
 void wig_app_installer_install_async(WigAppInstaller *self, const char *id, const char *target, GVariant *manifest,
-                                     const char *executable, GBytes *icon, const char *icon_content_type,
-                                     const char *const *protocols, gboolean replace_icon,
-                                     const char *current_desktop_file, const char *current_icon_file,
-                                     GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
+                                     const char *executable, GBytes *icon, const char *const *protocols,
+                                     gboolean replace_icon, const char *current_desktop_file,
+                                     const char *current_icon_file, GCancellable *cancellable,
+                                     GAsyncReadyCallback callback, gpointer user_data)
 {
   g_return_if_fail(WIG_IS_APP_INSTALLER(self));
   g_return_if_fail(id != NULL);
@@ -48,9 +48,9 @@ void wig_app_installer_install_async(WigAppInstaller *self, const char *id, cons
   g_return_if_fail(executable != NULL);
   g_return_if_fail(cancellable == NULL || G_IS_CANCELLABLE(cancellable));
 
-  WIG_APP_INSTALLER_GET_IFACE(self)->install_async(self, id, target, manifest, executable, icon, icon_content_type,
-                                                   protocols, replace_icon, current_desktop_file, current_icon_file,
-                                                   cancellable, callback, user_data);
+  WIG_APP_INSTALLER_GET_IFACE(self)->install_async(self, id, target, manifest, executable, icon, protocols,
+                                                   replace_icon, current_desktop_file, current_icon_file, cancellable,
+                                                   callback, user_data);
 }
 
 WigAppInstallerArtifacts *wig_app_installer_install_finish(WigAppInstaller *self, GAsyncResult *result, GError **error)
@@ -88,4 +88,10 @@ GBytes *wig_app_installer_load_icon(WigAppInstaller *self, const char *id, const
   g_return_val_if_fail(content_type != NULL && *content_type == NULL, NULL);
   g_return_val_if_fail(error == NULL || *error == NULL, NULL);
   return WIG_APP_INSTALLER_GET_IFACE(self)->load_icon(self, id, desktop_file, icon_file, content_type, error);
+}
+
+gboolean wig_app_installer_needs_confirmation(WigAppInstaller *self)
+{
+  WigAppInstallerInterface *interface = WIG_APP_INSTALLER_GET_IFACE(self);
+  return interface->needs_confirmation && interface->needs_confirmation(self);
 }

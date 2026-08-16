@@ -33,6 +33,7 @@ typedef enum {
   WIG_PWA_LAUNCH_CLIENT_MODE_NAVIGATE_NEW,
 } WigPwaLaunchClientMode;
 
+gboolean wig_pwa_launch_handler_parse_client_mode(const char *value, WigPwaLaunchClientMode *mode);
 WigPwaLaunchClientMode wig_pwa_launch_handler_get_client_mode(GVariant *manifest);
 
 G_END_DECLS

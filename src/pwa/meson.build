@@ -8,6 +8,7 @@ pwa_sources = files(
     'wig-pwa-manager.c',
     'wig-pwa-navigation-policy.c',
     'wig-pwa-protocol-handlers.c',
+    'wig-pwa-synthetic-manifest.c',
     'wig-pwa-window.c',
 )
 
@@ -35,6 +36,16 @@ pwa_protocol_handlers_test = executable(
     dependencies: [wpe_webkit_dep, json_glib_dep],
 )
 test('pwa-protocol-handlers', pwa_protocol_handlers_test)
+
+pwa_synthetic_manifest_test = executable(
+    'test-pwa-synthetic-manifest',
+    sources: files(
+        'test-pwa-synthetic-manifest.c',
+        'wig-pwa-synthetic-manifest.c',
+    ),
+    dependencies: [gio_dep],
+)
+test('pwa-synthetic-manifest', pwa_synthetic_manifest_test)
 
 pwa_desktop_integration_test = executable(
     'test-pwa-desktop-integration',

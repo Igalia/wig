@@ -29,6 +29,8 @@
 #include "wig-entry-completion-popover.h"
 #include "wig-new-tab-page.h"
 #include "wig-pwa-icon.h"
+#include "wig-pwa-synthetic-manifest.h"
+#include "wig-pwa-util.h"
 #include "wig-search-bar.h"
 #include "wig-settings-page.h"
 #include "wig-tab-bar.h"
@@ -312,30 +314,6 @@ WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, Web
   return NULL;
 }
 
-#if HAVE_APPLICATION_MANIFEST_SUPPORT
-static void wig_window_install_icon_loaded(GObject *source, GAsyncResult *result, gpointer user_data)
-{
-  GtkImage *image = GTK_IMAGE(user_data);
-  g_autoptr(GError) error = NULL;
-  g_autoptr(GInputStream) stream = g_loadable_icon_load_finish(G_LOADABLE_ICON(source), result, NULL, &error);
-  if (!stream) {
-    g_object_unref(image);
-    return;
-  }
-
-  g_autoptr(GBytes) bytes = g_input_stream_read_bytes(stream, 10 * 1024 * 1024, NULL, &error);
-  if (!bytes) {
-    g_object_unref(image);
-    return;
-  }
-
-  g_autoptr(GdkTexture) texture = gdk_texture_new_from_bytes(bytes, &error);
-  if (texture)
-    gtk_image_set_from_paintable(image, GDK_PAINTABLE(texture));
-
-  g_object_unref(image);
-}
-
 static void wig_window_close_install_web_app_popover(WigWindow *win)
 {
   if (win->install_popover)
@@ -377,6 +355,72 @@ static void wig_window_install_web_app_finished(GObject *source, GAsyncResult *r
   }
 
   wig_window_close_install_web_app_popover(context->window);
+}
+
+/* A page that offers no manifest of its own is installed from one made up out of
+ * what the browser already knows: where the page is, what it calls itself, and
+ * the icon the tab is showing for it. */
+static void wig_window_install_as_web_app(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  if (!web_view)
+    return;
+
+  const char *uri = webkit_web_view_get_uri(web_view);
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GVariant) manifest = wig_pwa_synthetic_manifest_new(uri, webkit_web_view_get_title(web_view), &error);
+  if (!manifest) {
+    g_warning("Cannot install this page as a web app: %s", error->message);
+    return;
+  }
+
+  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
+  GIcon *icon = tab ? wig_tab_get_icon(tab) : NULL;
+
+  WigWindowInstallContext *context = g_new0(WigWindowInstallContext, 1);
+  context->window = g_object_ref(win);
+  context->web_view = g_object_ref(web_view);
+  context->id = g_strdup(wig_pwa_variant_lookup_string(manifest, "id"));
+  g_debug("pwa: installing '%s' from a made-up manifest", context->id);
+  wig_pwa_manager_install_manifest_async(wig_application_get_pwa_manager(wig_application_get()), uri, manifest,
+                                         G_IS_LOADABLE_ICON(icon) ? G_LOADABLE_ICON(icon) : NULL, NULL,
+                                         wig_window_install_web_app_finished, context);
+}
+
+/* Only a page from the web can become an app; the browser's own pages cannot. */
+static void wig_window_update_install_action(WigWindow *win)
+{
+  WebKitWebView *web_view = wig_window_active_web_view(win);
+  const char *uri = web_view ? webkit_web_view_get_uri(web_view) : NULL;
+  GAction *action = g_action_map_lookup_action(G_ACTION_MAP(win), "install-as-web-app");
+
+  if (action)
+    g_simple_action_set_enabled(G_SIMPLE_ACTION(action), wig_pwa_synthetic_manifest_is_possible(uri));
+}
+
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+static void wig_window_install_icon_loaded(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  GtkImage *image = GTK_IMAGE(user_data);
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GInputStream) stream = g_loadable_icon_load_finish(G_LOADABLE_ICON(source), result, NULL, &error);
+  if (!stream) {
+    g_object_unref(image);
+    return;
+  }
+
+  g_autoptr(GBytes) bytes = g_input_stream_read_bytes(stream, 10 * 1024 * 1024, NULL, &error);
+  if (!bytes) {
+    g_object_unref(image);
+    return;
+  }
+
+  g_autoptr(GdkTexture) texture = gdk_texture_new_from_bytes(bytes, &error);
+  if (texture)
+    gtk_image_set_from_paintable(image, GDK_PAINTABLE(texture));
+
+  g_object_unref(image);
 }
 
 static void wig_window_install_web_app(WigWindow *win)
@@ -1043,6 +1087,7 @@ static const GActionEntry actions[] = {
   { "undo-close-tab", wig_window_undo_close_tab },
   { "restore-closed", wig_window_restore_closed, "u" },
   { "duplicate-active-tab", wig_window_duplicate_active_tab },
+  { "install-as-web-app", wig_window_install_as_web_app },
 };
 
 static void wig_window_open_uri_in_new_tab(WigWindow *win, GVariant *parameter, gboolean background)
@@ -1232,6 +1277,7 @@ static void wig_window_prepare_bookmark_popover(GtkMenuButton *button, gpointer 
 static void wig_window_update_url(WigWindow *win)
 {
   wig_window_update_bookmark_button(win);
+  wig_window_update_install_action(win);
 
   /* Half-typed input is worth more than the address of the page it is being
    * typed over: a load finishing, or a page changing its own address, must not
@@ -2260,6 +2306,10 @@ static void wig_window_constructed(GObject *object)
   g_menu_append(pages_section, "Downloads", "win.show-downloads");
   g_menu_append(pages_section, "History", "win.show-history");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(pages_section));
+
+  g_autoptr(GMenu) page_section = g_menu_new();
+  g_menu_append(page_section, "Install as Web Application", "win.install-as-web-app");
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(page_section));
 
   g_autoptr(GMenu) application_section = g_menu_new();
   g_menu_append(application_section, "Settings", "win.show-settings");

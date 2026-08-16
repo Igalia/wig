@@ -73,36 +73,25 @@ static gboolean write_bytes(const char *path, GBytes *bytes, GError **error)
   return g_file_set_contents_full(path, data, (gssize)size, G_FILE_SET_CONTENTS_CONSISTENT, 0644, error);
 }
 
-static GBytes *validate_icon(GBytes *icon, const char *content_type, guint32 *size, GError **error)
+gboolean wig_pwa_desktop_png_size(GBytes *png, guint32 *size)
 {
-  if (!icon)
-    return NULL;
-
   gsize length;
-  const guchar *contents = g_bytes_get_data(icon, &length);
-  if (length > MAX_ICON_BYTES) {
-    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NO_SPACE, "Web app icon is too large");
-    return NULL;
-  }
-  if (g_strcmp0(content_type, "image/png") != 0 || length < PNG_HEADER_LENGTH
-      || memcmp(contents, png_signature, sizeof(png_signature)) != 0
-      || memcmp(contents + PNG_IHDR_TYPE_OFFSET, "IHDR", 4) != 0) {
-    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "WebKit did not provide a rasterized PNG icon");
-    return NULL;
-  }
+  const guchar *contents = g_bytes_get_data(png, &length);
+  if (length < PNG_HEADER_LENGTH || memcmp(contents, png_signature, sizeof(png_signature)) != 0
+      || memcmp(contents + PNG_IHDR_TYPE_OFFSET, "IHDR", 4) != 0)
+    return FALSE;
 
   guint32 width, height;
   memcpy(&width, contents + PNG_IHDR_TYPE_OFFSET + 4, sizeof(width));
   memcpy(&height, contents + PNG_IHDR_TYPE_OFFSET + 8, sizeof(height));
   width = GUINT32_FROM_BE(width);
   height = GUINT32_FROM_BE(height);
-  if (width == 0 || height == 0 || width > MAX_ICON_DIMENSION || height > MAX_ICON_DIMENSION) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app icon has unusable dimensions %ux%u", width,
-                height);
-    return NULL;
-  }
-  *size = MAX(width, height);
-  return g_bytes_ref(icon);
+  if (width == 0 || height == 0 || width > MAX_ICON_DIMENSION || height > MAX_ICON_DIMENSION)
+    return FALSE;
+
+  if (size)
+    *size = MAX(width, height);
+  return TRUE;
 }
 
 static guint32 theme_icon_size(guint32 size)
@@ -211,8 +200,8 @@ GBytes *wig_pwa_desktop_fallback_icon(void)
 }
 
 WigPwaDesktopArtifacts *wig_pwa_desktop_install(const char *data_home, const char *id, GVariant *manifest,
-                                                const char *executable, GBytes *icon, const char *icon_content_type,
-                                                const char *const *protocols, GError **error)
+                                                const char *executable, GBytes *icon, const char *const *protocols,
+                                                GError **error)
 {
   g_return_val_if_fail(data_home != NULL, NULL);
   g_return_val_if_fail(id != NULL, NULL);
@@ -223,22 +212,19 @@ WigPwaDesktopArtifacts *wig_pwa_desktop_install(const char *data_home, const cha
   g_autofree char *launcher = launcher_name(id);
   g_autofree char *desktop_basename = g_strconcat(launcher, ".desktop", NULL);
 
-  g_autoptr(GError) icon_error = NULL;
   guint32 icon_size = 0;
-  g_autoptr(GBytes) icon_bytes = validate_icon(icon, icon_content_type, &icon_size, &icon_error);
+  g_autoptr(GBytes) icon_bytes = NULL;
   g_autofree char *icon_relative = NULL;
-  if (icon_bytes) {
+  if (icon && wig_pwa_desktop_png_size(icon, &icon_size)) {
     guint32 directory_size = theme_icon_size(icon_size);
     g_autofree char *size_directory = g_strdup_printf("%ux%u", directory_size, directory_size);
     g_autofree char *icon_basename = g_strconcat(launcher, ".png", NULL);
     icon_relative = g_build_filename("icons", "hicolor", size_directory, "apps", icon_basename, NULL);
+    icon_bytes = g_bytes_ref(icon);
   } else {
-    if (!icon_bytes && icon_error)
-      g_debug("pwa: using fallback desktop icon: %s", icon_error->message);
     g_autofree char *icon_basename = g_strconcat(launcher, ".svg", NULL);
     icon_relative = g_build_filename("icons", "hicolor", "scalable", "apps", icon_basename, NULL);
-    if (!icon_bytes)
-      icon_bytes = wig_pwa_desktop_fallback_icon();
+    icon_bytes = wig_pwa_desktop_fallback_icon();
   }
 
   g_autofree char *icon_path = g_build_filename(data_home, icon_relative, NULL);

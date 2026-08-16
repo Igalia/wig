@@ -38,8 +38,11 @@ void wig_pwa_manager_install_async(WigPwaManager *self, WebKitApplicationManifes
                                    GAsyncReadyCallback callback, gpointer user_data);
 void wig_pwa_manager_refresh_async(WigPwaManager *self, WebKitApplicationManifest *manifest, GCancellable *cancellable,
                                    GAsyncReadyCallback callback, gpointer user_data);
-gboolean wig_pwa_manager_install_finish(WigPwaManager *self, GAsyncResult *result, GError **error);
 #endif
+void wig_pwa_manager_install_manifest_async(WigPwaManager *self, const char *manifest_url, GVariant *manifest,
+                                            GLoadableIcon *icon, GCancellable *cancellable,
+                                            GAsyncReadyCallback callback, gpointer user_data);
+gboolean wig_pwa_manager_install_finish(WigPwaManager *self, GAsyncResult *result, GError **error);
 gboolean wig_pwa_manager_is_installed(WigPwaManager *self, const char *id, GError **error);
 GVariant *wig_pwa_manager_list(WigPwaManager *self, GError **error);
 GVariant *wig_pwa_manager_get_details(WigPwaManager *self, const char *id, GError **error);

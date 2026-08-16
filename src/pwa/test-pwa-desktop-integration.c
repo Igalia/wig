@@ -59,15 +59,14 @@ static void install_finished(GObject *source, GAsyncResult *result, gpointer use
 }
 
 static WigAppInstallerArtifacts *install(WigAppInstaller *installer, const char *id, GVariant *manifest, GBytes *icon,
-                                         const char *icon_content_type, gboolean replace_icon,
-                                         const char *current_desktop_file, const char *current_icon_file,
-                                         const char *const *protocols, GError **error)
+                                         gboolean replace_icon, const char *current_desktop_file,
+                                         const char *current_icon_file, const char *const *protocols, GError **error)
 {
   g_autoptr(GMainLoop) loop = g_main_loop_new(NULL, FALSE);
   InstallResult result = { .loop = loop };
-  wig_app_installer_install_async(installer, id, "https://example.com/start", manifest, "/usr/bin/wig", icon,
-                                  icon_content_type, protocols, replace_icon, current_desktop_file, current_icon_file,
-                                  NULL, install_finished, &result);
+  wig_app_installer_install_async(installer, id, "https://example.com/start", manifest, "/usr/bin/wig", icon, protocols,
+                                  replace_icon, current_desktop_file, current_icon_file, NULL, install_finished,
+                                  &result);
   g_main_loop_run(loop);
   if (!result.artifacts)
     g_propagate_error(error, result.error);
@@ -81,8 +80,8 @@ static void test_install_and_uninstall(void)
   g_autoptr(GVariant) manifest = test_manifest();
   g_autoptr(WigAppInstaller) installer = wig_app_installer_native_new(g_get_user_data_dir());
   g_autoptr(GError) error = NULL;
-  g_autoptr(WigAppInstallerArtifacts) artifacts = install(installer, id, manifest, NULL, NULL, TRUE, NULL, NULL,
-                                                          protocols, &error);
+  g_autoptr(WigAppInstallerArtifacts) artifacts = install(installer, id, manifest, NULL, TRUE, NULL, NULL, protocols,
+                                                          &error);
   g_assert_no_error(error);
   g_assert_nonnull(artifacts);
 
@@ -126,8 +125,8 @@ static void test_installs_rasterized_icon(void)
   g_autoptr(GBytes) icon = test_png_icon();
   g_autoptr(WigAppInstaller) installer = wig_app_installer_native_new(g_get_user_data_dir());
   g_autoptr(GError) error = NULL;
-  g_autoptr(WigAppInstallerArtifacts) artifacts = install(installer, id, manifest, icon, "image/png", TRUE, NULL, NULL,
-                                                          NULL, &error);
+  g_autoptr(WigAppInstallerArtifacts) artifacts = install(installer, id, manifest, icon, TRUE, NULL, NULL, NULL,
+                                                          &error);
   g_assert_no_error(error);
   g_assert_nonnull(artifacts);
   g_assert_true(g_str_has_suffix(artifacts->icon_file, ".png"));
@@ -161,8 +160,8 @@ static void test_updates_launcher_without_replacing_icon(void)
   g_autoptr(GVariant) original_manifest = test_manifest();
   g_autoptr(WigAppInstaller) installer = wig_app_installer_native_new(g_get_user_data_dir());
   g_autoptr(GError) error = NULL;
-  g_autoptr(WigAppInstallerArtifacts) artifacts = install(installer, id, original_manifest, NULL, NULL, TRUE, NULL,
-                                                          NULL, NULL, &error);
+  g_autoptr(WigAppInstallerArtifacts) artifacts = install(installer, id, original_manifest, NULL, TRUE, NULL, NULL,
+                                                          NULL, &error);
   g_assert_no_error(error);
   g_assert_nonnull(artifacts);
 
@@ -174,7 +173,7 @@ static void test_updates_launcher_without_replacing_icon(void)
 
   g_autoptr(GVariant) updated_manifest = test_manifest_with_name("Updated App");
   g_autoptr(WigAppInstallerArtifacts) updated_artifacts = install(
-      installer, id, updated_manifest, NULL, NULL, FALSE, artifacts->desktop_file, artifacts->icon_file, NULL, &error);
+      installer, id, updated_manifest, NULL, FALSE, artifacts->desktop_file, artifacts->icon_file, NULL, &error);
   g_assert_nonnull(updated_artifacts);
   g_assert_no_error(error);
 

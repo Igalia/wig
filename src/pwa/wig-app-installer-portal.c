@@ -115,15 +115,9 @@ static char *dynamic_launcher_desktop_file_id(const char *id)
   return g_strconcat("com.igalia.wig.WebApp_", hash, ".desktop", NULL);
 }
 
-static GVariant *serialize_icon(GBytes *icon, const char *content_type)
+static GVariant *serialize_icon(GBytes *icon)
 {
-  g_autoptr(GBytes) bytes = NULL;
-  if (icon) {
-    g_assert(g_strcmp0(content_type, "image/png") == 0);
-    bytes = g_bytes_ref(icon);
-  }
-  if (!bytes)
-    bytes = wig_pwa_desktop_fallback_icon();
+  g_autoptr(GBytes) bytes = icon ? g_bytes_ref(icon) : wig_pwa_desktop_fallback_icon();
 
   g_autoptr(GIcon) bytes_icon = g_bytes_icon_new(bytes);
   return g_icon_serialize(bytes_icon);
@@ -273,10 +267,9 @@ static void dynamic_launcher_bus_ready(GObject *source, GAsyncResult *result, gp
 }
 
 static void install_async(WigAppInstaller *installer, const char *id, const char *target, GVariant *manifest,
-                          const char *executable, GBytes *icon, const char *icon_content_type,
-                          const char *const *protocols, gboolean replace_icon, const char *current_desktop_file,
-                          const char *current_icon_file, GCancellable *cancellable, GAsyncReadyCallback callback,
-                          gpointer user_data)
+                          const char *executable, GBytes *icon, const char *const *protocols, gboolean replace_icon,
+                          const char *current_desktop_file, const char *current_icon_file, GCancellable *cancellable,
+                          GAsyncReadyCallback callback, gpointer user_data)
 {
   if (!replace_icon)
     g_debug("pwa: portal installer cannot preserve the existing launcher icon; reinstalling it");
@@ -292,7 +285,7 @@ static void install_async(WigAppInstaller *installer, const char *id, const char
   data->desktop_entry = g_key_file_to_data(desktop_entry, NULL, NULL);
   data->name = g_strdup(wig_pwa_manifest_get_name(manifest, id));
   data->target = g_strdup(target);
-  data->icon = serialize_icon(icon, icon_content_type);
+  data->icon = serialize_icon(icon);
   g_task_set_task_data(task, data, (GDestroyNotify)dynamic_launcher_install_data_free);
 
   g_bus_get(G_BUS_TYPE_SESSION, cancellable, dynamic_launcher_bus_ready, g_object_ref(task));
@@ -376,6 +369,11 @@ static GBytes *load_icon(WigAppInstaller *installer, const char *id, const char 
   return g_bytes_ref(g_bytes_icon_get_bytes(G_BYTES_ICON(icon)));
 }
 
+static gboolean needs_confirmation(WigAppInstaller *installer)
+{
+  return TRUE;
+}
+
 static void app_installer_interface_init(WigAppInstallerInterface *interface)
 {
   interface->install_async = install_async;
@@ -383,6 +381,7 @@ static void app_installer_interface_init(WigAppInstallerInterface *interface)
   interface->uninstall = uninstall;
   interface->remove_icon = remove_icon;
   interface->load_icon = load_icon;
+  interface->needs_confirmation = needs_confirmation;
 }
 
 static void wig_app_installer_portal_class_init(WigAppInstallerPortalClass *klass)

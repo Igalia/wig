@@ -197,11 +197,7 @@ static GtkWidget *web_apps_launch_mode_row(WigSettingsWebApps *self, const char 
   g_autoptr(GVariant) manifest = g_variant_lookup_value(details, "manifest", G_VARIANT_TYPE_VARDICT);
   WigPwaLaunchClientMode manifest_mode = manifest ? wig_pwa_launch_handler_get_client_mode(manifest)
                                                   : WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;
-  g_autoptr(GVariant) overrides = g_variant_lookup_value(details, "overrides", G_VARIANT_TYPE_VARDICT);
-  g_autoptr(GVariant) launch_handler = overrides
-      ? g_variant_lookup_value(overrides, "launch_handler", G_VARIANT_TYPE_VARDICT)
-      : NULL;
-  const char *override = launch_handler ? wig_pwa_variant_lookup_string(launch_handler, "client_mode") : NULL;
+  const char *override = wig_pwa_variant_lookup_string(details, "launch_client_mode");
 
   /* The first entry says what following the manifest amounts to, so choosing it
    * is not a step into the unknown. */

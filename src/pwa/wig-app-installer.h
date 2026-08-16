@@ -41,28 +41,29 @@ struct _WigAppInstallerInterface {
   GTypeInterface parent;
 
   void (*install_async)(WigAppInstaller *self, const char *id, const char *target, GVariant *manifest,
-                        const char *executable, GBytes *icon, const char *icon_content_type,
-                        const char *const *protocols, gboolean replace_icon, const char *current_desktop_file,
-                        const char *current_icon_file, GCancellable *cancellable, GAsyncReadyCallback callback,
-                        gpointer user_data);
+                        const char *executable, GBytes *icon, const char *const *protocols, gboolean replace_icon,
+                        const char *current_desktop_file, const char *current_icon_file, GCancellable *cancellable,
+                        GAsyncReadyCallback callback, gpointer user_data);
   WigAppInstallerArtifacts *(*install_finish)(WigAppInstaller *self, GAsyncResult *result, GError **error);
   gboolean (*uninstall)(WigAppInstaller *self, const char *id, const char *desktop_file, const char *icon_file,
                         GError **error);
   gboolean (*remove_icon)(WigAppInstaller *self, const char *id, const char *icon_file, GError **error);
   GBytes *(*load_icon)(WigAppInstaller *self, const char *id, const char *desktop_file, const char *icon_file,
                        char **content_type, GError **error);
+  gboolean (*needs_confirmation)(WigAppInstaller *self);
 };
 
 void wig_app_installer_install_async(WigAppInstaller *self, const char *id, const char *target, GVariant *manifest,
-                                     const char *executable, GBytes *icon, const char *icon_content_type,
-                                     const char *const *protocols, gboolean replace_icon,
-                                     const char *current_desktop_file, const char *current_icon_file,
-                                     GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data);
+                                     const char *executable, GBytes *icon, const char *const *protocols,
+                                     gboolean replace_icon, const char *current_desktop_file,
+                                     const char *current_icon_file, GCancellable *cancellable,
+                                     GAsyncReadyCallback callback, gpointer user_data);
 WigAppInstallerArtifacts *wig_app_installer_install_finish(WigAppInstaller *self, GAsyncResult *result, GError **error);
 gboolean wig_app_installer_uninstall(WigAppInstaller *self, const char *id, const char *desktop_file,
                                      const char *icon_file, GError **error);
 gboolean wig_app_installer_remove_icon(WigAppInstaller *self, const char *id, const char *icon_file, GError **error);
 GBytes *wig_app_installer_load_icon(WigAppInstaller *self, const char *id, const char *desktop_file,
                                     const char *icon_file, char **content_type, GError **error);
+gboolean wig_app_installer_needs_confirmation(WigAppInstaller *self);
 
 G_END_DECLS

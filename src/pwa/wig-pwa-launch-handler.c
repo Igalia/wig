@@ -22,7 +22,7 @@
 
 #include "wig-pwa-launch-handler.h"
 
-static gboolean parse_client_mode(const char *value, WigPwaLaunchClientMode *mode)
+gboolean wig_pwa_launch_handler_parse_client_mode(const char *value, WigPwaLaunchClientMode *mode)
 {
   if (g_strcmp0(value, "auto") == 0)
     *mode = WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;
@@ -52,7 +52,9 @@ WigPwaLaunchClientMode wig_pwa_launch_handler_get_client_mode(GVariant *manifest
 
   WigPwaLaunchClientMode mode;
   if (g_variant_is_of_type(client_mode, G_VARIANT_TYPE_STRING))
-    return parse_client_mode(g_variant_get_string(client_mode, NULL), &mode) ? mode : WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;
+    return wig_pwa_launch_handler_parse_client_mode(g_variant_get_string(client_mode, NULL), &mode)
+        ? mode
+        : WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;
 
   if (!g_variant_is_of_type(client_mode, G_VARIANT_TYPE("av")))
     return WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;
@@ -62,7 +64,7 @@ WigPwaLaunchClientMode wig_pwa_launch_handler_get_client_mode(GVariant *manifest
     g_autoptr(GVariant) value = NULL;
     g_variant_get_child(client_mode, i, "v", &value);
     if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)
-        && parse_client_mode(g_variant_get_string(value, NULL), &mode))
+        && wig_pwa_launch_handler_parse_client_mode(g_variant_get_string(value, NULL), &mode))
       return mode;
   }
   return WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;

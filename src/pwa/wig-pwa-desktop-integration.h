@@ -32,8 +32,8 @@ typedef struct {
 } WigPwaDesktopArtifacts;
 
 WigPwaDesktopArtifacts *wig_pwa_desktop_install(const char *data_home, const char *id, GVariant *manifest,
-                                                const char *executable, GBytes *icon, const char *icon_content_type,
-                                                const char *const *protocols, GError **error);
+                                                const char *executable, GBytes *icon, const char *const *protocols,
+                                                GError **error);
 gboolean wig_pwa_desktop_update(const char *data_home, const char *id, GVariant *manifest, const char *executable,
                                 const char *const *protocols, GError **error);
 gboolean wig_pwa_desktop_uninstall(const char *data_home, const char *id, const char *icon_file, GError **error);
@@ -43,6 +43,7 @@ GBytes *wig_pwa_desktop_load_icon(const char *data_home, const char *id, const c
 GKeyFile *wig_pwa_desktop_entry_new(const char *id, GVariant *manifest, const char *executable,
                                     const char *const *protocols);
 GBytes *wig_pwa_desktop_fallback_icon(void);
+gboolean wig_pwa_desktop_png_size(GBytes *png, guint32 *size);
 void wig_pwa_desktop_artifacts_free(WigPwaDesktopArtifacts *artifacts);
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigPwaDesktopArtifacts, wig_pwa_desktop_artifacts_free)
 

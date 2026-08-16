@@ -27,6 +27,7 @@
 #include "wig-app-installer.h"
 #include "wig-flatpak.h"
 #include "wig-key-file-utils.h"
+#include "wig-pwa-desktop-integration.h"
 #include "wig-pwa-icon.h"
 #include "wig-pwa-protocol-handlers.h"
 #include "wig-pwa-util.h"
@@ -40,7 +41,20 @@
 #define MANIFEST_REFRESH_INTERVAL (12 * 60 * 60)
 #define WEB_APPLICATIONS_FILE "web_applications.ini"
 
-#if HAVE_APPLICATION_MANIFEST_SUPPORT
+/* The pieces an install needs, however they were come by: read out of a manifest
+ * the page served, or made up for a page that serves none. */
+typedef struct {
+  const char *id;
+  const char *manifest_url;
+  const char *start_url;
+  const char *scope;
+  const char *background_color;
+  GVariant *manifest; /* vardict */
+  GVariant *shortcuts; /* aa{sv} */
+  GLoadableIcon *icon; /* may be NULL */
+  gboolean open_primary_scope_in_browser;
+} InstallRequest;
+
 typedef struct {
   char *id;
   char *manifest_url;
@@ -49,10 +63,7 @@ typedef struct {
   char *temporary_directory;
   char *association_path;
   GLoadableIcon *icon;
-  GInputStream *icon_stream;
-  GByteArray *icon_data;
   GBytes *icon_bytes;
-  char *icon_content_type;
   char *background_color;
   char *old_desktop_file;
   char *old_icon_file;
@@ -67,9 +78,9 @@ typedef struct {
   gboolean needs_desktop_update;
   gboolean needs_icon_update;
   gboolean needs_scope_update;
-  gboolean throttled;
+  gboolean background_refresh;
+  gboolean open_primary_scope_in_browser;
 } InstallData;
-#endif
 
 struct _WigPwaManager {
   GObject parent;
@@ -97,8 +108,13 @@ static const struct {
   const char *entry_key;
   const char *file_key;
 } string_keys[] = {
-  { "manifest_url", "manifest-url" },         { "start_url", "start-url" },       { "scope", "scope" },
-  { "background_color", "background-color" }, { "desktop_file", "desktop-file" }, { "icon_file", "icon-file" },
+  { "manifest_url", "manifest-url" },
+  { "start_url", "start-url" },
+  { "scope", "scope" },
+  { "background_color", "background-color" },
+  { "desktop_file", "desktop-file" },
+  { "icon_file", "icon-file" },
+  { "launch_client_mode", "launch-client-mode" },
 };
 
 static char *entry_group_name(const char *id)
@@ -129,15 +145,6 @@ static GVariant *get_variant_key(GKeyFile *key_file, const char *group, const ch
   return g_steal_pointer(&value);
 }
 
-static const char *entry_launch_client_mode(GVariant *entry)
-{
-  g_autoptr(GVariant) overrides = g_variant_lookup_value(entry, "overrides", G_VARIANT_TYPE_VARDICT);
-  g_autoptr(GVariant) launch_handler = overrides
-      ? g_variant_lookup_value(overrides, "launch_handler", G_VARIANT_TYPE_VARDICT)
-      : NULL;
-  return launch_handler ? wig_pwa_variant_lookup_string(launch_handler, "client_mode") : NULL;
-}
-
 static void entry_to_key_file(GKeyFile *key_file, const char *id, GVariant *entry)
 {
   g_autofree char *group = entry_group_name(id);
@@ -165,10 +172,6 @@ static void entry_to_key_file(GKeyFile *key_file, const char *id, GVariant *entr
   gint64 last_updated = 0;
   if (g_variant_lookup(entry, "last_updated", "x", &last_updated))
     g_key_file_set_int64(key_file, group, "last-updated", last_updated);
-
-  const char *client_mode = entry_launch_client_mode(entry);
-  if (client_mode)
-    g_key_file_set_string(key_file, group, "launch-client-mode", client_mode);
 
   gboolean open_in_browser = FALSE;
   if (g_variant_lookup(entry, "open_primary_scope_in_browser", "b", &open_in_browser))
@@ -210,23 +213,27 @@ static GVariant *entry_from_key_file(GKeyFile *key_file, const char *group, GErr
   if (g_key_file_has_key(key_file, group, "last-updated", NULL))
     g_variant_dict_insert(&entry, "last_updated", "x", wig_key_file_get_int64(key_file, group, "last-updated", 0));
 
-  g_autofree char *client_mode = g_key_file_get_string(key_file, group, "launch-client-mode", NULL);
-  if (client_mode) {
-    GVariantDict launch_handler;
-    g_variant_dict_init(&launch_handler, NULL);
-    g_variant_dict_insert(&launch_handler, "client_mode", "s", client_mode);
-    GVariantDict overrides;
-    g_variant_dict_init(&overrides, NULL);
-    g_variant_dict_insert_value(&overrides, "launch_handler", g_variant_dict_end(&launch_handler));
-    g_variant_dict_insert_value(&entry, "overrides", g_variant_dict_end(&overrides));
-  }
-
   if (g_key_file_has_key(key_file, group, "open-primary-scope-in-browser", NULL)) {
     g_variant_dict_insert(&entry, "open_primary_scope_in_browser", "b",
                           wig_key_file_get_boolean(key_file, group, "open-primary-scope-in-browser", FALSE));
   }
 
-  return g_variant_ref_sink(g_variant_dict_end(&entry));
+  g_autoptr(GVariant) result = g_variant_ref_sink(g_variant_dict_end(&entry));
+  static const char *const required_keys[] = { "manifest_url", "start_url", "scope", "desktop_file" };
+  for (gsize i = 0; i < G_N_ELEMENTS(required_keys); i++) {
+    const char *value = wig_pwa_variant_lookup_string(result, required_keys[i]);
+    if (!value || !*value) {
+      g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Missing '%s'", required_keys[i]);
+      return NULL;
+    }
+  }
+
+  const char *scheme = g_uri_peek_scheme(wig_pwa_variant_lookup_string(result, "start_url"));
+  if (g_strcmp0(scheme, "https") != 0 && g_strcmp0(scheme, "http") != 0) {
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "The start URL is not a web page");
+    return NULL;
+  }
+  return g_steal_pointer(&result);
 }
 
 static gboolean ensure_entries_loaded(WigPwaManager *self, GError **error)
@@ -291,7 +298,6 @@ static void replace_entries(WigPwaManager *self, GVariant *entries)
   g_variant_dict_init(&self->entries, entries);
 }
 
-#if HAVE_APPLICATION_MANIFEST_SUPPORT
 static void install_data_free(InstallData *data)
 {
   if (data->association_path)
@@ -305,10 +311,7 @@ static void install_data_free(InstallData *data)
   g_clear_pointer(&data->temporary_directory, g_free);
   g_clear_pointer(&data->association_path, g_free);
   g_clear_object(&data->icon);
-  g_clear_object(&data->icon_stream);
-  g_clear_pointer(&data->icon_data, g_byte_array_unref);
   g_clear_pointer(&data->icon_bytes, g_bytes_unref);
-  g_clear_pointer(&data->icon_content_type, g_free);
   g_clear_pointer(&data->background_color, g_free);
   g_clear_pointer(&data->old_desktop_file, g_free);
   g_clear_pointer(&data->old_icon_file, g_free);
@@ -347,7 +350,6 @@ static GVariant *build_manifest_entry(const char *manifest_url, const char *star
 
   return g_variant_ref_sink(g_variant_builder_end(&entry_builder));
 }
-#endif
 
 static char *normalize_scope_url(const char *url, GError **error)
 {
@@ -362,7 +364,6 @@ static char *normalize_scope_url(const char *url, GError **error)
   return end ? g_strndup(url, (gsize)(end - url)) : g_strdup(url);
 }
 
-#if HAVE_APPLICATION_MANIFEST_SUPPORT
 static char *normalize_https_origin(const char *url)
 {
   g_autoptr(GError) error = NULL;
@@ -402,7 +403,6 @@ static GPtrArray *manifest_scope_extension_origins(GVariant *manifest)
   }
   return g_steal_pointer(&origins);
 }
-#endif
 
 #if HAVE_APPLICATION_MANIFEST_SUPPORT
 static char *manifest_color_to_css(const WebKitColor *color)
@@ -538,11 +538,10 @@ static gboolean remove_entry(WigPwaManager *self, const char *id, GError **error
   return TRUE;
 }
 
-#if HAVE_APPLICATION_MANIFEST_SUPPORT
 static gboolean store_manifest(WigPwaManager *self, const char *id, const char *manifest_url, const char *start_url,
                                const char *scope, GVariant *manifest, const char *background_color, GVariant *shortcuts,
                                GPtrArray *extension_scopes, const char *desktop_file, const char *icon_file,
-                               GError **error)
+                               gboolean open_primary_scope_in_browser, GError **error)
 {
   if (!ensure_entries_loaded(self, error))
     return FALSE;
@@ -550,12 +549,18 @@ static gboolean store_manifest(WigPwaManager *self, const char *id, const char *
   g_autoptr(GVariant) previous_entry = g_variant_dict_lookup_value(&self->entries, id, G_VARIANT_TYPE_VARDICT);
   g_autoptr(GVariant) entry = build_manifest_entry(manifest_url, start_url, scope, manifest, background_color,
                                                    shortcuts, extension_scopes, desktop_file, icon_file);
-  if (previous_entry) {
+  if (!previous_entry && open_primary_scope_in_browser) {
+    GVariantDict new_entry;
+    g_variant_dict_init(&new_entry, entry);
+    g_variant_dict_insert(&new_entry, "open_primary_scope_in_browser", "b", TRUE);
+    g_clear_pointer(&entry, g_variant_unref);
+    entry = g_variant_ref_sink(g_variant_dict_end(&new_entry));
+  } else if (previous_entry) {
     GVariantDict updated_entry;
     g_variant_dict_init(&updated_entry, entry);
-    g_autoptr(GVariant) overrides = g_variant_lookup_value(previous_entry, "overrides", G_VARIANT_TYPE_VARDICT);
-    if (overrides)
-      g_variant_dict_insert_value(&updated_entry, "overrides", overrides);
+    const char *client_mode = wig_pwa_variant_lookup_string(previous_entry, "launch_client_mode");
+    if (client_mode)
+      g_variant_dict_insert(&updated_entry, "launch_client_mode", "s", client_mode);
     g_autoptr(GVariant) open_in_browser = g_variant_lookup_value(previous_entry, "open_primary_scope_in_browser",
                                                                  G_VARIANT_TYPE_BOOLEAN);
     if (open_in_browser)
@@ -680,21 +685,21 @@ static void store_finished_install(GTask *task)
   const char *desktop_file = data->installer_artifacts ? data->installer_artifacts->desktop_file
                                                        : data->old_desktop_file;
   const char *icon_file = data->installer_artifacts ? data->installer_artifacts->icon_file : data->old_icon_file;
-
-  if (!desktop_file) {
-    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app '%s' has invalid desktop integration",
-                            data->id);
-    return;
-  }
+  g_assert(desktop_file != NULL);
 
   if (!store_manifest(self, data->id, data->manifest_url, data->start_url, data->scope, data->manifest,
                       data->background_color, data->shortcuts, data->extension_scopes, desktop_file, icon_file,
-                      &error)) {
+                      data->open_primary_scope_in_browser, &error)) {
     g_autoptr(GError) rollback_error = NULL;
-    if (data->installer_artifacts && !data->old_desktop_file
-        && !wig_app_installer_uninstall(self->app_installer, data->id, data->installer_artifacts->desktop_file,
-                                        data->installer_artifacts->icon_file, &rollback_error))
-      g_warning("pwa: failed to roll back desktop integration: %s", rollback_error->message);
+    if (data->installer_artifacts && !data->old_desktop_file) {
+      if (!wig_app_installer_uninstall(self->app_installer, data->id, data->installer_artifacts->desktop_file,
+                                       data->installer_artifacts->icon_file, &rollback_error))
+        g_warning("pwa: failed to roll back desktop integration: %s", rollback_error->message);
+    } else if (data->installer_artifacts && g_strcmp0(data->old_icon_file, data->installer_artifacts->icon_file) != 0) {
+      if (!wig_app_installer_remove_icon(self->app_installer, data->id, data->installer_artifacts->icon_file,
+                                         &rollback_error))
+        g_warning("pwa: failed to remove the icon of a failed update: %s", rollback_error->message);
+    }
     g_prefix_error(&error, "Failed to store manifest '%s': ", data->manifest_url);
     g_task_return_error(task, g_steal_pointer(&error));
     return;
@@ -770,9 +775,9 @@ static void finish_install(GTask *task)
   }
 
   wig_app_installer_install_async(self->app_installer, data->id, data->start_url, data->manifest, executable,
-                                  data->icon_bytes, data->icon_content_type, (const char *const *)protocols,
-                                  data->needs_icon_update, data->old_desktop_file, data->old_icon_file,
-                                  g_task_get_cancellable(task), app_installed, g_object_ref(task));
+                                  data->icon_bytes, (const char *const *)protocols, data->needs_icon_update,
+                                  data->old_desktop_file, data->old_icon_file, g_task_get_cancellable(task),
+                                  app_installed, g_object_ref(task));
 }
 
 static char *load_association_scope(const char *path, const char *id, const char *origin, GError **error)
@@ -893,48 +898,31 @@ static void validate_next_scope_extension(GTask *task)
   }
 }
 
-static void read_desktop_icon(GTask *task);
+static gpointer realloc_icon_buffer(gpointer buffer, gsize size)
+{
+  return size <= MAX_ICON_BYTES ? g_realloc(buffer, size) : NULL;
+}
 
-static void desktop_icon_read_finished(GObject *source_object, GAsyncResult *result, gpointer user_data)
+static void desktop_icon_read(GObject *source_object, GAsyncResult *result, gpointer user_data)
 {
   g_autoptr(GTask) task = user_data;
-
   if (g_task_return_error_if_cancelled(task))
     return;
 
   InstallData *data = g_task_get_task_data(task);
   g_autoptr(GError) error = NULL;
-  g_autoptr(GBytes) bytes = g_input_stream_read_bytes_finish(G_INPUT_STREAM(source_object), result, &error);
-  if (!bytes) {
+  if (g_output_stream_splice_finish(G_OUTPUT_STREAM(source_object), result, &error) < 0) {
     g_debug("pwa: using fallback desktop icon: %s", error->message);
-    g_clear_pointer(&data->icon_data, g_byte_array_unref);
     finish_install(task);
     return;
   }
 
-  gsize length;
-  const guint8 *contents = g_bytes_get_data(bytes, &length);
-  if (length == 0) {
-    data->icon_bytes = g_byte_array_free_to_bytes(g_steal_pointer(&data->icon_data));
-    finish_install(task);
-    return;
+  data->icon_bytes = g_memory_output_stream_steal_as_bytes(G_MEMORY_OUTPUT_STREAM(source_object));
+  if (!wig_pwa_desktop_png_size(data->icon_bytes, NULL)) {
+    g_debug("pwa: using fallback desktop icon: the icon is not a usable PNG");
+    g_clear_pointer(&data->icon_bytes, g_bytes_unref);
   }
-  if (length > MAX_ICON_BYTES || data->icon_data->len > MAX_ICON_BYTES - length) {
-    g_debug("pwa: using fallback desktop icon: icon is too large");
-    g_clear_pointer(&data->icon_data, g_byte_array_unref);
-    finish_install(task);
-    return;
-  }
-
-  g_byte_array_append(data->icon_data, contents, length);
-  read_desktop_icon(task);
-}
-
-static void read_desktop_icon(GTask *task)
-{
-  InstallData *data = g_task_get_task_data(task);
-  g_input_stream_read_bytes_async(data->icon_stream, 64 * 1024, G_PRIORITY_DEFAULT, g_task_get_cancellable(task),
-                                  desktop_icon_read_finished, g_object_ref(task));
+  finish_install(task);
 }
 
 static void desktop_icon_loaded(GObject *source_object, GAsyncResult *result, gpointer user_data)
@@ -943,18 +931,19 @@ static void desktop_icon_loaded(GObject *source_object, GAsyncResult *result, gp
   if (g_task_return_error_if_cancelled(task))
     return;
 
-  InstallData *data = g_task_get_task_data(task);
   g_autoptr(GError) error = NULL;
-  data->icon_stream = g_loadable_icon_load_finish(G_LOADABLE_ICON(source_object), result, &data->icon_content_type,
-                                                  &error);
-  if (!data->icon_stream) {
+  g_autoptr(GInputStream) icon_stream = g_loadable_icon_load_finish(G_LOADABLE_ICON(source_object), result, NULL,
+                                                                    &error);
+  if (!icon_stream) {
     g_debug("pwa: using fallback desktop icon: %s", error->message);
     finish_install(task);
     return;
   }
 
-  data->icon_data = g_byte_array_new();
-  read_desktop_icon(task);
+  g_autoptr(GOutputStream) icon_data = g_memory_output_stream_new(NULL, 0, realloc_icon_buffer, g_free);
+  g_output_stream_splice_async(icon_data, icon_stream,
+                               G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE | G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
+                               G_PRIORITY_DEFAULT, g_task_get_cancellable(task), desktop_icon_read, g_object_ref(task));
 }
 
 static void load_desktop_icon(GTask *task)
@@ -968,7 +957,6 @@ static void load_desktop_icon(GTask *task)
   g_loadable_icon_load_async(data->icon, DESKTOP_ICON_SIZE, g_task_get_cancellable(task), desktop_icon_loaded,
                              g_object_ref(task));
 }
-#endif
 
 static void wig_pwa_manager_dispose(GObject *object)
 {
@@ -1026,85 +1014,52 @@ WigPwaManager *wig_pwa_manager_new(const char *config_dir, const char *data_dir,
   return self;
 }
 
-#if HAVE_APPLICATION_MANIFEST_SUPPORT
-static void install_async(WigPwaManager *self, WebKitApplicationManifest *manifest, GCancellable *cancellable,
-                          GAsyncReadyCallback callback, gpointer user_data, gboolean throttled)
+static void install_request_async(WigPwaManager *self, const InstallRequest *request, GCancellable *cancellable,
+                                  GAsyncReadyCallback callback, gpointer user_data, gboolean background_refresh)
 {
-  g_return_if_fail(WIG_IS_PWA_MANAGER(self));
-  g_return_if_fail(WEBKIT_IS_APPLICATION_MANIFEST(manifest));
-  g_return_if_fail(cancellable == NULL || G_IS_CANCELLABLE(cancellable));
+  g_assert(WIG_IS_PWA_MANAGER(self));
+  g_assert(cancellable == NULL || G_IS_CANCELLABLE(cancellable));
 
   g_autoptr(GTask) task = g_task_new(self, cancellable, callback, user_data);
-  g_task_set_source_tag(task, throttled ? wig_pwa_manager_refresh_async : wig_pwa_manager_install_async);
+  g_task_set_source_tag(task, install_request_async);
 
-  const char *id = webkit_application_manifest_get_id(manifest);
+  const char *id = request->id;
   if (!id || !*id) {
     g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Web app manifest has no application ID");
     return;
   }
 
-  if (throttled) {
-    g_autoptr(GError) error = NULL;
-    if (!ensure_entries_loaded(self, &error)) {
-      g_task_return_error(task, g_steal_pointer(&error));
-      return;
-    }
-    g_autoptr(GVariant) entry = g_variant_dict_lookup_value(&self->entries, id, G_VARIANT_TYPE_VARDICT);
-    if (!entry) {
-      g_task_return_boolean(task, TRUE);
-      return;
-    }
-    gint64 last_refreshed = 0;
-    g_variant_lookup(entry, "last_updated", "x", &last_refreshed);
-    const gint64 *last_attempt = g_hash_table_lookup(self->refresh_attempts, id);
-    if (last_attempt)
-      last_refreshed = MAX(last_refreshed, *last_attempt);
-    gint64 now = g_get_real_time() / G_USEC_PER_SEC;
-    if (last_refreshed > 0 && now - last_refreshed < MANIFEST_REFRESH_INTERVAL) {
-      g_debug("pwa: skipping manifest refresh for %s; last attempted less than 12 hours ago", id);
-      g_task_return_boolean(task, TRUE);
-      return;
-    }
-    g_hash_table_insert(self->refresh_attempts, g_strdup(id), g_memdup2(&now, sizeof(now)));
-  }
-
-  const char *manifest_uri = webkit_application_manifest_get_manifest_uri(manifest);
-  if (!manifest_uri || !*manifest_uri) {
+  if (!request->manifest_url || !*request->manifest_url) {
     g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Web app manifest has no manifest URI");
     return;
   }
 
-  const char *start_uri = webkit_application_manifest_get_start_uri(manifest);
-  if (!start_uri || !*start_uri) {
+  if (!request->start_url || !*request->start_url) {
     g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Web app manifest has no start URL");
     return;
   }
 
-  const char *scope = webkit_application_manifest_get_scope(manifest);
-  if (!scope || !*scope) {
+  if (!request->scope || !*request->scope) {
     g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Web app manifest has no scope");
     return;
   }
 
-  GVariant *full_manifest = webkit_application_manifest_get_full_manifest(manifest);
-  if (!full_manifest || !g_variant_is_of_type(full_manifest, G_VARIANT_TYPE_VARDICT)) {
-    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-                            "WebKit returned an invalid full web app manifest");
+  if (!request->manifest || !g_variant_is_of_type(request->manifest, G_VARIANT_TYPE_VARDICT)) {
+    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app manifest is not a dictionary");
     return;
   }
 
   InstallData *data = g_new0(InstallData, 1);
   data->id = g_strdup(id);
-  data->manifest_url = g_strdup(manifest_uri);
-  data->start_url = g_strdup(start_uri);
-  data->scope = g_strdup(scope);
-  data->throttled = throttled;
-  data->manifest = manifest_with_webkit_strings(manifest, full_manifest);
-  g_autoptr(GVariant) raw_background_color = g_variant_lookup_value(data->manifest, "background_color",
-                                                                    G_VARIANT_TYPE_STRING);
-  if (raw_background_color)
-    data->background_color = manifest_color_to_css(webkit_application_manifest_get_background_color(manifest));
-  data->shortcuts = manifest_shortcuts_from_webkit(manifest);
+  data->manifest_url = g_strdup(request->manifest_url);
+  data->start_url = g_strdup(request->start_url);
+  data->scope = g_strdup(request->scope);
+  data->background_refresh = background_refresh;
+  data->open_primary_scope_in_browser = request->open_primary_scope_in_browser;
+  data->manifest = g_variant_ref_sink(request->manifest);
+  data->background_color = g_strdup(request->background_color);
+  data->shortcuts = request->shortcuts ? g_variant_ref_sink(request->shortcuts)
+                                       : g_variant_ref_sink(g_variant_new_array(G_VARIANT_TYPE_VARDICT, NULL, 0));
   g_task_set_task_data(task, data, (GDestroyNotify)install_data_free);
 
   if (g_task_return_error_if_cancelled(task))
@@ -1116,7 +1071,7 @@ static void install_async(WigPwaManager *self, WebKitApplicationManifest *manife
     return;
   }
   if (!data->metadata_changed) {
-    if (data->throttled && !update_last_updated(self, data->id, &error)) {
+    if (data->background_refresh && !update_last_updated(self, data->id, &error)) {
       g_task_return_error(task, g_steal_pointer(&error));
       return;
     }
@@ -1125,14 +1080,73 @@ static void install_async(WigPwaManager *self, WebKitApplicationManifest *manife
     return;
   }
 
-  if (data->needs_icon_update || data->needs_desktop_update) {
-    WebKitApplicationManifestIcon *icon = wig_pwa_icon_select(webkit_application_manifest_get_icons(manifest),
-                                                              DESKTOP_ICON_SIZE);
-    if (icon)
-      data->icon = G_LOADABLE_ICON(g_object_ref(icon));
+  if (data->background_refresh && (data->needs_desktop_update || data->needs_icon_update)
+      && wig_app_installer_needs_confirmation(self->app_installer)) {
+    g_debug("pwa: keeping the launcher of %s; a background refresh cannot ask to replace it", data->id);
+    data->needs_desktop_update = FALSE;
+    data->needs_icon_update = FALSE;
   }
 
+  if (request->icon && (data->needs_icon_update || data->needs_desktop_update))
+    data->icon = g_object_ref(request->icon);
+
   validate_next_scope_extension(task);
+}
+
+void wig_pwa_manager_install_manifest_async(WigPwaManager *self, const char *manifest_url, GVariant *manifest,
+                                            GLoadableIcon *icon, GCancellable *cancellable,
+                                            GAsyncReadyCallback callback, gpointer user_data)
+{
+  g_return_if_fail(WIG_IS_PWA_MANAGER(self));
+  g_return_if_fail(manifest != NULL);
+  g_return_if_fail(icon == NULL || G_IS_LOADABLE_ICON(icon));
+
+  const InstallRequest request = {
+    .id = wig_pwa_variant_lookup_string(manifest, "id"),
+    .manifest_url = manifest_url,
+    .start_url = wig_pwa_variant_lookup_string(manifest, "start_url"),
+    .scope = wig_pwa_variant_lookup_string(manifest, "scope"),
+    .background_color = wig_pwa_variant_lookup_string(manifest, "background_color"),
+    .manifest = manifest,
+    .icon = icon,
+    .open_primary_scope_in_browser = TRUE,
+  };
+
+  install_request_async(self, &request, cancellable, callback, user_data, FALSE);
+}
+
+#if HAVE_APPLICATION_MANIFEST_SUPPORT
+static void install_async(WigPwaManager *self, WebKitApplicationManifest *manifest, GCancellable *cancellable,
+                          GAsyncReadyCallback callback, gpointer user_data, gboolean background_refresh)
+{
+  g_assert(WEBKIT_IS_APPLICATION_MANIFEST(manifest));
+
+  GVariant *full_manifest = webkit_application_manifest_get_full_manifest(manifest);
+  g_autoptr(GVariant) manifest_variant = manifest_with_webkit_strings(manifest, full_manifest);
+  g_autoptr(GVariant) shortcuts = manifest_shortcuts_from_webkit(manifest);
+  g_autoptr(GVariant) raw_background_color = g_variant_lookup_value(manifest_variant, "background_color",
+                                                                    G_VARIANT_TYPE_STRING);
+  g_autofree char *background_color = raw_background_color
+      ? manifest_color_to_css(webkit_application_manifest_get_background_color(manifest))
+      : NULL;
+  g_autoptr(GLoadableIcon) icon = NULL;
+  WebKitApplicationManifestIcon *manifest_icon = wig_pwa_icon_select(webkit_application_manifest_get_icons(manifest),
+                                                                     DESKTOP_ICON_SIZE);
+  if (manifest_icon)
+    icon = G_LOADABLE_ICON(g_object_ref(manifest_icon));
+
+  const InstallRequest request = {
+    .id = webkit_application_manifest_get_id(manifest),
+    .manifest_url = webkit_application_manifest_get_manifest_uri(manifest),
+    .start_url = webkit_application_manifest_get_start_uri(manifest),
+    .scope = webkit_application_manifest_get_scope(manifest),
+    .background_color = background_color,
+    .manifest = manifest_variant,
+    .shortcuts = shortcuts,
+    .icon = icon,
+  };
+
+  install_request_async(self, &request, cancellable, callback, user_data, background_refresh);
 }
 
 void wig_pwa_manager_install_async(WigPwaManager *self, WebKitApplicationManifest *manifest, GCancellable *cancellable,
@@ -1141,24 +1155,51 @@ void wig_pwa_manager_install_async(WigPwaManager *self, WebKitApplicationManifes
   install_async(self, manifest, cancellable, callback, user_data, FALSE);
 }
 
+static gboolean refresh_is_due(WigPwaManager *self, const char *id)
+{
+  g_autoptr(GError) error = NULL;
+  if (!id || !ensure_entries_loaded(self, &error))
+    return FALSE;
+  g_autoptr(GVariant) entry = g_variant_dict_lookup_value(&self->entries, id, G_VARIANT_TYPE_VARDICT);
+  if (!entry)
+    return FALSE;
+
+  gint64 last_refreshed = 0;
+  g_variant_lookup(entry, "last_updated", "x", &last_refreshed);
+  const gint64 *last_attempt = g_hash_table_lookup(self->refresh_attempts, id);
+  if (last_attempt)
+    last_refreshed = MAX(last_refreshed, *last_attempt);
+  gint64 now = g_get_real_time() / G_USEC_PER_SEC;
+  if (last_refreshed > 0 && now - last_refreshed < MANIFEST_REFRESH_INTERVAL) {
+    g_debug("pwa: skipping manifest refresh for %s; last attempted less than 12 hours ago", id);
+    return FALSE;
+  }
+  g_hash_table_insert(self->refresh_attempts, g_strdup(id), g_memdup2(&now, sizeof(now)));
+  return TRUE;
+}
+
 void wig_pwa_manager_refresh_async(WigPwaManager *self, WebKitApplicationManifest *manifest, GCancellable *cancellable,
                                    GAsyncReadyCallback callback, gpointer user_data)
 {
+  if (!refresh_is_due(self, webkit_application_manifest_get_id(manifest))) {
+    g_autoptr(GTask) task = g_task_new(self, cancellable, callback, user_data);
+    g_task_set_source_tag(task, install_request_async);
+    g_task_return_boolean(task, TRUE);
+    return;
+  }
   install_async(self, manifest, cancellable, callback, user_data, TRUE);
 }
+#endif
 
 gboolean wig_pwa_manager_install_finish(WigPwaManager *self, GAsyncResult *result, GError **error)
 {
   g_return_val_if_fail(WIG_IS_PWA_MANAGER(self), FALSE);
   g_return_val_if_fail(g_task_is_valid(result, self), FALSE);
-  g_return_val_if_fail(g_async_result_is_tagged(result, wig_pwa_manager_install_async)
-                           || g_async_result_is_tagged(result, wig_pwa_manager_refresh_async),
-                       FALSE);
+  g_return_val_if_fail(g_async_result_is_tagged(result, install_request_async), FALSE);
   g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
 
   return g_task_propagate_boolean(G_TASK(result), error);
 }
-#endif
 
 gboolean wig_pwa_manager_is_installed(WigPwaManager *self, const char *id, GError **error)
 {
@@ -1192,16 +1233,7 @@ GVariant *wig_pwa_manager_list(WigPwaManager *self, GError **error)
     const char *id;
     g_autoptr(GVariant) entry = NULL;
     g_variant_get(dictionary_entry, "{&sv}", &id, &entry);
-    g_autoptr(GVariant) manifest = entry && g_variant_is_of_type(entry, G_VARIANT_TYPE_VARDICT)
-        ? g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT)
-        : NULL;
-    const char *manifest_url = entry ? wig_pwa_variant_lookup_string(entry, "manifest_url") : NULL;
-    if (!manifest || !manifest_url) {
-      g_variant_builder_clear(&apps_builder);
-      g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Invalid web app database entry '%s'", id);
-      return NULL;
-    }
-
+    g_autoptr(GVariant) manifest = g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT);
     const char *name = wig_pwa_manifest_get_name(manifest, id);
     const char *description = wig_pwa_variant_lookup_string(manifest, "description");
 
@@ -1221,19 +1253,8 @@ GVariant *wig_pwa_manager_get_details(WigPwaManager *self, const char *id, GErro
   g_return_val_if_fail(WIG_IS_PWA_MANAGER(self), NULL);
   g_return_val_if_fail(id != NULL, NULL);
   g_return_val_if_fail(error == NULL || *error == NULL, NULL);
-  g_autoptr(GVariant) entry = lookup_entry(self, id, error);
-  if (!entry)
-    return NULL;
 
-  g_autoptr(GVariant) manifest = g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT);
-  const char *manifest_url = wig_pwa_variant_lookup_string(entry, "manifest_url");
-  const char *start_url = wig_pwa_variant_lookup_string(entry, "start_url");
-  const char *scope = wig_pwa_variant_lookup_string(entry, "scope");
-  if (!manifest || !manifest_url || !*manifest_url || !start_url || !*start_url || !scope || !*scope) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app '%s' has invalid stored details", id);
-    return NULL;
-  }
-  return g_steal_pointer(&entry);
+  return lookup_entry(self, id, error);
 }
 
 GBytes *wig_pwa_manager_get_cached_icon(WigPwaManager *self, const char *id, char **content_type, GError **error)
@@ -1246,13 +1267,8 @@ GBytes *wig_pwa_manager_get_cached_icon(WigPwaManager *self, const char *id, cha
   g_autoptr(GVariant) entry = lookup_entry(self, id, error);
   if (!entry)
     return NULL;
-  const char *desktop_file = wig_pwa_variant_lookup_string(entry, "desktop_file");
-  const char *icon_file = wig_pwa_variant_lookup_string(entry, "icon_file");
-  if (!desktop_file) {
-    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Web app has no app launcher");
-    return NULL;
-  }
-  return wig_app_installer_load_icon(self->app_installer, id, desktop_file, icon_file, content_type, error);
+  return wig_app_installer_load_icon(self->app_installer, id, wig_pwa_variant_lookup_string(entry, "desktop_file"),
+                                     wig_pwa_variant_lookup_string(entry, "icon_file"), content_type, error);
 }
 
 char *wig_pwa_manager_get_start_url(WigPwaManager *self, const char *id, GError **error)
@@ -1264,30 +1280,7 @@ char *wig_pwa_manager_get_start_url(WigPwaManager *self, const char *id, GError 
   g_autoptr(GVariant) entry = lookup_entry(self, id, error);
   if (!entry)
     return NULL;
-
-  const char *start_url = wig_pwa_variant_lookup_string(entry, "start_url");
-  g_autofree char *resolved_start_url = start_url ? g_strdup(start_url) : NULL;
-  if (!resolved_start_url) {
-    g_autoptr(GVariant) manifest = g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT);
-    const char *manifest_url = wig_pwa_variant_lookup_string(entry, "manifest_url");
-    const char *relative_start_url = manifest ? wig_pwa_variant_lookup_string(manifest, "start_url") : NULL;
-    if (manifest_url && relative_start_url && *relative_start_url)
-      resolved_start_url = g_uri_resolve_relative(manifest_url, relative_start_url, G_URI_FLAGS_PARSE_RELAXED, error);
-  }
-
-  if (!resolved_start_url) {
-    if (!error || !*error)
-      g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app '%s' has no launch URL", id);
-    return NULL;
-  }
-
-  const char *scheme = g_uri_peek_scheme(resolved_start_url);
-  if (!scheme || (g_ascii_strcasecmp(scheme, "https") != 0 && g_ascii_strcasecmp(scheme, "http") != 0)) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app '%s' has an invalid launch URL", id);
-    return NULL;
-  }
-
-  return g_steal_pointer(&resolved_start_url);
+  return g_strdup(wig_pwa_variant_lookup_string(entry, "start_url"));
 }
 
 char *wig_pwa_manager_resolve_protocol_url(WigPwaManager *self, const char *id, const char *url, GError **error)
@@ -1300,17 +1293,12 @@ char *wig_pwa_manager_resolve_protocol_url(WigPwaManager *self, const char *id, 
   g_autoptr(GVariant) entry = lookup_entry(self, id, error);
   if (!entry)
     return NULL;
-  g_autoptr(GVariant) manifest = g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT);
-  const char *manifest_url = wig_pwa_variant_lookup_string(entry, "manifest_url");
-  if (!manifest || !manifest_url) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app '%s' has no stored manifest", id);
-    return NULL;
-  }
-
   g_autoptr(WigPwaNavigationPolicy) navigation_policy = wig_pwa_manager_get_navigation_policy(self, id, error);
   if (!navigation_policy)
     return NULL;
-  return wig_pwa_protocol_handlers_resolve(manifest, manifest_url, navigation_policy, url);
+  g_autoptr(GVariant) manifest = g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT);
+  return wig_pwa_protocol_handlers_resolve(manifest, wig_pwa_variant_lookup_string(entry, "manifest_url"),
+                                           navigation_policy, url);
 }
 
 WigPwaLaunchClientMode wig_pwa_manager_get_launch_client_mode(WigPwaManager *self, const char *id, GError **error)
@@ -1323,26 +1311,12 @@ WigPwaLaunchClientMode wig_pwa_manager_get_launch_client_mode(WigPwaManager *sel
   if (!entry)
     return WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;
 
+  const char *client_mode = wig_pwa_variant_lookup_string(entry, "launch_client_mode");
+  WigPwaLaunchClientMode mode;
+  if (client_mode && wig_pwa_launch_handler_parse_client_mode(client_mode, &mode))
+    return mode;
   g_autoptr(GVariant) manifest = g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT);
-  if (!manifest) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app '%s' has no stored manifest", id);
-    return WIG_PWA_LAUNCH_CLIENT_MODE_AUTO;
-  }
-
-  g_autoptr(GVariant) overrides = g_variant_lookup_value(entry, "overrides", G_VARIANT_TYPE_VARDICT);
-  g_autoptr(GVariant) launch_handler = overrides
-      ? g_variant_lookup_value(overrides, "launch_handler", G_VARIANT_TYPE_VARDICT)
-      : NULL;
-  g_autoptr(GVariant) client_mode = launch_handler ? g_variant_lookup_value(launch_handler, "client_mode", NULL) : NULL;
-  if (client_mode)
-    return wig_pwa_launch_handler_get_client_mode(overrides);
   return wig_pwa_launch_handler_get_client_mode(manifest);
-}
-
-static gboolean launch_client_mode_is_valid(const char *client_mode)
-{
-  return !client_mode || g_str_equal(client_mode, "auto") || g_str_equal(client_mode, "focus-existing")
-      || g_str_equal(client_mode, "navigate-existing") || g_str_equal(client_mode, "navigate-new");
 }
 
 gboolean wig_pwa_manager_set_launch_client_mode_override(WigPwaManager *self, const char *id, const char *client_mode,
@@ -1352,7 +1326,8 @@ gboolean wig_pwa_manager_set_launch_client_mode_override(WigPwaManager *self, co
   g_return_val_if_fail(id != NULL, FALSE);
   g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
 
-  if (!launch_client_mode_is_valid(client_mode)) {
+  WigPwaLaunchClientMode mode;
+  if (client_mode && !wig_pwa_launch_handler_parse_client_mode(client_mode, &mode)) {
     g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Invalid launch client mode '%s'", client_mode);
     return FALSE;
   }
@@ -1360,32 +1335,13 @@ gboolean wig_pwa_manager_set_launch_client_mode_override(WigPwaManager *self, co
   g_autoptr(GVariant) entry = lookup_entry(self, id, error);
   if (!entry)
     return FALSE;
-  g_autoptr(GVariant) old_overrides = g_variant_lookup_value(entry, "overrides", G_VARIANT_TYPE_VARDICT);
-  GVariantDict overrides_dict;
-  g_variant_dict_init(&overrides_dict, old_overrides);
-  g_autoptr(GVariant) old_launch_handler = old_overrides
-      ? g_variant_lookup_value(old_overrides, "launch_handler", G_VARIANT_TYPE_VARDICT)
-      : NULL;
-  GVariantDict launch_handler_dict;
-  g_variant_dict_init(&launch_handler_dict, old_launch_handler);
-  if (client_mode) {
-    g_variant_dict_insert(&launch_handler_dict, "client_mode", "s", client_mode);
-  } else {
-    g_variant_dict_remove(&launch_handler_dict, "client_mode");
-  }
-  g_autoptr(GVariant) launch_handler = g_variant_ref_sink(g_variant_dict_end(&launch_handler_dict));
-  if (g_variant_n_children(launch_handler) > 0)
-    g_variant_dict_insert_value(&overrides_dict, "launch_handler", launch_handler);
-  else
-    g_variant_dict_remove(&overrides_dict, "launch_handler");
-  g_autoptr(GVariant) overrides = g_variant_ref_sink(g_variant_dict_end(&overrides_dict));
 
   GVariantDict entry_dict;
   g_variant_dict_init(&entry_dict, entry);
-  if (g_variant_n_children(overrides) > 0)
-    g_variant_dict_insert_value(&entry_dict, "overrides", overrides);
+  if (client_mode)
+    g_variant_dict_insert(&entry_dict, "launch_client_mode", "s", client_mode);
   else
-    g_variant_dict_remove(&entry_dict, "overrides");
+    g_variant_dict_remove(&entry_dict, "launch_client_mode");
   g_autoptr(GVariant) updated_entry = g_variant_ref_sink(g_variant_dict_end(&entry_dict));
   return update_entry(self, id, updated_entry, error);
 }
@@ -1397,17 +1353,10 @@ gboolean wig_pwa_manager_get_open_primary_scope_in_browser(WigPwaManager *self, 
   g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
 
   g_autoptr(GVariant) entry = lookup_entry(self, id, error);
-  if (!entry)
-    return FALSE;
-  g_autoptr(GVariant) value = g_variant_lookup_value(entry, "open_primary_scope_in_browser", NULL);
-  if (!value)
-    return FALSE;
-  if (!g_variant_is_of_type(value, G_VARIANT_TYPE_BOOLEAN)) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-                "Web app '%s' has an invalid primary scope navigation setting", id);
-    return FALSE;
-  }
-  return g_variant_get_boolean(value);
+  gboolean open_in_browser = FALSE;
+  if (entry)
+    g_variant_lookup(entry, "open_primary_scope_in_browser", "b", &open_in_browser);
+  return open_in_browser;
 }
 
 gboolean wig_pwa_manager_set_open_primary_scope_in_browser(WigPwaManager *self, const char *id, gboolean enabled,
@@ -1454,23 +1403,15 @@ char *wig_pwa_manager_find_for_primary_scope(WigPwaManager *self, const char *ur
     g_autoptr(GVariant) entry = NULL;
     g_variant_get(dictionary_entry, "{&sv}", &id, &entry);
     gboolean open_in_browser = FALSE;
-    g_autoptr(GVariant) setting = g_variant_lookup_value(entry, "open_primary_scope_in_browser", NULL);
-    if (setting) {
-      if (!g_variant_is_of_type(setting, G_VARIANT_TYPE_BOOLEAN)) {
-        g_debug("pwa: ignoring '%s' with an invalid primary scope navigation setting", id);
-        continue;
-      }
-      open_in_browser = g_variant_get_boolean(setting);
-    }
+    g_variant_lookup(entry, "open_primary_scope_in_browser", "b", &open_in_browser);
     if (open_in_browser)
       continue;
 
     const char *scope = wig_pwa_variant_lookup_string(entry, "scope");
     g_autoptr(GError) policy_error = NULL;
-    g_autoptr(WigPwaNavigationPolicy) policy = scope ? wig_pwa_navigation_policy_new(scope, NULL, &policy_error) : NULL;
+    g_autoptr(WigPwaNavigationPolicy) policy = wig_pwa_navigation_policy_new(scope, NULL, &policy_error);
     if (!policy) {
-      g_debug("pwa: ignoring '%s' with an invalid primary scope%s%s", id, policy_error ? ": " : "",
-              policy_error ? policy_error->message : "");
+      g_debug("pwa: ignoring '%s' with an invalid primary scope: %s", id, policy_error->message);
       continue;
     }
     if (wig_pwa_navigation_policy_match(policy, url) != WIG_PWA_SCOPE_MATCH_PRIMARY)
@@ -1512,43 +1453,9 @@ WigPwaNavigationPolicy *wig_pwa_manager_get_navigation_policy(WigPwaManager *sel
   if (!entry)
     return NULL;
 
-  g_autofree char *start_url = wig_pwa_manager_get_start_url(self, id, error);
-  if (!start_url)
+  g_autofree char *primary_scope = normalize_scope_url(wig_pwa_variant_lookup_string(entry, "scope"), error);
+  if (!primary_scope)
     return NULL;
-
-  const char *stored_scope = wig_pwa_variant_lookup_string(entry, "scope");
-  g_autofree char *primary_scope = stored_scope ? normalize_scope_url(stored_scope, error) : NULL;
-  if (stored_scope && !primary_scope)
-    return NULL;
-
-  if (!primary_scope) {
-    g_autoptr(GVariant) manifest = g_variant_lookup_value(entry, "manifest", G_VARIANT_TYPE_VARDICT);
-    const char *manifest_url = wig_pwa_variant_lookup_string(entry, "manifest_url");
-    const char *raw_scope = manifest ? wig_pwa_variant_lookup_string(manifest, "scope") : NULL;
-    if (manifest_url && raw_scope && *raw_scope) {
-      g_autoptr(GError) local_error = NULL;
-      g_autofree char *resolved = g_uri_resolve_relative(manifest_url, raw_scope, G_URI_FLAGS_PARSE_RELAXED,
-                                                         &local_error);
-      if (resolved)
-        primary_scope = normalize_scope_url(resolved, &local_error);
-    }
-
-    if (primary_scope) {
-      g_autoptr(GError) local_error = NULL;
-      g_autoptr(WigPwaNavigationPolicy) candidate = wig_pwa_navigation_policy_new(primary_scope, NULL, &local_error);
-      if (!candidate || wig_pwa_navigation_policy_match(candidate, start_url) != WIG_PWA_SCOPE_MATCH_PRIMARY)
-        g_clear_pointer(&primary_scope, g_free);
-    }
-  }
-
-  if (!primary_scope) {
-    g_autofree char *fallback = g_uri_resolve_relative(start_url, ".", G_URI_FLAGS_PARSE_RELAXED, error);
-    if (!fallback)
-      return NULL;
-    primary_scope = normalize_scope_url(fallback, error);
-    if (!primary_scope)
-      return NULL;
-  }
 
   g_autoptr(GVariant) extensions = g_variant_lookup_value(entry, "scope_extensions", G_VARIANT_TYPE_STRING_ARRAY);
   g_auto(GStrv) extension_scopes = extensions ? g_variant_dup_strv(extensions, NULL) : NULL;
@@ -1591,21 +1498,12 @@ gboolean wig_pwa_manager_uninstall(WigPwaManager *self, const char *id, GError *
   g_return_val_if_fail(id != NULL, FALSE);
   g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
 
-  if (!ensure_entries_loaded(self, error))
+  g_autoptr(GVariant) installed_entry = lookup_entry(self, id, error);
+  if (!installed_entry)
     return FALSE;
-  if (!g_variant_dict_contains(&self->entries, id)) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Web app '%s' is not installed", id);
-    return FALSE;
-  }
-
-  g_autoptr(GVariant) installed_entry = g_variant_dict_lookup_value(&self->entries, id, G_VARIANT_TYPE_VARDICT);
-  const char *desktop_file = installed_entry ? wig_pwa_variant_lookup_string(installed_entry, "desktop_file") : NULL;
-  const char *icon_file = installed_entry ? wig_pwa_variant_lookup_string(installed_entry, "icon_file") : NULL;
-  if (!desktop_file) {
-    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app '%s' has no app launcher", id);
-    return FALSE;
-  }
-  if (!wig_app_installer_uninstall(self->app_installer, id, desktop_file, icon_file, error))
+  if (!wig_app_installer_uninstall(self->app_installer, id,
+                                   wig_pwa_variant_lookup_string(installed_entry, "desktop_file"),
+                                   wig_pwa_variant_lookup_string(installed_entry, "icon_file"), error))
     return FALSE;
 
   if (!remove_entry(self, id, error))
