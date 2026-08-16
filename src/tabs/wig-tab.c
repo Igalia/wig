@@ -24,6 +24,7 @@
 
 #include "wig-auth-dialog.h"
 #include "wig-crash-page.h"
+#include "wig-downloads-page.h"
 #include "wig-error-page.h"
 #include "wig-favicon.h"
 #include "wig-history-page.h"
@@ -685,6 +686,14 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
 
   if (uri_is_history_page(uri)) {
     wig_tab_show_history_page(self, uri);
+    return;
+  }
+
+  if (uri_is_downloads_page(uri)) {
+    if (wig_tab_native_page_answers_to(self, uri))
+      wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+    else
+      wig_tab_show_native_page(self, wig_downloads_page_new(uri));
     return;
   }
 

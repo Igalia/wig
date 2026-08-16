@@ -22,12 +22,18 @@
 
 #pragma once
 
-#include <gtk/gtk.h>
+#include "wig-native-page.h"
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_DOWNLOADS_BUTTON (wig_downloads_button_get_type())
-G_DECLARE_FINAL_TYPE(WigDownloadsButton, wig_downloads_button, WIG, DOWNLOADS_BUTTON, GtkWidget)
+#define WIG_DOWNLOADS_PAGE_URI "wig:downloads"
+#define WIG_DOWNLOADS_PAGE_TITLE "Downloads"
 
-GtkWidget *wig_downloads_button_new(void);
+#define WIG_TYPE_DOWNLOADS_PAGE (wig_downloads_page_get_type())
+G_DECLARE_FINAL_TYPE(WigDownloadsPage, wig_downloads_page, WIG, DOWNLOADS_PAGE, WigNativePage)
+
+GtkWidget *wig_downloads_page_new(const char *uri);
+
+gboolean uri_is_downloads_page(const char *uri);
+
 G_END_DECLS

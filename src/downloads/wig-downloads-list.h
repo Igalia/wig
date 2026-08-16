@@ -26,8 +26,14 @@
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_DOWNLOADS_BUTTON (wig_downloads_button_get_type())
-G_DECLARE_FINAL_TYPE(WigDownloadsButton, wig_downloads_button, WIG, DOWNLOADS_BUTTON, GtkWidget)
+#define WIG_TYPE_DOWNLOADS_LIST (wig_downloads_list_get_type())
+G_DECLARE_FINAL_TYPE(WigDownloadsList, wig_downloads_list, WIG, DOWNLOADS_LIST, GtkWidget)
 
-GtkWidget *wig_downloads_button_new(void);
+GtkWidget *wig_downloads_list_new(void);
+
+void wig_downloads_list_sync(WigDownloadsList *self);
+void wig_downloads_list_set_max_height(WigDownloadsList *self, int height);
+void wig_downloads_list_set_terms(WigDownloadsList *self, const char *terms);
+void wig_downloads_list_clear_error(WigDownloadsList *self);
+
 G_END_DECLS

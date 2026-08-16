@@ -23,7 +23,7 @@
 #include "wig-downloads-button.h"
 
 #include "wig-application.h"
-#include "wig-download-row.h"
+#include "wig-downloads-list.h"
 #include "wig-downloads-paintable.h"
 
 #define ATTENTION_MS 2000
@@ -38,10 +38,7 @@ struct _WigDownloadsButton {
   GtkWidget *image;
   GtkWidget *popover;
   GtkWidget *clear_button;
-  GtkWidget *error_label;
-  GtkWidget *empty_label;
   GtkWidget *list;
-  GtkWidget *scroller;
   WigDownloadsPaintable *paintable;
 
   WigDownloadsManager *manager;
@@ -51,52 +48,9 @@ struct _WigDownloadsButton {
 
 G_DEFINE_FINAL_TYPE(WigDownloadsButton, wig_downloads_button, GTK_TYPE_WIDGET)
 
-static void wig_downloads_button_show_error(WigDownloadsButton *self, const char *message)
+static void wig_downloads_button_sync(WigDownloadsButton *self)
 {
-  if (message)
-    gtk_label_set_text(GTK_LABEL(self->error_label), message);
-  gtk_widget_set_visible(self->error_label, message != NULL);
-}
-
-/* Rows borrow their record, so a record the manager has dropped must lose its
- * row here before anything reads it again. */
-static void wig_downloads_button_sync_list(WigDownloadsButton *self)
-{
-  GPtrArray *records = wig_downloads_manager_get_records(self->manager);
-  g_autoptr(GHashTable) shown = g_hash_table_new(NULL, NULL);
-
-  GtkWidget *next = NULL;
-  for (GtkWidget *child = gtk_widget_get_first_child(self->list); child; child = next) {
-    next = gtk_widget_get_next_sibling(child);
-
-    WigDownloadRow *row = WIG_DOWNLOAD_ROW(child);
-    WigDownloadRecord *record = wig_download_row_get_record(row);
-    if (!g_ptr_array_find(records, record, NULL)) {
-      gtk_box_remove(GTK_BOX(self->list), child);
-      continue;
-    }
-
-    wig_download_row_update(row);
-    g_hash_table_add(shown, record);
-  }
-
-  /* Records are kept oldest first, so prepending them in that order leaves the
-   * newest download at the top, above the rows that are already there. */
-  for (guint i = 0; i < records->len; i++) {
-    WigDownloadRecord *record = g_ptr_array_index(records, i);
-    if (g_hash_table_contains(shown, record))
-      continue;
-
-    GtkWidget *row = wig_download_row_new(record);
-    g_signal_connect_object(row, "error", G_CALLBACK(wig_downloads_button_show_error), self, G_CONNECT_SWAPPED);
-    gtk_box_prepend(GTK_BOX(self->list), row);
-  }
-
-  /* An empty scroller still asks for room for its scrollbar, which would make
-   * the empty popover taller than the one-row popover it turns into. */
-  gboolean empty = wig_downloads_manager_is_empty(self->manager);
-  gtk_widget_set_visible(self->empty_label, empty);
-  gtk_widget_set_visible(self->scroller, !empty);
+  wig_downloads_list_sync(WIG_DOWNLOADS_LIST(self->list));
   gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager));
 }
 
@@ -114,12 +68,12 @@ static void wig_downloads_button_update(WigDownloadsButton *self)
   /* A closed popover is caught up when it is shown, so progress ticks only cost
    * a list rebuild while it is actually on screen. */
   if (self->popover_open)
-    wig_downloads_button_sync_list(self);
+    wig_downloads_button_sync(self);
 }
 
 static void wig_downloads_button_clear_clicked(WigDownloadsButton *self)
 {
-  wig_downloads_button_show_error(self, NULL);
+  wig_downloads_list_clear_error(WIG_DOWNLOADS_LIST(self->list));
   wig_downloads_manager_clear_finished(self->manager);
 }
 
@@ -147,8 +101,8 @@ static void wig_downloads_button_popover_shown(WigDownloadsButton *self)
 {
   self->popover_open = TRUE;
 
-  wig_downloads_button_show_error(self, NULL);
-  wig_downloads_button_sync_list(self);
+  wig_downloads_list_clear_error(WIG_DOWNLOADS_LIST(self->list));
+  wig_downloads_button_sync(self);
 }
 
 static void wig_downloads_button_popover_closed(WigDownloadsButton *self)
@@ -201,27 +155,11 @@ static GtkWidget *wig_downloads_button_build_list(WigDownloadsButton *self)
 
   gtk_box_append(GTK_BOX(content), header);
 
-  self->error_label = gtk_label_new(NULL);
-  gtk_label_set_xalign(GTK_LABEL(self->error_label), 0.0f);
-  gtk_label_set_wrap(GTK_LABEL(self->error_label), TRUE);
-  gtk_widget_add_css_class(self->error_label, "downloads-error");
-  gtk_widget_set_visible(self->error_label, FALSE);
-  gtk_box_append(GTK_BOX(content), self->error_label);
-
-  self->empty_label = gtk_label_new("No downloads yet.");
-  gtk_widget_add_css_class(self->empty_label, "downloads-empty");
-  gtk_widget_add_css_class(self->empty_label, "dim-label");
-  gtk_box_append(GTK_BOX(content), self->empty_label);
-
-  self->list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  gtk_widget_add_css_class(self->list, "downloads-list");
-
-  self->scroller = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(self->scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(self->scroller), TRUE);
-  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(self->scroller), LIST_HEIGHT);
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(self->scroller), self->list);
-  gtk_box_append(GTK_BOX(content), self->scroller);
+  /* The popover is only as tall as what it holds, up to a point; the page
+   * showing the same list takes whatever room it is given. */
+  self->list = wig_downloads_list_new();
+  wig_downloads_list_set_max_height(WIG_DOWNLOADS_LIST(self->list), LIST_HEIGHT);
+  gtk_box_append(GTK_BOX(content), self->list);
 
   return content;
 }
@@ -269,12 +207,4 @@ static void wig_downloads_button_init(WigDownloadsButton *self)
 GtkWidget *wig_downloads_button_new(void)
 {
   return GTK_WIDGET(g_object_new(WIG_TYPE_DOWNLOADS_BUTTON, NULL));
-}
-
-void wig_downloads_button_popup(WigDownloadsButton *self)
-{
-  /* Asking for the list is reason enough to show the button, even with nothing
-   * downloaded yet: the popover has to have something to point at. */
-  gtk_revealer_set_reveal_child(GTK_REVEALER(self->revealer), TRUE);
-  gtk_menu_button_popup(GTK_MENU_BUTTON(self->menu_button));
 }

@@ -346,9 +346,7 @@ static void wig_window_search_bar_closed(WigSearchBar *search_bar, WigWindow *wi
 
 static void wig_window_show_downloads(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  WigWindow *win = WIG_WINDOW(user_data);
-
-  wig_downloads_button_popup(WIG_DOWNLOADS_BUTTON(wig_window_base_get_downloads_button(WIG_WINDOW_BASE(win))));
+  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:downloads");
 }
 
 static void wig_window_show_history(GSimpleAction *action, GVariant *parameter, gpointer user_data)
