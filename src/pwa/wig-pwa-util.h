@@ -30,6 +30,14 @@ static inline const char *wig_pwa_variant_lookup_string(GVariant *dictionary, co
   return g_variant_lookup(dictionary, key, "&s", &value) ? value : NULL;
 }
 
+static inline const char *wig_pwa_manifest_get_name(GVariant *manifest, const char *fallback)
+{
+  const char *name = wig_pwa_variant_lookup_string(manifest, "name");
+  if (!name || !*name)
+    name = wig_pwa_variant_lookup_string(manifest, "short_name");
+  return name && *name ? name : fallback;
+}
+
 static inline GVariant *wig_pwa_variant_array_get_dict(GVariant *array, gsize index)
 {
   g_autoptr(GVariant) value = NULL;

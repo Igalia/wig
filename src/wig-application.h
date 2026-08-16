@@ -31,6 +31,7 @@
 #include "wig-history-store.h"
 #include "wig-network-monitor.h"
 #include "wig-permissions-manager.h"
+#include "wig-pwa-manager.h"
 #include "wig-session.h"
 #include "wig-update-monitor.h"
 
@@ -91,5 +92,6 @@ WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *a
 WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app);
 WigNetworkMonitor *wig_application_get_network_monitor(WigApplication *app);
 WigMcpServer *wig_application_get_mcp_server(WigApplication *app);
+WigPwaManager *wig_application_get_pwa_manager(WigApplication *app);
 
 G_END_DECLS

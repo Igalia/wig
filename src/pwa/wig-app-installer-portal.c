@@ -144,7 +144,6 @@ static void dynamic_launcher_installed(GObject *source, GAsyncResult *result, gp
   g_debug("pwa: installed portal launcher %s", data->desktop_file_id);
   WigAppInstallerArtifacts *artifacts = g_new0(WigAppInstallerArtifacts, 1);
   artifacts->desktop_file = g_strdup(data->desktop_file_id);
-  artifacts->can_rollback = TRUE;
   g_task_return_pointer(task, artifacts, (GDestroyNotify)wig_app_installer_artifacts_free);
 }
 
@@ -274,15 +273,13 @@ static void dynamic_launcher_bus_ready(GObject *source, GAsyncResult *result, gp
 }
 
 static void install_async(WigAppInstaller *installer, const char *id, const char *target, GVariant *manifest,
-                          const char *executable, GBytes *icon, const char *icon_content_type, int icon_size,
+                          const char *executable, GBytes *icon, const char *icon_content_type,
                           const char *const *protocols, gboolean replace_icon, const char *current_desktop_file,
                           const char *current_icon_file, GCancellable *cancellable, GAsyncReadyCallback callback,
                           gpointer user_data)
 {
   if (!replace_icon)
     g_debug("pwa: portal installer cannot preserve the existing launcher icon; reinstalling it");
-  if (icon_size > 0)
-    g_debug("pwa: portal installer ignores the requested icon size of %d pixels", icon_size);
   if (current_desktop_file || current_icon_file)
     g_debug("pwa: portal installer ignores existing launcher artifact paths");
 
@@ -293,10 +290,7 @@ static void install_async(WigAppInstaller *installer, const char *id, const char
   g_autofree char *command = g_path_get_basename(executable);
   g_autoptr(GKeyFile) desktop_entry = wig_pwa_desktop_entry_new(id, manifest, command, protocols);
   data->desktop_entry = g_key_file_to_data(desktop_entry, NULL, NULL);
-  const char *name = wig_pwa_variant_lookup_string(manifest, "name");
-  if (!name || !*name)
-    name = wig_pwa_variant_lookup_string(manifest, "short_name");
-  data->name = g_strdup(name && *name ? name : id);
+  data->name = g_strdup(wig_pwa_manifest_get_name(manifest, id));
   data->target = g_strdup(target);
   data->icon = serialize_icon(icon, icon_content_type);
   g_task_set_task_data(task, data, (GDestroyNotify)dynamic_launcher_install_data_free);

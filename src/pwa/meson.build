@@ -5,6 +5,7 @@ pwa_sources = files(
     'wig-pwa-desktop-integration.c',
     'wig-pwa-icon.c',
     'wig-pwa-launch-handler.c',
+    'wig-pwa-manager.c',
     'wig-pwa-navigation-policy.c',
     'wig-pwa-protocol-handlers.c',
 )

@@ -30,6 +30,8 @@
 #define DESKTOP_GROUP "Desktop Entry"
 #define MAX_ICON_BYTES (10 * 1024 * 1024)
 #define MAX_ICON_DIMENSION 4096
+#define PNG_IHDR_TYPE_OFFSET 12
+#define PNG_HEADER_LENGTH (PNG_IHDR_TYPE_OFFSET + 12)
 
 static const guchar png_signature[] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
 
@@ -71,7 +73,7 @@ static gboolean write_bytes(const char *path, GBytes *bytes, GError **error)
   return g_file_set_contents_full(path, data, (gssize)size, G_FILE_SET_CONTENTS_CONSISTENT, 0644, error);
 }
 
-static GBytes *validate_icon(GBytes *icon, const char *content_type, GError **error)
+static GBytes *validate_icon(GBytes *icon, const char *content_type, guint32 *size, GError **error)
 {
   if (!icon)
     return NULL;
@@ -82,12 +84,35 @@ static GBytes *validate_icon(GBytes *icon, const char *content_type, GError **er
     g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NO_SPACE, "Web app icon is too large");
     return NULL;
   }
-  if (g_strcmp0(content_type, "image/png") != 0 || length < sizeof(png_signature)
-      || memcmp(contents, png_signature, sizeof(png_signature)) != 0) {
+  if (g_strcmp0(content_type, "image/png") != 0 || length < PNG_HEADER_LENGTH
+      || memcmp(contents, png_signature, sizeof(png_signature)) != 0
+      || memcmp(contents + PNG_IHDR_TYPE_OFFSET, "IHDR", 4) != 0) {
     g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "WebKit did not provide a rasterized PNG icon");
     return NULL;
   }
+
+  guint32 width, height;
+  memcpy(&width, contents + PNG_IHDR_TYPE_OFFSET + 4, sizeof(width));
+  memcpy(&height, contents + PNG_IHDR_TYPE_OFFSET + 8, sizeof(height));
+  width = GUINT32_FROM_BE(width);
+  height = GUINT32_FROM_BE(height);
+  if (width == 0 || height == 0 || width > MAX_ICON_DIMENSION || height > MAX_ICON_DIMENSION) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Web app icon has unusable dimensions %ux%u", width,
+                height);
+    return NULL;
+  }
+  *size = MAX(width, height);
   return g_bytes_ref(icon);
+}
+
+static guint32 theme_icon_size(guint32 size)
+{
+  static const guint32 theme_sizes[] = { 16, 22, 24, 32, 36, 48, 64, 72, 96, 128, 192, 256, 512 };
+  for (gsize i = 0; i < G_N_ELEMENTS(theme_sizes); i++) {
+    if (size <= theme_sizes[i])
+      return theme_sizes[i];
+  }
+  return theme_sizes[G_N_ELEMENTS(theme_sizes) - 1];
 }
 
 static gboolean relative_path_is_safe(const char *path)
@@ -142,14 +167,8 @@ static gboolean write_desktop_file(const char *data_home, const char *id, GVaria
     return FALSE;
   }
 
-  const char *name = wig_pwa_variant_lookup_string(manifest, "name");
-  if (!name || !*name)
-    name = wig_pwa_variant_lookup_string(manifest, "short_name");
-  if (!name || !*name)
-    name = id;
-
   g_autoptr(GKeyFile) desktop = wig_pwa_desktop_entry_new(id, manifest, executable, protocols);
-  g_key_file_set_string(desktop, DESKTOP_GROUP, "Name", name);
+  g_key_file_set_string(desktop, DESKTOP_GROUP, "Name", wig_pwa_manifest_get_name(manifest, id));
   g_key_file_set_string(desktop, DESKTOP_GROUP, "Icon", launcher);
   g_key_file_set_string(desktop, DESKTOP_GROUP, "TryExec", executable);
 
@@ -193,24 +212,24 @@ GBytes *wig_pwa_desktop_fallback_icon(void)
 
 WigPwaDesktopArtifacts *wig_pwa_desktop_install(const char *data_home, const char *id, GVariant *manifest,
                                                 const char *executable, GBytes *icon, const char *icon_content_type,
-                                                int icon_size, const char *const *protocols, GError **error)
+                                                const char *const *protocols, GError **error)
 {
   g_return_val_if_fail(data_home != NULL, NULL);
   g_return_val_if_fail(id != NULL, NULL);
   g_return_val_if_fail(manifest && g_variant_is_of_type(manifest, G_VARIANT_TYPE_VARDICT), NULL);
   g_return_val_if_fail(executable != NULL, NULL);
-  g_return_val_if_fail(icon_size >= 0 && icon_size <= MAX_ICON_DIMENSION, NULL);
-  g_return_val_if_fail(icon == NULL || icon_size > 0, NULL);
   g_return_val_if_fail(error == NULL || *error == NULL, NULL);
 
   g_autofree char *launcher = launcher_name(id);
   g_autofree char *desktop_basename = g_strconcat(launcher, ".desktop", NULL);
 
   g_autoptr(GError) icon_error = NULL;
-  g_autoptr(GBytes) icon_bytes = validate_icon(icon, icon_content_type, &icon_error);
+  guint32 icon_size = 0;
+  g_autoptr(GBytes) icon_bytes = validate_icon(icon, icon_content_type, &icon_size, &icon_error);
   g_autofree char *icon_relative = NULL;
   if (icon_bytes) {
-    g_autofree char *size_directory = g_strdup_printf("%dx%d", icon_size, icon_size);
+    guint32 directory_size = theme_icon_size(icon_size);
+    g_autofree char *size_directory = g_strdup_printf("%ux%u", directory_size, directory_size);
     g_autofree char *icon_basename = g_strconcat(launcher, ".png", NULL);
     icon_relative = g_build_filename("icons", "hicolor", size_directory, "apps", icon_basename, NULL);
   } else {

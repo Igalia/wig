@@ -74,6 +74,7 @@ struct _WigApplication {
   WigNetworkMonitor *network_monitor;
   guint unload_unused_tabs_id;
   WigMcpServer *mcp_server;
+  WigPwaManager *pwa_manager;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -734,6 +735,7 @@ static void wig_application_startup(GApplication *application)
     return;
   }
 
+  g_autofree char *config_dir = g_build_filename(g_get_user_config_dir(), "com.igalia.wig", NULL);
   g_autofree char *data_dir = g_build_filename(g_get_user_data_dir(), "com.igalia.wig", NULL);
   g_autofree char *state_dir = g_build_filename(g_get_user_state_dir(), "com.igalia.wig", NULL);
   g_autofree char *cache_dir = g_build_filename(g_get_user_cache_dir(), "com.igalia.wig", NULL);
@@ -744,6 +746,7 @@ static void wig_application_startup(GApplication *application)
   webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
 
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
+  app->pwa_manager = wig_pwa_manager_new(config_dir, data_dir, app->network_session);
   g_autoptr(GError) history_error = NULL;
   app->history_store = wig_history_store_new(state_dir, &history_error);
   if (!app->history_store)
@@ -881,6 +884,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->update_monitor);
   g_clear_object(&app->network_monitor);
   g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
+  g_clear_object(&app->pwa_manager);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -1268,4 +1272,11 @@ WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app)
 WigNetworkMonitor *wig_application_get_network_monitor(WigApplication *app)
 {
   return app->network_monitor;
+}
+
+WigPwaManager *wig_application_get_pwa_manager(WigApplication *app)
+{
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
+  return app->pwa_manager;
 }

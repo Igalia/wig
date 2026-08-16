@@ -36,7 +36,7 @@ void wig_app_installer_artifacts_free(WigAppInstallerArtifacts *artifacts)
 }
 
 void wig_app_installer_install_async(WigAppInstaller *self, const char *id, const char *target, GVariant *manifest,
-                                     const char *executable, GBytes *icon, const char *icon_content_type, int icon_size,
+                                     const char *executable, GBytes *icon, const char *icon_content_type,
                                      const char *const *protocols, gboolean replace_icon,
                                      const char *current_desktop_file, const char *current_icon_file,
                                      GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
@@ -46,12 +46,11 @@ void wig_app_installer_install_async(WigAppInstaller *self, const char *id, cons
   g_return_if_fail(target != NULL);
   g_return_if_fail(manifest && g_variant_is_of_type(manifest, G_VARIANT_TYPE_VARDICT));
   g_return_if_fail(executable != NULL);
-  g_return_if_fail(icon_size >= 0);
   g_return_if_fail(cancellable == NULL || G_IS_CANCELLABLE(cancellable));
 
   WIG_APP_INSTALLER_GET_IFACE(self)->install_async(self, id, target, manifest, executable, icon, icon_content_type,
-                                                   icon_size, protocols, replace_icon, current_desktop_file,
-                                                   current_icon_file, cancellable, callback, user_data);
+                                                   protocols, replace_icon, current_desktop_file, current_icon_file,
+                                                   cancellable, callback, user_data);
 }
 
 WigAppInstallerArtifacts *wig_app_installer_install_finish(WigAppInstaller *self, GAsyncResult *result, GError **error)

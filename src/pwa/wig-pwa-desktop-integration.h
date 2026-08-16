@@ -33,7 +33,7 @@ typedef struct {
 
 WigPwaDesktopArtifacts *wig_pwa_desktop_install(const char *data_home, const char *id, GVariant *manifest,
                                                 const char *executable, GBytes *icon, const char *icon_content_type,
-                                                int icon_size, const char *const *protocols, GError **error);
+                                                const char *const *protocols, GError **error);
 gboolean wig_pwa_desktop_update(const char *data_home, const char *id, GVariant *manifest, const char *executable,
                                 const char *const *protocols, GError **error);
 gboolean wig_pwa_desktop_uninstall(const char *data_home, const char *id, const char *icon_file, GError **error);

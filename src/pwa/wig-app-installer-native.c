@@ -35,7 +35,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(WigAppInstallerNative, wig_app_installer_native, G
                               G_IMPLEMENT_INTERFACE(WIG_TYPE_APP_INSTALLER, app_installer_interface_init))
 
 static void install_async(WigAppInstaller *installer, const char *id, const char *target, GVariant *manifest,
-                          const char *executable, GBytes *icon, const char *icon_content_type, int icon_size,
+                          const char *executable, GBytes *icon, const char *icon_content_type,
                           const char *const *protocols, gboolean replace_icon, const char *current_desktop_file,
                           const char *current_icon_file, GCancellable *cancellable, GAsyncReadyCallback callback,
                           gpointer user_data)
@@ -50,7 +50,7 @@ static void install_async(WigAppInstaller *installer, const char *id, const char
   g_autoptr(WigPwaDesktopArtifacts) desktop_artifacts = NULL;
   if (replace_icon) {
     desktop_artifacts = wig_pwa_desktop_install(self->data_home, id, manifest, executable, icon, icon_content_type,
-                                                icon_size, protocols, &error);
+                                                protocols, &error);
     if (!desktop_artifacts) {
       g_prefix_error_literal(&error, "Failed to install desktop launcher: ");
       g_task_return_error(task, g_steal_pointer(&error));
@@ -71,7 +71,6 @@ static void install_async(WigAppInstaller *installer, const char *id, const char
   WigAppInstallerArtifacts *artifacts = g_new0(WigAppInstallerArtifacts, 1);
   artifacts->desktop_file = g_strdup(desktop_artifacts ? desktop_artifacts->desktop_file : current_desktop_file);
   artifacts->icon_file = g_strdup(desktop_artifacts ? desktop_artifacts->icon_file : current_icon_file);
-  artifacts->can_rollback = desktop_artifacts != NULL;
   g_task_return_pointer(task, artifacts, (GDestroyNotify)wig_app_installer_artifacts_free);
 }
 

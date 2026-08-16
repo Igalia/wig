@@ -29,7 +29,6 @@ G_BEGIN_DECLS
 typedef struct {
   char *desktop_file;
   char *icon_file;
-  gboolean can_rollback;
 } WigAppInstallerArtifacts;
 
 void wig_app_installer_artifacts_free(WigAppInstallerArtifacts *artifacts);
@@ -42,7 +41,7 @@ struct _WigAppInstallerInterface {
   GTypeInterface parent;
 
   void (*install_async)(WigAppInstaller *self, const char *id, const char *target, GVariant *manifest,
-                        const char *executable, GBytes *icon, const char *icon_content_type, int icon_size,
+                        const char *executable, GBytes *icon, const char *icon_content_type,
                         const char *const *protocols, gboolean replace_icon, const char *current_desktop_file,
                         const char *current_icon_file, GCancellable *cancellable, GAsyncReadyCallback callback,
                         gpointer user_data);
@@ -55,7 +54,7 @@ struct _WigAppInstallerInterface {
 };
 
 void wig_app_installer_install_async(WigAppInstaller *self, const char *id, const char *target, GVariant *manifest,
-                                     const char *executable, GBytes *icon, const char *icon_content_type, int icon_size,
+                                     const char *executable, GBytes *icon, const char *icon_content_type,
                                      const char *const *protocols, gboolean replace_icon,
                                      const char *current_desktop_file, const char *current_icon_file,
                                      GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data);

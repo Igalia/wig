@@ -66,8 +66,8 @@ static WigAppInstallerArtifacts *install(WigAppInstaller *installer, const char 
   g_autoptr(GMainLoop) loop = g_main_loop_new(NULL, FALSE);
   InstallResult result = { .loop = loop };
   wig_app_installer_install_async(installer, id, "https://example.com/start", manifest, "/usr/bin/wig", icon,
-                                  icon_content_type, icon ? 512 : 0, protocols, replace_icon, current_desktop_file,
-                                  current_icon_file, NULL, install_finished, &result);
+                                  icon_content_type, protocols, replace_icon, current_desktop_file, current_icon_file,
+                                  NULL, install_finished, &result);
   g_main_loop_run(loop);
   if (!result.artifacts)
     g_propagate_error(error, result.error);
@@ -131,7 +131,7 @@ static void test_installs_rasterized_icon(void)
   g_assert_no_error(error);
   g_assert_nonnull(artifacts);
   g_assert_true(g_str_has_suffix(artifacts->icon_file, ".png"));
-  g_assert_nonnull(strstr(artifacts->icon_file, "/512x512/"));
+  g_assert_nonnull(strstr(artifacts->icon_file, "/16x16/"));
   g_autofree char *installed_icon = g_build_filename(g_get_user_data_dir(), artifacts->icon_file, NULL);
   g_assert_true(g_file_test(installed_icon, G_FILE_TEST_IS_REGULAR));
   g_autofree char *icon_content_type = NULL;

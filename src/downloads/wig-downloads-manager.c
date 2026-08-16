@@ -179,6 +179,11 @@ static void on_download_started(WebKitNetworkSession *session, WebKitDownload *d
   if (wig_downloads_manager_find_record(self, download))
     return;
 
+  /* Downloads the browser starts for itself, like a web app icon, have no view
+   * behind them and are not the user's business. */
+  if (!webkit_download_get_web_view(download))
+    return;
+
   g_debug("downloads: started '%s'", webkit_uri_request_get_uri(webkit_download_get_request(download)));
 
   WigDownloadRecord *record = g_new0(WigDownloadRecord, 1);
