@@ -359,6 +359,14 @@ static void wig_window_show_settings(GSimpleAction *action, GVariant *parameter,
   wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:settings");
 }
 
+static void wig_window_toggle_inspector(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+
+  if (win->current_web_view)
+    webkit_web_view_toggle_inspector(win->current_web_view);
+}
+
 static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -637,6 +645,7 @@ static const GActionEntry actions[] = {
   { "show-downloads", wig_window_show_downloads },
   { "show-history", wig_window_show_history },
   { "show-settings", wig_window_show_settings },
+  { "toggle-inspector", wig_window_toggle_inspector },
   { "close-tab", wig_window_close_tab_action },
   { "undo-close-tab", wig_window_undo_close_tab },
   { "duplicate-active-tab", wig_window_duplicate_active_tab },

@@ -644,6 +644,7 @@ static void wig_application_startup(GApplication *application)
     { "win.show-downloads", { "<Primary>j", NULL } },
     { "win.show-history", { "<Primary>h", NULL } },
     { "win.insert-emoji", { "<Primary>period", NULL } },
+    { "win.toggle-inspector", { "F12", NULL } },
 
   };
 
