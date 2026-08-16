@@ -44,8 +44,10 @@ struct _WigWindow {
   WigWindowBase parent;
 
   WigTabLayout tab_layout;
+  gboolean popup;
   GtkWidget *toolbar_view;
   GtkWidget *header_bar;
+  GtkWidget *toolbar_box;
   GtkWidget *back_button;
   GtkWidget *forward_button;
   GtkWidget *stop_reload_button;
@@ -687,6 +689,18 @@ static void wig_window_add_tab_view_context_menu(WigWindow *win, GtkWidget *widg
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(g_steal_pointer(&gesture)));
 }
 
+static void wig_window_update_tab_view_visibility(WigWindow *win)
+{
+  gboolean visible = !win->popup && !gtk_window_is_fullscreen(GTK_WINDOW(win));
+
+  if (win->tab_bar)
+    gtk_widget_set_visible(win->tab_bar, visible);
+  if (win->tab_separator)
+    gtk_widget_set_visible(win->tab_separator, visible);
+  if (win->tab_sidebar)
+    gtk_widget_set_visible(win->tab_sidebar, visible);
+}
+
 static void wig_window_show_tab_sidebar(WigWindow *win)
 {
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
@@ -697,7 +711,7 @@ static void wig_window_show_tab_sidebar(WigWindow *win)
   wig_tab_switcher_set_view(win->tab_switcher, WIG_TAB_LIST_VIEW(win->tab_sidebar));
   wig_window_add_tab_view_context_menu(win, win->tab_sidebar);
   gtk_paned_set_start_child(GTK_PANED(win->paned), win->tab_sidebar);
-  gtk_widget_set_visible(win->tab_sidebar, !gtk_window_is_fullscreen(GTK_WINDOW(win)));
+  wig_window_update_tab_view_visibility(win);
 }
 
 static void wig_window_show_tab_bar(WigWindow *win)
@@ -716,9 +730,7 @@ static void wig_window_show_tab_bar(WigWindow *win)
   win->tab_separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
   gtk_box_insert_child_after(GTK_BOX(win->content_box), win->tab_separator, win->tab_bar);
 
-  gboolean visible = !gtk_window_is_fullscreen(GTK_WINDOW(win));
-  gtk_widget_set_visible(win->tab_bar, visible);
-  gtk_widget_set_visible(win->tab_separator, visible);
+  wig_window_update_tab_view_visibility(win);
 }
 
 static void wig_window_set_tab_layout(WigWindow *win, WigTabLayout layout)
@@ -1364,8 +1376,44 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   return TRUE;
 }
 
+/* Follows the popup test the HTML specification defines for window.open, as far
+ * as the window properties reach: every bar defaults to visible, so a window is
+ * a popup once the page has taken one of them away. A features string that only
+ * carries a size cannot be told apart from no features at all, since nothing in
+ * the window properties says a size was asked for. */
+static gboolean wig_window_properties_want_popup(WebKitWindowProperties *properties)
+{
+  if (!webkit_window_properties_get_locationbar_visible(properties)
+      && !webkit_window_properties_get_toolbar_visible(properties))
+    return TRUE;
+
+  return !webkit_window_properties_get_menubar_visible(properties)
+      || !webkit_window_properties_get_statusbar_visible(properties)
+      || !webkit_window_properties_get_scrollbars_visible(properties)
+      || !webkit_window_properties_get_resizable(properties);
+}
+
+/* The location bar stays even when the page asked for it to go, read-only, so a
+ * popup cannot dress itself up as a page from somewhere else. */
+static void wig_window_set_popup(WigWindow *win, gboolean popup)
+{
+  if (win->popup == popup)
+    return;
+
+  win->popup = popup;
+  gtk_widget_set_visible(win->toolbar_box, !popup);
+  gtk_editable_set_editable(GTK_EDITABLE(win->url_entry), !popup);
+  gtk_widget_set_focusable(win->url_entry, !popup);
+  wig_window_update_tab_view_visibility(win);
+}
+
 static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web_view)
 {
+  gboolean popup = wig_window_properties_want_popup(webkit_web_view_get_window_properties(web_view));
+  g_debug("window %u: the page asked for %s", wig_window_base_get_id(WIG_WINDOW_BASE(win)),
+          popup ? "a popup" : "a window");
+  wig_window_set_popup(win, popup);
+
   gtk_widget_grab_focus(wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view))));
   gtk_window_present(GTK_WINDOW(win));
 }
@@ -1546,15 +1594,8 @@ static void wig_window_update_state_changed(WigWindow *win, GParamSpec *pspec, W
 
 static void wig_window_fullscreen_changed(WigWindow *win)
 {
-  bool is_fullscreen = gtk_window_is_fullscreen(GTK_WINDOW(win));
-
-  gtk_widget_set_visible(win->header_bar, !is_fullscreen);
-  if (win->tab_bar)
-    gtk_widget_set_visible(win->tab_bar, !is_fullscreen);
-  if (win->tab_separator)
-    gtk_widget_set_visible(win->tab_separator, !is_fullscreen);
-  if (win->tab_sidebar)
-    gtk_widget_set_visible(win->tab_sidebar, !is_fullscreen);
+  gtk_widget_set_visible(win->header_bar, !gtk_window_is_fullscreen(GTK_WINDOW(win)));
+  wig_window_update_tab_view_visibility(win);
 }
 
 static void wig_window_tab_wants_attention(WigWindow *win, WigTab *tab)
@@ -1578,6 +1619,9 @@ static void wig_window_tab_web_view_changed(WigWindow *win, WebKitWebView *old_v
 
 static void wig_window_tab_added(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
 {
+  if (win->popup && wig_tab_list_get_n_tabs(list) > 1)
+    wig_window_set_popup(win, FALSE);
+
   g_signal_connect_object(tab, "wants-attention", G_CALLBACK(wig_window_tab_wants_attention), win, G_CONNECT_SWAPPED);
   g_signal_connect_object(tab, "web-view-changed", G_CALLBACK(wig_window_tab_web_view_changed), win, G_CONNECT_SWAPPED);
   gtk_stack_add_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
@@ -1813,7 +1857,7 @@ static void wig_window_constructed(GObject *object)
 
   win->header_bar = gtk_header_bar_new();
 
-  GtkWidget *start_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  win->toolbar_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_widget_add_css_class(box, "navigation-box");
@@ -1829,12 +1873,12 @@ static void wig_window_constructed(GObject *object)
   gtk_box_append(GTK_BOX(box), win->forward_button);
 
   wig_window_base_set_navigation_buttons(WIG_WINDOW_BASE(win), win->back_button, win->forward_button);
-  gtk_box_append(GTK_BOX(start_box), box);
+  gtk_box_append(GTK_BOX(win->toolbar_box), box);
 
   win->stop_reload_button = gtk_button_new_from_icon_name("view-refresh-symbolic");
   gtk_actionable_set_action_name(GTK_ACTIONABLE(win->stop_reload_button), "win.stop-reload");
   gtk_widget_add_css_class(win->stop_reload_button, "toolbar-button");
-  gtk_box_append(GTK_BOX(start_box), win->stop_reload_button);
+  gtk_box_append(GTK_BOX(win->toolbar_box), win->stop_reload_button);
 
   GtkGestureClick *reload_middle = GTK_GESTURE_CLICK(gtk_gesture_click_new());
   gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(reload_middle), GDK_BUTTON_MIDDLE);
@@ -1843,7 +1887,7 @@ static void wig_window_constructed(GObject *object)
                           G_CONNECT_DEFAULT);
   gtk_widget_add_controller(win->stop_reload_button, GTK_EVENT_CONTROLLER(reload_middle));
 
-  gtk_header_bar_pack_start(GTK_HEADER_BAR(win->header_bar), start_box);
+  gtk_header_bar_pack_start(GTK_HEADER_BAR(win->header_bar), win->toolbar_box);
 
   win->url_entry = gtk_entry_new();
   win->entry_completion_popover = wig_entry_completion_popover_new();
