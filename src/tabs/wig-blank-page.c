@@ -50,6 +50,7 @@ static void wig_blank_page_class_init(WigBlankPageClass *klass)
 static void wig_blank_page_init(WigBlankPage *self)
 {
   wig_native_page_set_title(WIG_NATIVE_PAGE(self), WIG_BLANK_PAGE_TITLE);
+  gtk_widget_set_focusable(GTK_WIDGET(self), FALSE);
 }
 
 GtkWidget *wig_blank_page_new(const char *uri)
