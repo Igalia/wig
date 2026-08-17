@@ -62,6 +62,7 @@ struct _WigWindow {
   guint progress_timeout_id;
   gboolean suppress_entry_completion;
   gboolean url_entry_focused;
+  gboolean url_entry_edited;
   GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
   GSignalGroup *active_web_view_signals;
@@ -716,6 +717,12 @@ static void wig_window_tab_copy_link(WigTabList *list, guint tab_id, WigWindow *
 
 static void wig_window_update_url(WigWindow *win)
 {
+  /* Half-typed input is worth more than the address of the page it is being
+   * typed over: a load finishing, or a page changing its own address, must not
+   * take it away. */
+  if (win->url_entry_focused && win->url_entry_edited)
+    return;
+
   const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
 
   /* A load that failed before committing leaves the view without a URI, so the
@@ -727,9 +734,16 @@ static void wig_window_update_url(WigWindow *win)
       url = wig_tab_get_page_uri(tab);
   }
 
+  /* A tab with nothing in it has no address worth showing, and an entry left
+   * holding "about:blank" is something to be deleted before the address the
+   * user opened the tab to type. */
+  if (g_strcmp0(url, "about:blank") == 0)
+    url = NULL;
+
   win->suppress_entry_completion = TRUE;
   gtk_editable_set_text(GTK_EDITABLE(win->url_entry), url ? url : "");
   win->suppress_entry_completion = FALSE;
+  win->url_entry_edited = FALSE;
 }
 
 static void wig_window_clear_load_progress(WigWindow *win)
@@ -869,6 +883,9 @@ static void wig_window_update_entry_completion(WigWindow *win)
 
 static void wig_window_url_entry_changed(GtkEditable *editable, WigWindow *win)
 {
+  if (!win->suppress_entry_completion)
+    win->url_entry_edited = TRUE;
+
   wig_window_update_entry_completion(win);
 }
 
@@ -899,6 +916,11 @@ static void wig_window_url_entry_focus_enter(GtkEventControllerFocus *controller
 static void wig_window_url_entry_focus_leave(GtkEventControllerFocus *controller, WigWindow *win)
 {
   win->url_entry_focused = FALSE;
+
+  /* Typing that was left behind is no longer being worked on, so the next
+   * address the tab reports is free to replace it. */
+  win->url_entry_edited = FALSE;
+
   if (GTK_IS_POPOVER(win->entry_completion_popover))
     gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
 }

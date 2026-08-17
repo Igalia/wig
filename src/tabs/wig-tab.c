@@ -568,15 +568,27 @@ static void wig_tab_native_page_uri_changed(WigTab *self, GParamSpec *pspec, Wig
   webkit_web_view_load_uri(self->web_view, uri);
 }
 
+static gboolean wig_tab_focus_is_in_input(WigTab *self)
+{
+  GtkRoot *root = gtk_widget_get_root(self->view_overlay);
+  GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+
+  return focus && GTK_IS_EDITABLE(focus);
+}
+
 static void wig_tab_show_native_page(WigTab *self, GtkWidget *page)
 {
   self->native_page = page;
 
   gtk_widget_set_visible(self->web_view_widget, FALSE);
   gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), page);
-  gtk_widget_grab_focus(page);
 
-  gtk_widget_grab_focus(page);
+  /* Pages arrive on their own account as well as by being asked for: a load
+   * failing, or a tab opening with nothing in it, happens while the user may be
+   * partway through typing an address, and taking the focus there would throw
+   * the typing away. */
+  if (gtk_widget_get_focusable(page) && !wig_tab_focus_is_in_input(self))
+    gtk_widget_grab_focus(page);
 
   g_signal_connect_object(page, "notify::title", G_CALLBACK(wig_tab_native_page_title_changed), self,
                           G_CONNECT_SWAPPED);
