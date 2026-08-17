@@ -32,6 +32,8 @@ struct _WigErrorPage {
   WigNativePage parent;
 
   GtkWidget *status_page;
+  gboolean resumable;
+  gboolean offline;
 };
 
 G_DEFINE_FINAL_TYPE(WigErrorPage, wig_error_page, WIG_TYPE_NATIVE_PAGE)
@@ -122,6 +124,41 @@ static const char *error_icon_name(const GError *error)
   return "dialog-warning-symbolic";
 }
 
+static gboolean error_is_resumable(const char *failing_uri, const GError *error)
+{
+  g_autoptr(GUri) uri = g_uri_parse(failing_uri, G_URI_FLAGS_NONE, NULL);
+  const char *scheme = uri ? g_uri_get_scheme(uri) : NULL;
+
+  if (g_strcmp0(scheme, "http") != 0 && g_strcmp0(scheme, "https") != 0)
+    return FALSE;
+
+  if (error->domain == G_RESOLVER_ERROR)
+    return TRUE;
+
+  if (error->domain == G_IO_ERROR) {
+    switch (error->code) {
+    case G_IO_ERROR_HOST_NOT_FOUND:
+    case G_IO_ERROR_HOST_UNREACHABLE:
+    case G_IO_ERROR_NETWORK_UNREACHABLE:
+    case G_IO_ERROR_CONNECTION_REFUSED:
+    case G_IO_ERROR_CONNECTION_CLOSED:
+    case G_IO_ERROR_NOT_CONNECTED:
+    case G_IO_ERROR_TIMED_OUT:
+    case G_IO_ERROR_PARTIAL_INPUT:
+      return TRUE;
+    default:
+      return FALSE;
+    }
+  }
+
+  /* Everything from a refused connection to one that dropped mid-response
+   * reaches us as TRANSPORT or FAILED, with the specifics only in the message. */
+  if (error->domain == WEBKIT_NETWORK_ERROR)
+    return error->code == WEBKIT_NETWORK_ERROR_TRANSPORT || error->code == WEBKIT_NETWORK_ERROR_FAILED;
+
+  return FALSE;
+}
+
 static void wig_error_page_reload_clicked(WigErrorPage *self)
 {
   g_signal_emit(self, signals[RELOAD_SIGNAL], 0);
@@ -162,34 +199,46 @@ static void wig_error_page_init(WigErrorPage *self)
   gtk_widget_set_parent(self->status_page, GTK_WIDGET(self));
 }
 
-GtkWidget *wig_error_page_new(const char *failing_uri, const GError *error, gboolean can_go_back)
+GtkWidget *wig_error_page_new(const char *failing_uri, const GError *error, gboolean can_go_back, gboolean offline)
 {
   g_assert(failing_uri != NULL);
   g_assert(error != NULL);
 
   WigErrorPage *self = WIG_ERROR_PAGE(g_object_new(WIG_TYPE_ERROR_PAGE, "uri", failing_uri, NULL));
 
-  adw_status_page_set_icon_name(ADW_STATUS_PAGE(self->status_page), error_icon_name(error));
-  adw_status_page_set_title(ADW_STATUS_PAGE(self->status_page), error_title(error));
-  adw_status_page_set_description(ADW_STATUS_PAGE(self->status_page), error_description(error));
+  self->resumable = error_is_resumable(failing_uri, error);
+  self->offline = offline && self->resumable;
 
-  g_autofree char *code = g_strdup_printf("%s %d", g_quark_to_string(error->domain), error->code);
-
-  struct {
-    const char *name;
-    const char *value;
-  } details[] = {
-    { "Address", failing_uri },
-    { "Details", error->message && *error->message ? error->message : "(none)" },
-    { "Code", code },
-  };
+  if (self->offline) {
+    adw_status_page_set_icon_name(ADW_STATUS_PAGE(self->status_page), "network-offline-symbolic");
+    adw_status_page_set_title(ADW_STATUS_PAGE(self->status_page), "You are offline");
+    adw_status_page_set_description(ADW_STATUS_PAGE(self->status_page),
+                                    "This page will reload by itself once you are back online.");
+  } else {
+    adw_status_page_set_icon_name(ADW_STATUS_PAGE(self->status_page), error_icon_name(error));
+    adw_status_page_set_title(ADW_STATUS_PAGE(self->status_page), error_title(error));
+    adw_status_page_set_description(ADW_STATUS_PAGE(self->status_page), error_description(error));
+  }
 
   GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
 
-  GtkWidget *grid = wig_page_details_new();
-  for (guint i = 0; i < G_N_ELEMENTS(details); i++)
-    wig_page_details_add(grid, (int)i, details[i].name, details[i].value);
-  gtk_box_append(GTK_BOX(content), grid);
+  if (!self->offline) {
+    g_autofree char *code = g_strdup_printf("%s %d", g_quark_to_string(error->domain), error->code);
+
+    struct {
+      const char *name;
+      const char *value;
+    } details[] = {
+      { "Address", failing_uri },
+      { "Details", error->message && *error->message ? error->message : "(none)" },
+      { "Code", code },
+    };
+
+    GtkWidget *grid = wig_page_details_new();
+    for (guint i = 0; i < G_N_ELEMENTS(details); i++)
+      wig_page_details_add(grid, (int)i, details[i].name, details[i].value);
+    gtk_box_append(GTK_BOX(content), grid);
+  }
 
   GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
   gtk_widget_set_halign(buttons, GTK_ALIGN_CENTER);
@@ -219,4 +268,9 @@ const char *wig_error_page_get_uri(WigErrorPage *self)
   g_assert(WIG_IS_ERROR_PAGE(self));
 
   return wig_native_page_get_uri(WIG_NATIVE_PAGE(self));
+}
+
+gboolean wig_error_page_get_resumable(WigErrorPage *self)
+{
+  return self->resumable;
 }

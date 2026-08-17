@@ -313,21 +313,40 @@ static gboolean wig_tab_on_load_failed_with_tls_errors(WigTab *self, const char 
   return TRUE;
 }
 
+static gboolean network_is_offline(void)
+{
+  return !wig_network_monitor_get_available(wig_application_get_network_monitor(wig_application_get()));
+}
+
 static gboolean wig_tab_on_load_failed(WigTab *self, WebKitLoadEvent load_event, const char *failing_uri, GError *error)
 {
-  g_warning("tab %u: load failed for %s: %s", self->id, failing_uri, error->message);
+  gboolean offline = network_is_offline();
+
+  g_warning("tab %u: load failed for %s%s: %s", self->id, failing_uri, offline ? " while offline" : "", error->message);
 
   g_object_set(self, "loading", FALSE, NULL);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
   wig_tab_clear_native_page(self);
-  GtkWidget *page = wig_error_page_new(failing_uri, error, webkit_web_view_can_go_back(self->web_view));
+  GtkWidget *page = wig_error_page_new(failing_uri, error, webkit_web_view_can_go_back(self->web_view), offline);
   g_signal_connect_object(page, "reload", G_CALLBACK(wig_tab_error_page_reload), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(page, "go-back", G_CALLBACK(wig_tab_error_page_go_back), self, G_CONNECT_SWAPPED);
 
   wig_tab_show_native_page(self, page);
 
   return TRUE;
+}
+
+static void wig_tab_network_came_online(WigTab *self)
+{
+  if (!WIG_IS_ERROR_PAGE(self->native_page))
+    return;
+
+  if (!wig_error_page_get_resumable(WIG_ERROR_PAGE(self->native_page)))
+    return;
+
+  g_debug("tab %u: network is back, reloading %s", self->id, wig_tab_get_page_uri(self));
+  wig_tab_error_page_reload(self);
 }
 
 /* WebKit leaves the load state untouched when the web process dies, so a tab
@@ -845,6 +864,8 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_signal_connect_object(web_view, "load-failed-with-tls-errors", G_CALLBACK(wig_tab_on_load_failed_with_tls_errors),
                           self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "load-failed", G_CALLBACK(wig_tab_on_load_failed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(wig_application_get_network_monitor(wig_application_get()), "came-online",
+                          G_CALLBACK(wig_tab_network_came_online), self, G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-playing-audio", self, "playing-audio", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-muted", self, "muted",

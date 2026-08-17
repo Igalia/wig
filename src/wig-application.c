@@ -58,6 +58,7 @@ struct _WigApplication {
   GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
   WigPermissionsManager *permissions_manager;
   WigUpdateMonitor *update_monitor;
+  WigNetworkMonitor *network_monitor;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -594,6 +595,7 @@ static void wig_application_startup(GApplication *application)
   g_action_map_add_action_entries(G_ACTION_MAP(application), app_actions, G_N_ELEMENTS(app_actions), application);
 
   app->settings = wig_settings_new();
+  app->network_monitor = wig_network_monitor_new();
 
   g_autoptr(GAction) tab_layout_action = g_settings_create_action(app->settings, "tab-layout");
   g_action_map_add_action(G_ACTION_MAP(application), tab_layout_action);
@@ -740,6 +742,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_pointer(&app->notifications, g_hash_table_unref);
   g_clear_object(&app->permissions_manager);
   g_clear_object(&app->update_monitor);
+  g_clear_object(&app->network_monitor);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -1078,4 +1081,9 @@ WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *a
 WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app)
 {
   return app->update_monitor;
+}
+
+WigNetworkMonitor *wig_application_get_network_monitor(WigApplication *app)
+{
+  return app->network_monitor;
 }

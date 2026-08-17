@@ -30,6 +30,7 @@ wig_sources = files(
     'wig-emoji-chooser.c',
     'wig-favicon.c',
     'wig-key-file-utils.c',
+    'wig-network-monitor.c',
     'wig-permissions-manager.c',
     'wig-permissions.c',
     'wig-search-bar.c',

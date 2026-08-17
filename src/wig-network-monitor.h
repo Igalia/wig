@@ -22,16 +22,15 @@
 
 #pragma once
 
-#include "wig-native-page.h"
+#include <gio/gio.h>
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_ERROR_PAGE (wig_error_page_get_type())
-G_DECLARE_FINAL_TYPE(WigErrorPage, wig_error_page, WIG, ERROR_PAGE, WigNativePage)
+#define WIG_TYPE_NETWORK_MONITOR (wig_network_monitor_get_type())
+G_DECLARE_FINAL_TYPE(WigNetworkMonitor, wig_network_monitor, WIG, NETWORK_MONITOR, GObject)
 
-GtkWidget *wig_error_page_new(const char *failing_uri, const GError *error, gboolean can_go_back, gboolean offline);
+WigNetworkMonitor *wig_network_monitor_new(void);
 
-const char *wig_error_page_get_uri(WigErrorPage *self);
-gboolean wig_error_page_get_resumable(WigErrorPage *self);
+gboolean wig_network_monitor_get_available(WigNetworkMonitor *self);
 
 G_END_DECLS

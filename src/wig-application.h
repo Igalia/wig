@@ -28,6 +28,7 @@
 
 #include "wig-downloads-manager.h"
 #include "wig-history-store.h"
+#include "wig-network-monitor.h"
 #include "wig-permissions-manager.h"
 #include "wig-session.h"
 #include "wig-update-monitor.h"
@@ -82,5 +83,6 @@ void wig_application_untrack_notification(WigApplication *app, const char *id);
 
 WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *app);
 WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app);
+WigNetworkMonitor *wig_application_get_network_monitor(WigApplication *app);
 
 G_END_DECLS
