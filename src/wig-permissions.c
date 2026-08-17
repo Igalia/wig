@@ -38,6 +38,7 @@ static const WigPermissionInfo permission_infos[WIG_PERMISSION_N_KINDS] = {
   { "clipboard", "edit-paste-symbolic", "Clipboard", "read your clipboard" },
   { "geolocation", "find-location-symbolic", "Location", "know your location" },
   { "media-key-system", "video-x-generic-symbolic", "Protected Media", "play protected media" },
+  { "xr", "video-display-symbolic", "Virtual Reality", "start an immersive session" },
 };
 
 guint wig_permission_kind_index(WigPermissionKind kind)
@@ -82,6 +83,10 @@ WigPermissionKind wig_permission_kinds_for_request(WebKitPermissionRequest *requ
 #if HAVE_CLIPBOARD_PERMISSION_SUPPORT
   if (WEBKIT_IS_CLIPBOARD_PERMISSION_REQUEST(request))
     return WIG_PERMISSION_CLIPBOARD;
+#endif
+#if HAVE_XR_PERMISSION_SUPPORT
+  if (WEBKIT_IS_XR_PERMISSION_REQUEST(request))
+    return WIG_PERMISSION_XR;
 #endif
   return 0;
 }

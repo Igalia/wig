@@ -9,7 +9,9 @@ command: wig
 
 finish-args:
   - --device=dri
+  - --filesystem=xdg-config/openxr:ro
   - --filesystem=xdg-download
+  - --filesystem=xdg-run/monado_comp_ipc
   - --share=ipc
   - --share=network
   - --socket=fallback-x11

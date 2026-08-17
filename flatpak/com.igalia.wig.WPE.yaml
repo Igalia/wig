@@ -74,6 +74,23 @@ modules:
         url: https://gitlab.gnome.org/GNOME/libsoup.git
         commit: f2af6b499cf23075ad73e065370cbb2e4eaceb6a
 
+  - name: openxr
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DDYNAMIC_LOADER=ON
+      - -DBUILD_TESTS=OFF
+      - -DBUILD_API_LAYERS=OFF
+    cleanup:
+      - /include
+      - /lib/cmake
+      - /lib/pkgconfig
+    sources:
+      - type: git
+        url: https://github.com/KhronosGroup/OpenXR-SDK.git
+        tag: release-1.1.62
+        commit: 00678df64b49ad878a8e882af933c28518cafd1c
+
   - name: webkitwpe
     buildsystem: cmake-ninja
     config-opts:
@@ -93,6 +110,7 @@ modules:
       - -DENABLE_WK_WEB_EXTENSIONS=ON
       - -DENABLE_ENCRYPTED_MEDIA=ON
       - -DENABLE_THUNDER=ON
+      - -DENABLE_WEBXR=ON
 
       # Unbuilt dependencies.
       - -DENABLE_SPEECH_SYNTHESIS=OFF

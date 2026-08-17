@@ -250,6 +250,8 @@ static gboolean query_permission_state(WebKitWebView *web_view, WebKitPermission
     kind = WIG_PERMISSION_CAMERA;
   else if (g_str_equal(name, "clipboard-read") || g_str_equal(name, "clipboard-write"))
     kind = WIG_PERMISSION_CLIPBOARD;
+  else if (g_str_equal(name, "xr-spatial-tracking"))
+    kind = WIG_PERMISSION_XR;
   else
     return FALSE;
 

@@ -111,6 +111,13 @@ config_h.set10(
     ),
 )
 config_h.set10(
+    'HAVE_XR_PERMISSION_SUPPORT',
+    cc.has_function(
+        'webkit_xr_permission_request_get_type',
+        dependencies: wpe_webkit_dep,
+    ),
+)
+config_h.set10(
     'HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT',
     cc.has_function(
         'webkit_website_policies_get_https_navigation_policy',
