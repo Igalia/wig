@@ -30,14 +30,24 @@
 
 typedef struct {
   WebKitHitTestResult *hit_test_result;
-  const char *selected_text;
-  const char *search_engine;
-  /* The section WebKit is filling with image items, held until the block ends so
-   * the address wig adds lands after the last of them. */
   GMenu *image_section;
-  GMenu *selection_section;
-  gboolean placed_search_item;
+  GMenu *search_section;
+  GMenuItem *inspect_item;
+  gboolean has_copy_item;
 } BuildContext;
+
+static GMenu *append_new_section(GMenu *menu)
+{
+  GMenu *section = g_menu_new();
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+  return section;
+}
+
+static void append_item_in_section(GMenu *menu, GMenuItem *item)
+{
+  g_autoptr(GMenu) section = append_new_section(menu);
+  g_menu_append_item(section, item);
+}
 
 /* A misspelled word brings a guess per item plus the two spelling actions, which
  * is most of the menu by the time the usual editing entries follow. */
@@ -154,21 +164,10 @@ static char *build_search_label(const char *engine_name, const char *terms)
   return g_string_free(g_steal_pointer(&label), FALSE);
 }
 
-static GMenuItem *build_search_item(const BuildContext *context)
-{
-  g_autofree char *terms = collapse_whitespace(context->selected_text);
-  if (!*terms)
-    return NULL;
-
-  g_autofree char *engine_name = wig_util_search_engine_name(context->search_engine);
-  g_autofree char *label = build_search_label(engine_name, terms);
-  g_autofree char *uri = wig_util_search_uri(terms, context->search_engine);
-  return build_uri_item(label, "popup.open-in-new-tab", uri);
-}
-
-/* The items wig adds belong after the ones WebKit built for the same thing, so
- * they wait for the section holding those to end. */
-static void flush_pending_items(BuildContext *context)
+/* What wig adds belongs after the items WebKit built for the same thing, so it
+ * waits for the section holding those to end: the image address joins the image
+ * items, and the search gets the section below the one the copy item is in. */
+static void flush_pending_items(BuildContext *context, GMenu *menu)
 {
   if (context->image_section) {
     g_autoptr(GMenuItem) item = build_uri_item("Copy Image Address", "popup.copy-text",
@@ -177,13 +176,8 @@ static void flush_pending_items(BuildContext *context)
     context->image_section = NULL;
   }
 
-  if (context->selection_section) {
-    g_autoptr(GMenuItem) item = build_search_item(context);
-    if (item)
-      g_menu_append_item(context->selection_section, item);
-    context->selection_section = NULL;
-    context->placed_search_item = TRUE;
-  }
+  if (context->has_copy_item && !context->search_section)
+    context->search_section = append_new_section(menu);
 }
 
 static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildContext *context)
@@ -195,7 +189,7 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildC
   for (GList *l = items; l; l = g_list_next(l)) {
     WebKitContextMenuItem *item = WEBKIT_CONTEXT_MENU_ITEM(l->data);
     if (webkit_context_menu_item_is_separator(item)) {
-      flush_pending_items(context);
+      flush_pending_items(context, menu);
       g_autoptr(GMenu) section = g_menu_new();
       g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
       section_menu = section;
@@ -205,8 +199,8 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildC
     WebKitContextMenuAction stock_action = webkit_context_menu_item_get_stock_action(item);
     if (is_image_action(stock_action))
       context->image_section = section_menu;
-    else if (stock_action == WEBKIT_CONTEXT_MENU_ACTION_COPY && context->selected_text && !context->placed_search_item)
-      context->selection_section = section_menu;
+    else if (stock_action == WEBKIT_CONTEXT_MENU_ACTION_COPY)
+      context->has_copy_item = TRUE;
 
     g_autoptr(GMenuItem) new_tab_item = build_new_tab_item(context, stock_action);
     if (new_tab_item) {
@@ -218,6 +212,12 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildC
     if (!action)
       continue;
     g_action_map_add_action(G_ACTION_MAP(action_group), action);
+
+    if (stock_action == WEBKIT_CONTEXT_MENU_ACTION_INSPECT_ELEMENT) {
+      g_clear_object(&context->inspect_item);
+      context->inspect_item = build_action_item(item, action);
+      continue;
+    }
 
     if (is_spelling_action(stock_action)) {
       /* The submenu takes the place of the first guess, which is where WebKit
@@ -255,28 +255,43 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildC
 }
 
 GMenu *wig_context_menu_build(WebKitContextMenu *context_menu, GSimpleActionGroup *action_group,
-                              WebKitHitTestResult *hit_test_result, const char *selected_text,
-                              const char *search_engine)
+                              WebKitHitTestResult *hit_test_result, GMenu **search_section)
 {
-  g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU(context_menu), NULL);
-  g_return_val_if_fail(G_IS_SIMPLE_ACTION_GROUP(action_group), NULL);
-  g_return_val_if_fail(WEBKIT_IS_HIT_TEST_RESULT(hit_test_result), NULL);
-  g_return_val_if_fail(search_engine != NULL, NULL);
-
-  BuildContext context = {
-    .hit_test_result = hit_test_result,
-    .selected_text = selected_text && *selected_text ? selected_text : NULL,
-    .search_engine = search_engine,
-  };
+  BuildContext context = { .hit_test_result = hit_test_result };
   g_autoptr(GMenu) menu = build_items(webkit_context_menu_get_items(context_menu), action_group, &context);
-  flush_pending_items(&context);
+  flush_pending_items(&context, menu);
 
-  /* Without a copy item to sit beside, the search goes at the end of the menu. */
-  if (context.selected_text && !context.placed_search_item) {
-    g_autoptr(GMenuItem) search_item = build_search_item(&context);
-    if (search_item)
-      g_menu_append_item(menu, search_item);
+  /* With no copy item to sit under, a search for the selection waits below
+   * everything WebKit offered. */
+  if (!context.search_section)
+    context.search_section = append_new_section(menu);
+
+  if (webkit_hit_test_result_context_is_editable(hit_test_result)) {
+    g_autoptr(GMenuItem) emoji_item = g_menu_item_new("Insert Emoji…", "win.insert-emoji");
+    append_item_in_section(menu, emoji_item);
   }
 
+  /* The inspector was kept back so that it ends up below everything wig adds. */
+  if (context.inspect_item) {
+    g_autoptr(GMenuItem) inspect_item = g_steal_pointer(&context.inspect_item);
+    append_item_in_section(menu, inspect_item);
+  }
+
+  *search_section = g_steal_pointer(&context.search_section);
+
   return g_steal_pointer(&menu);
+}
+
+void wig_context_menu_add_search_item(GMenu *search_section, const char *selected_text, const char *search_engine)
+{
+  g_autofree char *terms = collapse_whitespace(selected_text);
+  if (!*terms)
+    return;
+
+  g_autofree char *engine_name = wig_util_search_engine_name(search_engine);
+  g_autofree char *label = build_search_label(engine_name, terms);
+  g_autofree char *uri = wig_util_search_uri(terms, search_engine);
+  g_autoptr(GMenuItem) item = build_uri_item(label, "popup.open-in-new-tab", uri);
+
+  g_menu_append_item(search_section, item);
 }

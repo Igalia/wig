@@ -1150,48 +1150,36 @@ static const char SELECTED_TEXT_SCRIPT[] = "(() => {"
                                            "  return getSelection().toString();"
                                            "})()";
 
-static gboolean wig_window_show_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
-                                             WebKitHitTestResult *hit_test_result, const char *selected_text)
-{
-  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
-  g_autofree char *search_engine = g_settings_get_string(wig_application_get_settings(app), "search-engine");
-
-  g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
-  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, selected_text,
-                                                 search_engine);
-  if (webkit_hit_test_result_context_is_editable(hit_test_result)) {
-    g_autoptr(GMenu) section = g_menu_new();
-    g_menu_append(section, "Insert Emoji…", "win.insert-emoji");
-    g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
-  }
-
-  if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
-    return FALSE;
-
-  GdkRectangle target = { 0, 0, 1, 1 };
-  gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
-
-  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(win->current_web_view)), G_MENU_MODEL(menu),
-                                 G_ACTION_GROUP(action_group), has_position ? &target : NULL);
-
-  return TRUE;
-}
-
 typedef struct {
   WigWindow *win;
-  WebKitContextMenu *context_menu;
-  WebKitHitTestResult *hit_test_result;
+  GMenu *menu;
+  GMenu *search_section;
+  GSimpleActionGroup *action_group;
+  GdkRectangle target;
+  gboolean has_position;
 } WigContextMenuRequest;
 
 static void wig_context_menu_request_free(WigContextMenuRequest *request)
 {
   g_clear_object(&request->win);
-  g_clear_object(&request->context_menu);
-  g_clear_object(&request->hit_test_result);
+  g_clear_object(&request->menu);
+  g_clear_object(&request->search_section);
+  g_clear_object(&request->action_group);
   g_free(request);
 }
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigContextMenuRequest, wig_context_menu_request_free)
+
+static gboolean wig_window_present_context_menu(WigWindow *win, GMenu *menu, GSimpleActionGroup *action_group,
+                                                GdkRectangle *target)
+{
+  if (g_menu_model_get_n_items(G_MENU_MODEL(menu)) == 0)
+    return FALSE;
+
+  wpe_view_gtk_show_context_menu(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(win->current_web_view)), G_MENU_MODEL(menu),
+                                 G_ACTION_GROUP(action_group), target);
+  return TRUE;
+}
 
 static void wig_window_selected_text_ready(GObject *source, GAsyncResult *result, gpointer user_data)
 {
@@ -1209,7 +1197,14 @@ static void wig_window_selected_text_ready(GObject *source, GAsyncResult *result
 
   g_autofree char *selected_text = value && jsc_value_is_string(value) ? jsc_value_to_string(value) : NULL;
   g_debug("context-menu: selection is '%s'", selected_text ? selected_text : "");
-  wig_window_show_context_menu(request->win, request->context_menu, request->hit_test_result, selected_text);
+  if (selected_text && *selected_text) {
+    WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(request->win)));
+    g_autofree char *search_engine = g_settings_get_string(wig_application_get_settings(app), "search-engine");
+    wig_context_menu_add_search_item(request->search_section, selected_text, search_engine);
+  }
+
+  wig_window_present_context_menu(request->win, request->menu, request->action_group,
+                                  request->has_position ? &request->target : NULL);
 }
 
 static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMenu *context_menu,
@@ -1218,17 +1213,29 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
   if (web_view != win->current_web_view)
     return FALSE;
 
+  /* WebKit empties the menu the moment this handler returns, so everything it
+   * proposed has to be taken now, before the page is asked for the selection. */
+  g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
+  g_autoptr(GMenu) search_section = NULL;
+  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, &search_section);
+
+  GdkRectangle target = { 0, 0, 1, 1 };
+  gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
+
   if (webkit_hit_test_result_context_is_selection(hit_test_result)) {
     WigContextMenuRequest *request = g_new0(WigContextMenuRequest, 1);
     request->win = g_object_ref(win);
-    request->context_menu = g_object_ref(context_menu);
-    request->hit_test_result = g_object_ref(hit_test_result);
+    request->menu = g_steal_pointer(&menu);
+    request->search_section = g_steal_pointer(&search_section);
+    request->action_group = g_steal_pointer(&action_group);
+    request->target = target;
+    request->has_position = has_position;
     webkit_web_view_evaluate_javascript(web_view, SELECTED_TEXT_SCRIPT, -1, "wig", NULL, NULL,
                                         wig_window_selected_text_ready, request);
     return TRUE;
   }
 
-  return wig_window_show_context_menu(win, context_menu, hit_test_result, NULL);
+  return wig_window_present_context_menu(win, menu, action_group, has_position ? &target : NULL);
 }
 
 static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResult *hit_test_result, guint modifiers,
