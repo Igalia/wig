@@ -77,12 +77,12 @@ jobs:
           flatpak install --user --noninteractive --assumeyes --reinstall \
             --bundle wpe-base.flatpak
 
-      - name: Build Clear Key module
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          manifest-path: flatpak/com.igalia.SparkleCDM.Module.clearkey.yaml
-          bundle: sparkle-cdm-clearkey.flatpak
-          cache: false
+      # - name: Build Clear Key module
+      #   uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      #   with:
+      #     manifest-path: flatpak/com.igalia.SparkleCDM.Module.clearkey.yaml
+      #     bundle: sparkle-cdm-clearkey.flatpak
+      #     cache: false
 
   build-wig-flatpak:
     runs-on: ubuntu-latest
