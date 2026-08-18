@@ -65,6 +65,7 @@ struct _WigWindow {
   gboolean url_entry_edited;
   GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
+  GPtrArray *closing_tabs;
   GSignalGroup *active_web_view_signals;
   GSignalGroup *active_tab_signals;
   GBinding *tab_loading_binding;
@@ -164,6 +165,37 @@ static void wig_window_save_tab_to_history(WigWindow *win, WigTab *tab)
   wig_session_push_closed_window(wig_application_get_session(wig_application_get()), closed);
 }
 
+/* A close the window never completed leaves the tabs that did agree sitting in
+ * the list, so the pages are asked again the next time one of them is closed. */
+static void wig_window_abandon_close(WigWindow *win)
+{
+  g_debug("window %u: the close did not go through, its tabs stay", wig_window_base_get_id(WIG_WINDOW_BASE(win)));
+  g_clear_pointer(&win->closing_tabs, g_ptr_array_unref);
+
+  guint n_tabs = wig_tab_list_get_n_tabs(win->tab_list);
+  for (guint i = 0; i < n_tabs; i++)
+    wig_tab_set_closing(wig_tab_list_get_nth(win->tab_list, i), FALSE);
+}
+
+/* The window is closed as a whole: a tab that agrees stays in the list until
+ * every other one has agreed too, so the window goes away holding all of them
+ * and is recorded as one session entry rather than a trail of single-tab ones. */
+static gboolean wig_window_tab_agreed_to_close(WigWindow *win, WigTab *tab)
+{
+  if (!win->closing_tabs)
+    return FALSE;
+
+  if (!g_ptr_array_remove_fast(win->closing_tabs, tab)) {
+    wig_window_abandon_close(win);
+    return FALSE;
+  }
+
+  if (!win->closing_tabs->len)
+    gtk_window_destroy(GTK_WINDOW(win));
+
+  return TRUE;
+}
+
 static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *win)
 {
   /* Nothing is torn down until the page has run its beforeunload handler. WebKit
@@ -177,6 +209,9 @@ static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *w
     }
     return TRUE;
   }
+
+  if (wig_window_tab_agreed_to_close(win, tab))
+    return TRUE;
 
   /* The window going away records its remaining tabs itself, so recording the
    * last tab here as well would push it twice. */
@@ -1588,6 +1623,7 @@ static void wig_window_dispose(GObject *object)
 {
   WigWindow *win = WIG_WINDOW(object);
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
+  g_clear_pointer(&win->closing_tabs, g_ptr_array_unref);
 
   /* Tearing down the tabs below emits signals that would otherwise reach the bar
    * while the window is already going away. */
@@ -1652,9 +1688,15 @@ static gboolean wig_window_close_request(GtkWindow *window)
 
   /* Every page is asked, and the last tab to agree takes the window with it. A
    * page that refuses keeps its tab, and so keeps the window. */
+  g_clear_pointer(&win->closing_tabs, g_ptr_array_unref);
+  win->closing_tabs = g_ptr_array_new_full(n_tabs, g_object_unref);
+
   g_autoptr(GPtrArray) tabs = g_ptr_array_sized_new(n_tabs);
-  for (guint i = 0; i < n_tabs; i++)
-    g_ptr_array_add(tabs, wig_tab_list_get_nth(win->tab_list, i));
+  for (guint i = 0; i < n_tabs; i++) {
+    WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
+    g_ptr_array_add(tabs, tab);
+    g_ptr_array_add(win->closing_tabs, g_object_ref(tab));
+  }
   wig_tab_list_close_many(win->tab_list, tabs);
 
   return GDK_EVENT_STOP;
