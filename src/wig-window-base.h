@@ -43,6 +43,8 @@ void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_vie
 void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_view);
 void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web_view);
 WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self);
+gboolean wig_window_base_get_loading(WigWindowBase *self);
+void wig_window_base_set_loading(WigWindowBase *self, gboolean loading);
 GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self);
 GtkWidget *wig_window_base_get_downloads_button(WigWindowBase *self);
 const char *wig_window_base_get_active_origin(WigWindowBase *self);

@@ -81,15 +81,9 @@ static void wig_window_base_set_property(GObject *object, guint prop_id, const G
   case PROP_ID:
     priv->id = g_value_get_uint(value);
     break;
-  case PROP_LOADING: {
-    gboolean loading = g_value_get_boolean(value);
-    if (priv->loading != loading) {
-      priv->loading = loading;
-      wig_window_base_update_loading_actions(WIG_WINDOW_BASE(object));
-      g_object_notify_by_pspec(object, props[PROP_LOADING]);
-    }
+  case PROP_LOADING:
+    wig_window_base_set_loading(WIG_WINDOW_BASE(object), g_value_get_boolean(value));
     break;
-  }
   default:
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
@@ -287,15 +281,25 @@ static void wig_window_base_go_forward(GSimpleAction *action, GVariant *paramete
 
 static void wig_window_base_stop_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
+  WigWindowBase *self = WIG_WINDOW_BASE(user_data);
+  WebKitWebView *web_view = get_active_web_view(self);
   if (!web_view)
     return;
 
   g_autoptr(GVariant) state = g_action_get_state(G_ACTION(action));
-  if (g_variant_get_boolean(state))
-    webkit_web_view_stop_loading(web_view);
-  else
+  if (!g_variant_get_boolean(state)) {
     webkit_web_view_reload(web_view);
+    return;
+  }
+
+  webkit_web_view_stop_loading(web_view);
+
+  /* WebKit does not always report the load as over afterwards: a dead web
+   * process, a wedged one, or a request that never reached the network each
+   * leave "is-loading" set with no further notification to correct it.  The
+   * state is settled here so that pressing stop is never a press that did
+   * nothing. */
+  wig_window_base_set_loading(self, FALSE);
 }
 
 static void wig_window_base_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -892,6 +896,23 @@ WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self)
 {
   g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
   return get_active_web_view(self);
+}
+
+gboolean wig_window_base_get_loading(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  return priv->loading;
+}
+
+void wig_window_base_set_loading(WigWindowBase *self, gboolean loading)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  if (priv->loading == loading)
+    return;
+
+  priv->loading = loading;
+  wig_window_base_update_loading_actions(self);
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_LOADING]);
 }
 
 GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self)

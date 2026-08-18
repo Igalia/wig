@@ -83,6 +83,7 @@ typedef enum {
 static GParamSpec *props[PROP_TAB_LAYOUT + 1];
 
 static void wig_window_set_tab_layout(WigWindow *win, WigTabLayout layout);
+static void wig_window_update_load_progress(WigWindow *win);
 
 static void wig_window_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
@@ -122,22 +123,26 @@ static void wig_window_bind_tab_loading(WigWindow *win, WigTab *tab)
   wig_window_clear_tab_loading_binding(win);
 
   if (!tab) {
-    g_object_set(win, "loading", FALSE, NULL);
+    wig_window_base_set_loading(WIG_WINDOW_BASE(win), FALSE);
     return;
   }
 
-  g_set_weak_pointer(&win->tab_loading_binding,
-                     g_object_bind_property(tab, "loading", win, "loading", G_BINDING_SYNC_CREATE));
+  /* Bidirectional so that settling the window's state, which is what stopping
+   * does, reaches the tab and takes the spinner in the strip down with it. */
+  g_set_weak_pointer(
+      &win->tab_loading_binding,
+      g_object_bind_property(tab, "loading", win, "loading", G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE));
 }
 
 static void wig_window_loading_changed(WigWindow *win)
 {
-  gboolean is_loading = FALSE;
-  g_object_get(win, "loading", &is_loading, NULL);
+  gboolean is_loading = wig_window_base_get_loading(WIG_WINDOW_BASE(win));
 
   if (win->stop_reload_button)
     gtk_button_set_icon_name(GTK_BUTTON(win->stop_reload_button),
                              is_loading ? "process-stop-symbolic" : "view-refresh-symbolic");
+
+  wig_window_update_load_progress(win);
 }
 
 static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *web_view)
@@ -804,6 +809,11 @@ static void wig_window_web_process_terminated(WigWindow *win, WebKitWebProcessTe
 
 static void wig_window_update_load_progress(WigWindow *win)
 {
+  if (!wig_window_base_get_loading(WIG_WINDOW_BASE(win))) {
+    wig_window_clear_load_progress(win);
+    return;
+  }
+
   gdouble progress = win->current_web_view ? webkit_web_view_get_estimated_load_progress(win->current_web_view) : 0;
   gtk_entry_set_progress_fraction(GTK_ENTRY(win->url_entry), progress);
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
@@ -1351,10 +1361,7 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
 
   wig_window_reset_url_entry(win);
 
-  if (win->current_web_view && webkit_web_view_is_loading(win->current_web_view))
-    wig_window_update_load_progress(win);
-  else
-    wig_window_clear_load_progress(win);
+  wig_window_update_load_progress(win);
 
   if (tab)
     wig_tab_load_discarded(tab);

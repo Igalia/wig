@@ -108,6 +108,15 @@ static const struct {
                             webkit_web_view_set_display_capture_state },
 };
 
+static void wig_tab_set_loading(WigTab *self, gboolean loading)
+{
+  if (self->loading == loading)
+    return;
+
+  self->loading = loading;
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_LOADING]);
+}
+
 static void wig_tab_on_capture_changed(WigTab *self)
 {
   g_debug("tab %u: capture camera=%d microphone=%d display=%d", self->id,
@@ -299,7 +308,7 @@ static gboolean wig_tab_on_load_failed_with_tls_errors(WigTab *self, const char 
 {
   g_warning("tab %u: TLS errors (0x%x) loading %s", self->id, errors, failing_uri);
 
-  g_object_set(self, "loading", FALSE, NULL);
+  wig_tab_set_loading(self, FALSE);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
   wig_tab_clear_native_page(self);
@@ -324,7 +333,7 @@ static gboolean wig_tab_on_load_failed(WigTab *self, WebKitLoadEvent load_event,
 
   g_warning("tab %u: load failed for %s%s: %s", self->id, failing_uri, offline ? " while offline" : "", error->message);
 
-  g_object_set(self, "loading", FALSE, NULL);
+  wig_tab_set_loading(self, FALSE);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
   wig_tab_clear_native_page(self);
@@ -356,7 +365,7 @@ static void wig_tab_on_web_process_terminated(WigTab *self, WebKitWebProcessTerm
   g_warning("tab %u: web process terminated (reason %d) while showing %s", self->id, reason,
             webkit_web_view_get_uri(self->web_view));
 
-  g_object_set(self, "loading", FALSE, NULL);
+  wig_tab_set_loading(self, FALSE);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
   /* The dead process cannot report itself responsive again. */
@@ -428,14 +437,9 @@ static void wig_tab_set_property(GObject *object, guint prop_id, const GValue *v
   case PROP_PINNED:
     wig_tab_set_pinned(self, g_value_get_boolean(value));
     break;
-  case PROP_LOADING: {
-    gboolean loading = g_value_get_boolean(value);
-    if (self->loading != loading) {
-      self->loading = loading;
-      g_object_notify_by_pspec(object, props[PROP_LOADING]);
-    }
+  case PROP_LOADING:
+    wig_tab_set_loading(self, g_value_get_boolean(value));
     break;
-  }
   case PROP_SELECTED:
     wig_tab_set_selected(self, g_value_get_boolean(value));
     break;
@@ -682,6 +686,11 @@ static void wig_tab_show_history_page(WigTab *self, const char *uri)
 static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
 {
   if (load_event == WEBKIT_LOAD_STARTED) {
+    /* Anything that settled the state by hand (a stop, a crash, an error page)
+     * left "is-loading" untouched, so a fresh load has to turn this back on
+     * rather than wait for a change notification that will not come. */
+    wig_tab_set_loading(self, TRUE);
+
     /* A restored tab is loading the very page its stored favicon belongs to, so
      * that icon stays until the page reports its own. */
     if (!self->restoring_icon)
