@@ -781,6 +781,12 @@ static void wig_window_update_url(WigWindow *win)
   win->url_entry_edited = FALSE;
 }
 
+static void wig_window_reset_url_entry(WigWindow *win)
+{
+  win->url_entry_edited = FALSE;
+  wig_window_update_url(win);
+}
+
 static void wig_window_clear_load_progress(WigWindow *win)
 {
   gtk_entry_set_progress_fraction(GTK_ENTRY(win->url_entry), 0);
@@ -1343,9 +1349,12 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
   if (win->search_bar)
     wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
 
-  wig_window_update_url(win);
-  if (!win->current_web_view || webkit_web_view_is_loading(win->current_web_view))
+  wig_window_reset_url_entry(win);
+
+  if (win->current_web_view && webkit_web_view_is_loading(win->current_web_view))
     wig_window_update_load_progress(win);
+  else
+    wig_window_clear_load_progress(win);
 
   if (tab)
     wig_tab_load_discarded(tab);
