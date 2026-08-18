@@ -34,7 +34,14 @@ jobs:
           echo "pages-url=https://$owner.github.io/${repository#*/}" >> "$GITHUB_OUTPUT"
 
   build-wpe-flatpak:
-    runs-on: [self-hosted, x64]
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: [self-hosted, x64]
+          - arch: aarch64
+            runner: [self-hosted, arch-arm64]
+    runs-on: ${{ matrix.runner }}
     needs: check-wpe-inputs
     # Never run a fork's pull request on the self-hosted runner. Skipping this
     # is handled by build-wig-flatpak, which then builds against the published
@@ -61,21 +68,22 @@ jobs:
 
       - name: Create WPE bundle
         run: |
-          flatpak build-bundle _flatpak-repo wpe-base.flatpak \
+          flatpak build-bundle _flatpak-repo wpe-base-${{ matrix.arch }}.flatpak \
+            --arch=${{ matrix.arch }} \
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
             com.igalia.wig.WPE master
 
       - name: Upload WPE bundle
         uses: actions/upload-artifact@v4
         with:
-          name: wpe-base-x86_64.flatpak
-          path: wpe-base.flatpak
+          name: wpe-base-${{ matrix.arch }}.flatpak
+          path: wpe-base-${{ matrix.arch }}.flatpak
           if-no-files-found: error
 
       - name: Install WPE base app
         run: |
           flatpak install --user --noninteractive --assumeyes --reinstall \
-            --bundle wpe-base.flatpak
+            --bundle wpe-base-${{ matrix.arch }}.flatpak
 
       # - name: Build Clear Key module
       #   uses: flatpak/flatpak-github-actions/flatpak-builder@v6
@@ -85,7 +93,14 @@ jobs:
       #     cache: false
 
   build-wig-flatpak:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
       options: --privileged
@@ -108,11 +123,13 @@ jobs:
         if: needs.build-wpe-flatpak.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: wpe-base-x86_64.flatpak
+          name: wpe-base-${{ matrix.arch }}.flatpak
 
       - name: Install WPE base app
         if: needs.build-wpe-flatpak.result == 'success'
-        run: flatpak install --system --noninteractive --assumeyes --bundle wpe-base.flatpak
+        run: |
+          flatpak install --system --noninteractive --assumeyes \
+            --bundle wpe-base-${{ matrix.arch }}.flatpak
 
       - name: Install published WPE base app
         if: needs.build-wpe-flatpak.result == 'skipped'
@@ -126,8 +143,17 @@ jobs:
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: flatpak/com.igalia.wig.yaml
-          bundle: wig.flatpak
+          bundle: wig-${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
           cache: false
+          upload-artifact: false
+
+      - name: Upload Wig bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: wig-${{ matrix.arch }}.flatpak
+          path: wig-${{ matrix.arch }}.flatpak
+          if-no-files-found: error
 
   publish-flatpaks:
     runs-on: ubuntu-latest
