@@ -111,6 +111,7 @@ modules:
       - -DENABLE_ENCRYPTED_MEDIA=ON
       - -DENABLE_THUNDER=ON
       - -DENABLE_WEBXR=ON
+      - -DENABLE_WEBXR_LAYERS=ON
 
       # Unbuilt dependencies.
       - -DENABLE_SPEECH_SYNTHESIS=OFF
