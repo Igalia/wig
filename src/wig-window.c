@@ -1392,6 +1392,20 @@ static WigWindow *wig_window_find_owner(WigApplication *app, guint32 tab_id)
 /* tab.move-to(uub): move tab_id to this window at insert_index, pinned or not
  * according to where it was dropped.  If the tab already lives here, this is a
  * reorder. */
+/* Dragging a tab that is part of a selection drags the whole selection with it;
+ * dragging anything else moves just that tab.
+ *
+ * Returns: (transfer full): the tabs to move, in list order. */
+static GPtrArray *wig_window_tabs_to_move(WigWindow *win, WigTab *tab)
+{
+  if (wig_tab_get_selected(tab))
+    return wig_tab_list_get_selected(win->tab_list);
+
+  GPtrArray *tabs = g_ptr_array_new_with_free_func(g_object_unref);
+  g_ptr_array_add(tabs, g_object_ref(tab));
+  return tabs;
+}
+
 static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, GVariant *parameter)
 {
   WigWindow *dst = WIG_WINDOW(widget);
@@ -1408,37 +1422,40 @@ static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, G
   if (!tab)
     return;
 
-  if (src == dst) {
-    /* Same window — reorder only.  Pinning first moves the tab into the block it
-     * was dropped in, so the index below is applied within that block. */
-    wig_tab_list_set_pinned(dst->tab_list, tab, pinned);
+  g_autoptr(GPtrArray) tabs = wig_window_tabs_to_move(src, tab);
 
-    guint current = wig_tab_list_index_of(dst->tab_list, tab);
-    guint target = (guint)insert_index;
-    if (target != current && target != current + 1)
-      wig_tab_list_move(dst->tab_list, tab, target);
+  if (src == dst) {
+    /* Same window — reorder only.  Pinning first moves the tabs into the block
+     * they were dropped in, so the index below is applied within that block. */
+    for (guint i = 0; i < tabs->len; i++)
+      wig_tab_list_set_pinned(dst->tab_list, g_ptr_array_index(tabs, i), pinned);
+
+    wig_tab_list_move_many(dst->tab_list, tabs, MIN((guint)insert_index, wig_tab_list_get_n_tabs(dst->tab_list)));
     return;
   }
 
-  /* Cross-window move: source must keep at least one tab. */
-  if (wig_tab_list_get_n_tabs(src->tab_list) <= 1)
-    return;
+  guint target = MIN((guint)insert_index, wig_tab_list_get_n_tabs(dst->tab_list));
+  for (guint i = 0; i < tabs->len; i++) {
+    WigTab *moving = g_ptr_array_index(tabs, i);
 
-  /* Hold a ref so the widget survives gtk_stack_remove in wig_tab_list_detach. */
-  GtkWidget *tab_widget = g_object_ref(wig_tab_get_widget(tab));
-  g_autoptr(WigTab) owned_tab = wig_tab_list_detach(src->tab_list, tab);
+    /* Hold a ref so the widget survives gtk_stack_remove in wig_tab_list_detach. */
+    g_autoptr(GtkWidget) tab_widget = g_object_ref(wig_tab_get_widget(moving));
+    g_autoptr(WigTab) owned_tab = wig_tab_list_detach(src->tab_list, moving);
 
-  guint n = wig_tab_list_get_n_tabs(dst->tab_list);
-  guint pos = MIN((guint)insert_index, n);
-  wig_tab_list_attach(dst->tab_list, owned_tab);
-  wig_tab_list_set_pinned(dst->tab_list, owned_tab, pinned);
-  g_object_unref(tab_widget);
-  /* attach appends; reorder if not at end */
-  if (pos < n)
-    wig_tab_list_move(dst->tab_list, owned_tab, pos);
-  wig_tab_list_set_active(dst->tab_list, owned_tab);
+    wig_tab_list_attach(dst->tab_list, owned_tab);
+    wig_tab_list_set_pinned(dst->tab_list, owned_tab, pinned);
+    /* attach appends, so pull the tab back to the drop point and let the rest of
+     * the run follow it. */
+    wig_tab_list_move(dst->tab_list, owned_tab, target);
+    target = wig_tab_list_index_of(dst->tab_list, owned_tab) + 1;
+  }
 
+  wig_tab_list_set_active(dst->tab_list, tab);
   gtk_window_present(GTK_WINDOW(dst));
+
+  /* The source has nothing left to show once its last tab has moved out. */
+  if (wig_tab_list_get_n_tabs(src->tab_list) == 0)
+    gtk_window_destroy(GTK_WINDOW(src));
 }
 
 static void wig_window_detach_tab(GtkWidget *widget, const char *action_name, GVariant *parameter)
@@ -1449,22 +1466,27 @@ static void wig_window_detach_tab(GtkWidget *widget, const char *action_name, GV
   if (!tab)
     return;
 
-  if (wig_tab_list_get_n_tabs(win->tab_list) <= 1)
+  g_autoptr(GPtrArray) tabs = wig_window_tabs_to_move(win, tab);
+
+  /* Tearing every tab off into a fresh window would just swap one window for
+   * another. */
+  if (tabs->len >= wig_tab_list_get_n_tabs(win->tab_list))
     return;
 
   WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
   WigWindow *new_win = wig_window_new(app);
 
-  /* Detach reuses the existing WigTab — no close-tab signal, no history save.
-   * This fires tab-removed on the old list, which removes the WPE widget from
-   * the old stack. We hold a ref so it survives unparenting. */
-  GtkWidget *tab_widget = g_object_ref(wig_tab_get_widget(tab));
-  g_autoptr(WigTab) owned_tab = wig_tab_list_detach(win->tab_list, tab);
+  for (guint i = 0; i < tabs->len; i++) {
+    /* Detach reuses the existing WigTab — no close-tab signal, no history save.
+     * This fires tab-removed on the old list, which removes the WPE widget from
+     * the old stack. We hold a ref so it survives unparenting. */
+    g_autoptr(GtkWidget) tab_widget = g_object_ref(wig_tab_get_widget(g_ptr_array_index(tabs, i)));
+    g_autoptr(WigTab) owned_tab = wig_tab_list_detach(win->tab_list, g_ptr_array_index(tabs, i));
 
-  wig_tab_list_attach(new_win->tab_list, owned_tab);
-  wig_tab_list_set_active(new_win->tab_list, owned_tab);
-  g_object_unref(tab_widget);
+    wig_tab_list_attach(new_win->tab_list, owned_tab);
+  }
 
+  wig_tab_list_set_active(new_win->tab_list, tab);
   gtk_window_present(GTK_WINDOW(new_win));
 }
 

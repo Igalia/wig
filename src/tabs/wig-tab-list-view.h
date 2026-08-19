@@ -46,7 +46,7 @@ struct _WigTabListViewClass {
  * Pinned tabs live in @pinned_box, the rest in @tab_box; @separator sits between
  * the two and, like @pinned_box, is hidden while no tab is pinned. */
 void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *pinned_box, GtkWidget *separator,
-                             GtkBox *tab_box);
+                             GtkBox *tab_box, GtkOrientation orientation);
 
 WigTabList *wig_tab_list_view_get_list(WigTabListView *self);
 GtkBox *wig_tab_list_view_get_tab_box(WigTabListView *self);

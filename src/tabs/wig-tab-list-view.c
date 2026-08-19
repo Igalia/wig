@@ -27,16 +27,19 @@ typedef struct {
   GtkBox *pinned_box;
   GtkWidget *separator;
   GtkBox *tab_box;
+  GtkOrientation orientation;
   GSList *tab_widgets; /* WigTabWidget*, in list order: pinned tabs first */
 
   double drag_hot_x;
   double drag_hot_y;
-  GtkWidget *drag_widget; /* tab widget being dragged, cleared in drag_end */
+  GtkWidget *drag_widget; /* owned while dragging */
   int drop_indicator;
 
   /* Index of the last tab that was Ctrl+clicked; used as the anchor for
    * Shift+click range selection.  -1 when no anchor has been set yet. */
   int last_selected_index;
+
+  gboolean collapse_selection;
 } WigTabListViewPrivate;
 
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE(WigTabListView, wig_tab_list_view, GTK_TYPE_WIDGET)
@@ -67,6 +70,15 @@ static void wig_tab_list_view_clear_selection(WigTabListView *self)
 static void wig_tab_list_view_background_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
                                                  WigTabListView *self)
 {
+  /* This gesture covers the whole view, so it also sees presses that landed on a
+   * tab.  Those belong to the tab's own handler — clearing here would drop the
+   * selection just as a drag of it is starting. */
+  for (GtkWidget *w = gtk_widget_pick(GTK_WIDGET(self), x, y, GTK_PICK_DEFAULT); w && w != GTK_WIDGET(self);
+       w = gtk_widget_get_parent(w)) {
+    if (WIG_IS_TAB_WIDGET(w))
+      return;
+  }
+
   GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
   GdkModifierType state = event ? gdk_event_get_modifier_state(event) : 0;
   if (!(state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK)))
@@ -120,10 +132,25 @@ static void wig_tab_list_view_tab_pressed(GtkGestureClick *gesture, int n_press,
       WigTab *t = wig_tab_list_get_nth(priv->list, (guint)i);
       wig_tab_set_selected(t, !wig_tab_get_selected(t));
     }
+  } else if (wig_tab_get_selected(tab)) {
+    /* Pressing inside a selection has to leave it standing, because the press
+     * may be the start of a drag that carries the whole selection.  A press that
+     * turns out to be a plain click collapses it on release instead. */
+    priv->collapse_selection = TRUE;
+    wig_tab_list_set_active(priv->list, tab);
   } else {
     wig_tab_list_view_clear_selection(self);
     wig_tab_list_set_active(priv->list, tab);
   }
+}
+
+static void wig_tab_list_view_tab_released(GtkGestureClick *gesture, int n_press, double x, double y,
+                                           WigTabListView *self)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  if (priv->collapse_selection)
+    wig_tab_list_view_clear_selection(self);
+  priv->collapse_selection = FALSE;
 }
 
 static void wig_tab_list_view_tab_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
@@ -180,9 +207,9 @@ static void wig_tab_list_view_drag_cancelled(GdkDrag *drag, GdkDragCancelReason 
     return;
 
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
-  if (wig_tab_list_get_n_tabs(priv->list) <= 1)
+  if (!priv->list || !priv->drag_widget)
     return;
-  if (!GTK_IS_WIDGET(priv->drag_widget))
+  if (wig_tab_list_get_n_tabs(priv->list) <= 1)
     return;
 
   WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(priv->drag_widget));
@@ -193,7 +220,11 @@ static void wig_tab_list_view_drag_begin(GtkDragSource *source, GdkDrag *drag, W
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(source));
-  priv->drag_widget = widget;
+
+  /* GTK keeps the drag source alive until the drag finishes, so drag-end still
+   * arrives after a cross-window drop has destroyed this window's tab widget. */
+  g_set_object(&priv->drag_widget, widget);
+  priv->collapse_selection = FALSE;
   gtk_widget_add_css_class(GTK_WIDGET(self), "tab-drag-active");
   g_signal_connect_object(drag, "cancel", G_CALLBACK(wig_tab_list_view_drag_cancelled), self, G_CONNECT_DEFAULT);
 
@@ -218,11 +249,10 @@ static void wig_tab_list_view_drag_end(GtkDragSource *source, GdkDrag *drag, gbo
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
 
-  GtkWidget *widget = priv->drag_widget;
-  priv->drag_widget = NULL;
+  g_autoptr(GtkWidget) widget = g_steal_pointer(&priv->drag_widget);
 
   gtk_widget_remove_css_class(GTK_WIDGET(self), "tab-drag-active");
-  if (GTK_IS_WIDGET(widget))
+  if (widget)
     gtk_widget_remove_css_class(widget, "dragging");
   wig_tab_list_view_set_drop_indicator(self, -1);
   wig_tab_list_view_sync_placement(self);
@@ -240,16 +270,29 @@ static int wig_tab_list_view_widget_index(WigTabListView *self, GtkWidget *widge
   return -1;
 }
 
+/* The two boxes do not have to run the same way — the sidebar stacks its tabs
+ * downwards but wraps the pinned ones across — so which axis a drop divides on
+ * follows the box the tab under the cursor sits in. */
+static GtkOrientation wig_tab_list_view_tab_orientation(WigTabListView *self, GtkWidget *tab_widget)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(tab_widget));
+
+  /* Pinned tabs are favicon-sized and run across in both layouts; the rest
+   * follow the view.  The boxes cannot be asked, because GtkBox forwards
+   * "orientation" to its layout manager and both of ours replace it. */
+  return tab && wig_tab_get_pinned(tab) ? GTK_ORIENTATION_HORIZONTAL : priv->orientation;
+}
+
 /* Compute the insertion index given the cursor position within a tab widget.
  * Returns the index before which the dragged tab should be inserted. */
 static int wig_tab_list_view_compute_insert_index(WigTabListView *self, GtkWidget *drop_widget, double x, double y)
 {
-  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   int target_index = wig_tab_list_view_widget_index(self, drop_widget);
   if (target_index < 0)
     return -1;
 
-  GtkOrientation orientation = gtk_orientable_get_orientation(GTK_ORIENTABLE(priv->tab_box));
+  GtkOrientation orientation = wig_tab_list_view_tab_orientation(self, drop_widget);
   double pos = orientation == GTK_ORIENTATION_HORIZONTAL ? x : y;
   int size = orientation == GTK_ORIENTATION_HORIZONTAL ? gtk_widget_get_width(drop_widget)
                                                        : gtk_widget_get_height(drop_widget);
@@ -344,6 +387,12 @@ static gboolean wig_tab_list_view_box_drop(GtkDropTarget *target, const GValue *
 static void wig_tab_list_view_sync_placement(WigTabListView *self)
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+
+  /* Moving the last tab out takes the window with it, and the drag still ends
+   * on this view afterwards. */
+  if (!priv->tab_box)
+    return;
+
   GtkWidget *prev_pinned = NULL;
   GtkWidget *prev_regular = NULL;
   gboolean any_pinned = FALSE;
@@ -394,6 +443,7 @@ static void wig_tab_list_view_tab_added(WigTabList *list, WigTab *tab, guint pos
 
   GtkGestureClick *gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
   g_signal_connect_object(gesture, "pressed", G_CALLBACK(wig_tab_list_view_tab_pressed), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(gesture, "released", G_CALLBACK(wig_tab_list_view_tab_released), self, G_CONNECT_DEFAULT);
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(gesture));
 
   GtkGestureClick *right_gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
@@ -429,6 +479,11 @@ static void wig_tab_list_view_tab_added(WigTabList *list, WigTab *tab, guint pos
   if (wig_tab_widget_get_tab(tab_widget) == wig_tab_list_get_active(priv->list))
     gtk_widget_add_css_class(widget, "active");
 
+  /* A tab dragged in from another window keeps its selection, and the fresh
+   * widget has to show it without waiting for the property to change again. */
+  wig_tab_list_view_tab_selected_changed(tab, NULL, tab_widget);
+  priv->last_selected_index = -1;
+
   WigTabListViewClass *klass = WIG_TAB_LIST_VIEW_GET_CLASS(self);
   if (klass->tab_widget_added)
     klass->tab_widget_added(self, tab_widget, position);
@@ -445,6 +500,7 @@ static void wig_tab_list_view_tab_moved(WigTabList *list, WigTab *tab, guint old
   priv->tab_widgets = g_slist_delete_link(priv->tab_widgets, link);
   priv->tab_widgets = g_slist_insert(priv->tab_widgets, widget, (gint)new_index);
   wig_tab_list_view_sync_placement(self);
+  priv->last_selected_index = -1;
 }
 
 static void wig_tab_list_view_tab_removed(WigTabList *list, WigTab *tab, guint position, WigTabListView *self)
@@ -455,6 +511,7 @@ static void wig_tab_list_view_tab_removed(WigTabList *list, WigTab *tab, guint p
   priv->tab_widgets = g_slist_delete_link(priv->tab_widgets, link);
   gtk_box_remove(GTK_BOX(gtk_widget_get_parent(GTK_WIDGET(tab_widget))), GTK_WIDGET(tab_widget));
   wig_tab_list_view_sync_placement(self);
+  priv->last_selected_index = -1;
 }
 
 /* ---------- drop line rendering ------------------------------------------ */
@@ -472,8 +529,6 @@ static void wig_tab_list_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
   guint n = wig_tab_list_get_n_tabs(priv->list);
   if (n == 0)
     return;
-
-  GtkOrientation orientation = gtk_orientable_get_orientation(GTK_ORIENTABLE(priv->tab_box));
 
   /* Determine where to draw the line: at the left/top edge of the widget at
    * drop_indicator, or at the right/bottom edge of the last widget. */
@@ -498,7 +553,7 @@ static void wig_tab_list_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 
   const float LINE_HALF = 1.5f;
 
-  if (orientation == GTK_ORIENTATION_HORIZONTAL) {
+  if (wig_tab_list_view_tab_orientation(self, ref_widget) == GTK_ORIENTATION_HORIZONTAL) {
     float x = use_end ? bounds.origin.x + bounds.size.width : bounds.origin.x;
     graphene_rect_t line_rect = GRAPHENE_RECT_INIT(x - LINE_HALF, bounds.origin.y, LINE_HALF * 2.0f,
                                                    bounds.size.height);
@@ -516,8 +571,12 @@ static void wig_tab_list_view_dispose(GObject *object)
 {
   WigTabListView *self = WIG_TAB_LIST_VIEW(object);
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  g_clear_object(&priv->drag_widget);
   g_clear_pointer(&priv->tab_widgets, g_slist_free);
   g_clear_object(&priv->list);
+  priv->pinned_box = NULL;
+  priv->separator = NULL;
+  priv->tab_box = NULL;
   G_OBJECT_CLASS(wig_tab_list_view_parent_class)->dispose(object);
 }
 
@@ -538,7 +597,7 @@ static void wig_tab_list_view_class_init(WigTabListViewClass *klass)
 }
 
 void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *pinned_box, GtkWidget *separator,
-                             GtkBox *tab_box)
+                             GtkBox *tab_box, GtkOrientation orientation)
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
 
@@ -546,6 +605,7 @@ void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *pin
   priv->pinned_box = pinned_box;
   priv->separator = separator;
   priv->tab_box = tab_box;
+  priv->orientation = orientation;
 
   gtk_widget_set_visible(GTK_WIDGET(pinned_box), FALSE);
   gtk_widget_set_visible(separator, FALSE);

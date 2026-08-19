@@ -109,7 +109,8 @@ GtkWidget *wig_tab_sidebar_new(WigTabList *list)
                           G_CONNECT_DEFAULT);
   gtk_widget_set_parent(self->new_tab_button, GTK_WIDGET(self));
 
-  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, GTK_BOX(self->pinned_box), self->separator, tab_box);
+  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, GTK_BOX(self->pinned_box), self->separator, tab_box,
+                          GTK_ORIENTATION_VERTICAL);
 
   return GTK_WIDGET(self);
 }

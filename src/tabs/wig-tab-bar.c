@@ -409,7 +409,8 @@ GtkWidget *wig_tab_bar_new(WigTabList *list)
   g_signal_connect_object(list, "notify::active-tab", G_CALLBACK(wig_tab_bar_active_tab_changed), self,
                           G_CONNECT_SWAPPED);
 
-  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, GTK_BOX(self->pinned_box), self->separator, tab_box);
+  wig_tab_list_view_setup(WIG_TAB_LIST_VIEW(self), list, GTK_BOX(self->pinned_box), self->separator, tab_box,
+                          GTK_ORIENTATION_HORIZONTAL);
 
   return GTK_WIDGET(self);
 }
