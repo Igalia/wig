@@ -33,6 +33,7 @@ typedef struct {
   double drag_hot_x;
   double drag_hot_y;
   GtkWidget *drag_widget; /* owned while dragging */
+  gboolean drop_to_new_window;
   int drop_indicator;
   gboolean drop_pinned;
 
@@ -192,6 +193,79 @@ static GType wig_tab_id_get_type(void)
   return type;
 }
 
+/* Offering "application/x-rootwindow-drop" is what lets a tab be let go over
+ * nothing: it tells the desktop it may take the drop, so the drag completes
+ * instead of being cancelled.  Nothing but the desktop asks for that type, so
+ * being asked for it is the signal that the tab wants a window of its own —
+ * which is the only such signal there is under Wayland, where the compositor
+ * owns the grab and a refused drop and an abandoned one look alike. */
+
+#define WIG_TYPE_TAB_ROOT_CONTENT (wig_tab_root_content_get_type())
+G_DECLARE_FINAL_TYPE(WigTabRootContent, wig_tab_root_content, WIG, TAB_ROOT_CONTENT, GdkContentProvider)
+
+struct _WigTabRootContent {
+  GdkContentProvider parent;
+
+  WigTabListView *view;
+};
+
+G_DEFINE_FINAL_TYPE(WigTabRootContent, wig_tab_root_content, GDK_TYPE_CONTENT_PROVIDER)
+
+static GdkContentFormats *wig_tab_root_content_ref_formats(GdkContentProvider *provider)
+{
+  return gdk_content_formats_new((const char *[1]) { "application/x-rootwindow-drop" }, 1);
+}
+
+static void wig_tab_root_content_write_mime_type_async(GdkContentProvider *provider, const char *mime_type,
+                                                       GOutputStream *stream, int io_priority,
+                                                       GCancellable *cancellable, GAsyncReadyCallback callback,
+                                                       gpointer user_data)
+{
+  WigTabRootContent *self = WIG_TAB_ROOT_CONTENT(provider);
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self->view);
+  priv->drop_to_new_window = TRUE;
+
+  g_autoptr(GTask) task = g_task_new(self, cancellable, callback, user_data);
+  g_task_set_priority(task, io_priority);
+  g_task_set_source_tag(task, wig_tab_root_content_write_mime_type_async);
+  g_task_return_boolean(task, TRUE);
+}
+
+static gboolean wig_tab_root_content_write_mime_type_finish(GdkContentProvider *provider, GAsyncResult *result,
+                                                            GError **error)
+{
+  return g_task_propagate_boolean(G_TASK(result), error);
+}
+
+static void wig_tab_root_content_dispose(GObject *object)
+{
+  WigTabRootContent *self = WIG_TAB_ROOT_CONTENT(object);
+  g_clear_object(&self->view);
+  G_OBJECT_CLASS(wig_tab_root_content_parent_class)->dispose(object);
+}
+
+static void wig_tab_root_content_init(WigTabRootContent *self)
+{
+}
+
+static void wig_tab_root_content_class_init(WigTabRootContentClass *klass)
+{
+  GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
+  gobject_class->dispose = wig_tab_root_content_dispose;
+
+  GdkContentProviderClass *provider_class = GDK_CONTENT_PROVIDER_CLASS(klass);
+  provider_class->ref_formats = wig_tab_root_content_ref_formats;
+  provider_class->write_mime_type_async = wig_tab_root_content_write_mime_type_async;
+  provider_class->write_mime_type_finish = wig_tab_root_content_write_mime_type_finish;
+}
+
+static GdkContentProvider *wig_tab_root_content_new(WigTabListView *view)
+{
+  WigTabRootContent *self = g_object_new(WIG_TYPE_TAB_ROOT_CONTENT, NULL);
+  self->view = g_object_ref(view);
+  return GDK_CONTENT_PROVIDER(self);
+}
+
 static GdkContentProvider *wig_tab_list_view_drag_prepare(GtkDragSource *source, double x, double y,
                                                           WigTabListView *self)
 {
@@ -205,20 +279,39 @@ static GdkContentProvider *wig_tab_list_view_drag_prepare(GtkDragSource *source,
   GValue value = G_VALUE_INIT;
   g_value_init(&value, wig_tab_id_get_type());
   g_value_set_pointer(&value, GUINT_TO_POINTER(tab_id));
-  return gdk_content_provider_new_for_value(&value);
+
+  GdkContentProvider *providers[] = {
+    wig_tab_root_content_new(self),
+    gdk_content_provider_new_for_value(&value),
+  };
+  return gdk_content_provider_new_union(providers, G_N_ELEMENTS(providers));
 }
 
+/* The desktop took the drop, so the tab leaves for a window of its own. */
+static void wig_tab_list_view_dnd_finished(GdkDrag *drag, WigTabListView *self)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+
+  if (!priv->drop_to_new_window || !priv->list || !priv->drag_widget)
+    return;
+
+  /* tab.detach declines to empty the window, so the last tab stays put. */
+  WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(priv->drag_widget));
+  gtk_widget_activate_action(GTK_WIDGET(self), "tab.detach", "u", wig_tab_get_id(tab));
+}
+
+/* X11 says outright that nobody took the drop rather than handing it to the
+ * desktop, so the tab is torn off from here instead. */
 static void wig_tab_list_view_drag_cancelled(GdkDrag *drag, GdkDragCancelReason reason, WigTabListView *self)
 {
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+
   if (reason != GDK_DRAG_CANCEL_NO_TARGET)
     return;
-
-  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   if (!priv->list || !priv->drag_widget)
     return;
-  if (wig_tab_list_get_n_tabs(priv->list) <= 1)
-    return;
 
+  /* tab.detach declines to empty the window, so the last tab stays put. */
   WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(priv->drag_widget));
   gtk_widget_activate_action(GTK_WIDGET(self), "tab.detach", "u", wig_tab_get_id(tab));
 }
@@ -232,8 +325,10 @@ static void wig_tab_list_view_drag_begin(GtkDragSource *source, GdkDrag *drag, W
    * arrives after a cross-window drop has destroyed this window's tab widget. */
   g_set_object(&priv->drag_widget, widget);
   priv->collapse_selection = FALSE;
+  priv->drop_to_new_window = FALSE;
   gtk_widget_add_css_class(GTK_WIDGET(self), "tab-drag-active");
   g_signal_connect_object(drag, "cancel", G_CALLBACK(wig_tab_list_view_drag_cancelled), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(drag, "dnd-finished", G_CALLBACK(wig_tab_list_view_dnd_finished), self, G_CONNECT_DEFAULT);
 
   /* Show the pinned area even when empty: it is the drop zone that pins. */
   gtk_widget_set_visible(GTK_WIDGET(priv->pinned_box), TRUE);
