@@ -46,6 +46,7 @@ typedef enum {
 } WigCaptureKind;
 
 WigTab *wig_tab_new(WebKitWebView *web_view);
+WigTab *wig_tab_new_discarded(WebKitWebViewSessionState *state, const char *title, const char *uri);
 guint wig_tab_get_id(WigTab *self);
 WebKitWebView *wig_tab_get_web_view(WigTab *self);
 GtkWidget *wig_tab_get_widget(WigTab *self);
@@ -58,7 +59,6 @@ gboolean wig_tab_start_search(WigTab *self);
 gboolean wig_tab_get_discarded(WigTab *self);
 WebKitWebViewSessionState *wig_tab_get_session_state(WigTab *self);
 GtkWidget *wig_tab_get_native_page(WigTab *self);
-void wig_tab_mark_discarded(WigTab *self);
 void wig_tab_discard(WigTab *self);
 void wig_tab_load_discarded(WigTab *self);
 gboolean wig_tab_get_pinned(WigTab *self);

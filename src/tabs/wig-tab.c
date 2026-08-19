@@ -802,7 +802,12 @@ static void discarded_favicon_loaded(GObject *source, GAsyncResult *result, gpoi
 
 static void wig_tab_load_discarded_favicon(WigTab *self, const char *uri)
 {
-  WebKitNetworkSession *session = webkit_web_view_get_network_session(self->web_view);
+  if (!uri || !*uri)
+    return;
+
+  /* A tab restored from the session has no view to take the session from. */
+  WebKitNetworkSession *session = self->web_view ? webkit_web_view_get_network_session(self->web_view)
+                                                 : wig_application_get_network_session(wig_application_get());
   WebKitWebsiteDataManager *data_manager = webkit_network_session_get_website_data_manager(session);
   WebKitFaviconDatabase *database = webkit_website_data_manager_get_favicon_database(data_manager);
   if (!database) {
@@ -898,10 +903,9 @@ static void wig_tab_bind_web_view(WigTab *self, WebKitWebView *web_view)
                          G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
 }
 
-WigTab *wig_tab_new(WebKitWebView *web_view)
+/* Everything a tab has of its own, before any view is put in it. */
+static WigTab *wig_tab_new_empty(void)
 {
-  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
-
   WigTab *self = WIG_TAB(g_object_new(WIG_TYPE_TAB, NULL));
 
   /* The overlay outlives any one view: it stays in the window's stack while the
@@ -929,12 +933,46 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_signal_connect_object(motion, "motion", G_CALLBACK(wig_tab_overlay_motion), self, G_CONNECT_DEFAULT);
   gtk_widget_add_controller(self->view_overlay, motion);
 
+  return self;
+}
+
+WigTab *wig_tab_new(WebKitWebView *web_view)
+{
+  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
+
+  WigTab *self = wig_tab_new_empty();
   wig_tab_bind_web_view(self, web_view);
 
   /* Pick up a title and icons the view may already have (e.g. a related view). */
   wig_tab_on_title_changed(self);
 #if HAVE_FAVICON_SUPPORT
   wig_tab_on_page_icons_changed(self);
+#endif
+
+  return self;
+}
+
+/* A tab read back from a saved session, which starts out the same as one that
+ * was unloaded by hand: no view, and only what it takes to show the tab and
+ * build a view once it is looked at. */
+WigTab *wig_tab_new_discarded(WebKitWebViewSessionState *state, const char *title, const char *uri)
+{
+  WigTab *self = wig_tab_new_empty();
+  self->session_state = webkit_web_view_session_state_ref(state);
+  self->uri = g_strdup(uri);
+  wig_tab_set_discarded(self, TRUE);
+
+  if (title && *title) {
+    wig_tab_set_title(self, title);
+  } else {
+    g_autofree char *host = wig_tab_uri_host(uri);
+    if (host)
+      wig_tab_set_title(self, host);
+  }
+
+#if HAVE_FAVICON_SUPPORT
+  self->restoring_icon = TRUE;
+  wig_tab_load_discarded_favicon(self, uri);
 #endif
 
   return self;
@@ -1004,39 +1042,6 @@ const char *wig_tab_get_page_uri(WigTab *self)
 gboolean wig_tab_get_discarded(WigTab *self)
 {
   return self->discarded;
-}
-
-/* A restored view holds a back/forward list but no page: nothing is loaded until
- * the tab is looked at. Take the label from the list so the tab is recognisable
- * in the meantime, as no title or icon will arrive from the web process. */
-void wig_tab_mark_discarded(WigTab *self)
-{
-  g_assert(WIG_IS_TAB(self));
-
-  if (!self->web_view)
-    return;
-
-  WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(self->web_view);
-  WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
-  if (!item)
-    return;
-
-  wig_tab_set_discarded(self, TRUE);
-
-#if HAVE_FAVICON_SUPPORT
-  self->restoring_icon = TRUE;
-  wig_tab_load_discarded_favicon(self, webkit_back_forward_list_item_get_uri(item));
-#endif
-
-  const char *title = webkit_back_forward_list_item_get_title(item);
-  if (title && *title) {
-    wig_tab_set_title(self, title);
-    return;
-  }
-
-  g_autofree char *host = wig_tab_uri_host(webkit_back_forward_list_item_get_uri(item));
-  if (host)
-    wig_tab_set_title(self, host);
 }
 
 /* What a discarded tab would be built back from, which is the same thing the

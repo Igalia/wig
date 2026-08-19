@@ -31,6 +31,11 @@ G_DECLARE_FINAL_TYPE(WigSession, wig_session, WIG, SESSION, GObject)
 
 typedef struct {
   WebKitWebViewSessionState *state;
+  /* What the tab shows before anything is loaded into it.  The state itself is
+   * opaque, so a tab restored without a view has no other way to say what it
+   * stands for. */
+  char *title;
+  char *uri;
   gboolean was_focused;
   gboolean pinned;
 } WigSessionTab;
@@ -49,8 +54,8 @@ typedef struct {
 } WigSessionWindow;
 
 WigSessionWindow *wig_session_window_new(guint window_id);
-void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionState *state, gboolean was_focused,
-                                gboolean pinned);
+void wig_session_window_add_tab(WigSessionWindow *self, WebKitWebViewSessionState *state, const char *title,
+                                const char *uri, gboolean was_focused, gboolean pinned);
 void wig_session_window_free(WigSessionWindow *self);
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(WigSessionWindow, wig_session_window_free)
 

@@ -164,8 +164,8 @@ static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *we
 static void wig_window_save_tab_to_history(WigWindow *win, WigTab *tab)
 {
   WigSessionWindow *closed = wig_session_window_new(wig_window_base_get_id(WIG_WINDOW_BASE(win)));
-  wig_session_window_add_tab(closed, wig_tab_get_session_state(tab), win->current_web_view == wig_tab_get_web_view(tab),
-                             wig_tab_get_pinned(tab));
+  wig_session_window_add_tab(closed, wig_tab_get_session_state(tab), wig_tab_get_title(tab), wig_tab_get_uri(tab),
+                             win->current_web_view == wig_tab_get_web_view(tab), wig_tab_get_pinned(tab));
   wig_session_push_closed_window(wig_application_get_session(wig_application_get()), closed);
 }
 
@@ -505,7 +505,7 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
 
   for (guint i = 0; i < n_tabs; i++) {
     WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
-    wig_session_window_add_tab(captured, wig_tab_get_session_state(tab),
+    wig_session_window_add_tab(captured, wig_tab_get_session_state(tab), wig_tab_get_title(tab), wig_tab_get_uri(tab),
                                wig_tab_get_web_view(tab) == win->current_web_view, wig_tab_get_pinned(tab));
   }
 
@@ -551,11 +551,11 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
     if (pinned_only && !saved_tab->pinned)
       continue;
 
-    g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
-    webkit_web_view_restore_session_state(web_view, saved_tab->state);
+    /* Nothing is built for the tab until it is looked at: it holds its state and
+     * shows the title and address the session recorded for it. */
+    g_autoptr(WigTab) tab = wig_tab_new_discarded(saved_tab->state, saved_tab->title, saved_tab->uri);
+    wig_tab_list_attach(win->tab_list, tab);
 
-    WigTab *tab = wig_window_add_tab_for_view(win, web_view);
-    wig_tab_mark_discarded(tab);
     if (saved_tab->pinned) {
       wig_tab_list_set_pinned(win->tab_list, tab, TRUE);
       wig_tab_load_discarded(tab);
@@ -564,8 +564,7 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
       focused_tab = tab;
   }
 
-  /* The first tab of a fresh window is active before it is marked discarded, so
-   * the tab list may already hold the one being focused here. */
+  /* Only the tab being looked at is built; the rest stay as they were saved. */
   if (focused_tab) {
     wig_tab_list_set_active(win->tab_list, focused_tab);
     wig_tab_load_discarded(focused_tab);

@@ -230,8 +230,10 @@ void wig_tab_list_attach(WigTabList *self, WigTab *tab)
   g_ptr_array_add(self->tabs, g_object_ref(tab));
   guint pos = self->tabs->len - 1;
   g_signal_emit(self, signals[SIGNAL_TAB_ADDED], 0, tab, pos);
-  if (self->tabs->len == 1)
-    wig_tab_list_set_active(self, tab);
+
+  /* Which tab to look at is the caller's to say — attaching the first one is not
+   * a reason to build a view for it, when a restored window is about to name a
+   * different tab as the one to show. */
 
   /* A tab keeps its pin when it moves to another window, so it has to land in
    * that window's pinned block rather than at the end. */
