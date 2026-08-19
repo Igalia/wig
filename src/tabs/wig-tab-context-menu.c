@@ -52,7 +52,14 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   gboolean has_right = n_closable_right > 0;
   gboolean has_others_not_selected = n_closable_others > 0 && (n_tabs - n_selected) > 0;
 
+  /* Moving every tab out would only swap one window for another, which is what
+   * the detach itself refuses to do. */
+  guint n_moving = wig_tab_get_selected(tab) ? n_selected : 1;
+  gboolean can_move_out = n_moving < n_tabs;
+
   GSimpleActionGroup *group = wig_tab_list_get_action_group(list);
+  g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "move-to-new-window")),
+                              can_move_out);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-to-left")),
                               has_left && !multi_selected);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-to-right")),
@@ -81,15 +88,19 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section1));
 
   g_autoptr(GMenu) section2 = g_menu_new();
-  APPEND_TAB_ITEM(section2, "Close Tab", "close");
+  APPEND_TAB_ITEM(section2, "Move to a New Window", "move-to-new-window");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section2));
+
+  g_autoptr(GMenu) section3 = g_menu_new();
+  APPEND_TAB_ITEM(section3, "Close Tab", "close");
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(section3));
 
   g_autoptr(GMenu) close_multiple = g_menu_new();
   APPEND_TAB_ITEM(close_multiple, "Close Tabs to Left", "close-to-left");
   APPEND_TAB_ITEM(close_multiple, "Close Other Tabs", "close-others");
   APPEND_TAB_ITEM(close_multiple, "Close Tabs to Right", "close-to-right");
 
-  g_autoptr(GMenu) section3 = g_menu_new();
+  g_autoptr(GMenu) section4 = g_menu_new();
   g_autoptr(GMenuItem) submenu_item = g_menu_item_new_submenu("Close Multiple Tabs", G_MENU_MODEL(close_multiple));
 
   /* Attach a dedicated action so the submenu header itself can be insensitive. */
@@ -98,8 +109,8 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   g_action_map_add_action(G_ACTION_MAP(group), G_ACTION(open_multiple));
   g_menu_item_set_attribute(submenu_item, "action", "s", "tabs.open-close-multiple");
 
-  g_menu_append_item(section3, submenu_item);
-  g_menu_append_section(menu, NULL, G_MENU_MODEL(section3));
+  g_menu_append_item(section4, submenu_item);
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(section4));
 
   GtkWidget *popover = gtk_popover_menu_new_from_model(G_MENU_MODEL(menu));
   gtk_popover_set_has_arrow(GTK_POPOVER(popover), FALSE);

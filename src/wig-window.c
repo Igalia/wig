@@ -1458,6 +1458,13 @@ static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, G
     gtk_window_destroy(GTK_WINDOW(src));
 }
 
+/* Both the context menu and a tab let go outside the windows come through
+ * tab.detach, so the two agree on what moves and when it is refused. */
+static void wig_window_tab_detach_requested(WigTabList *list, guint tab_id, WigWindow *win)
+{
+  gtk_widget_activate_action(GTK_WIDGET(win), "tab.detach", "u", tab_id);
+}
+
 static void wig_window_detach_tab(GtkWidget *widget, const char *action_name, GVariant *parameter)
 {
   WigWindow *win = WIG_WINDOW(widget);
@@ -1626,6 +1633,8 @@ static void wig_window_constructed(GObject *object)
   g_signal_connect_object(win->tab_list, "mute-tab", G_CALLBACK(wig_window_tab_mute), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "duplicate-tab", G_CALLBACK(wig_window_tab_duplicate), win, G_CONNECT_DEFAULT);
   g_signal_connect_object(win->tab_list, "copy-link-tab", G_CALLBACK(wig_window_tab_copy_link), win, G_CONNECT_DEFAULT);
+  g_signal_connect_object(win->tab_list, "detach-tab", G_CALLBACK(wig_window_tab_detach_requested), win,
+                          G_CONNECT_DEFAULT);
 
   win->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *content_box = win->content_box;

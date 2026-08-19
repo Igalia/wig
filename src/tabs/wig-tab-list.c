@@ -30,6 +30,7 @@ static void on_action_mute(GSimpleAction *, GVariant *, gpointer);
 static void on_action_duplicate(GSimpleAction *, GVariant *, gpointer);
 static void on_action_copy_link(GSimpleAction *, GVariant *, gpointer);
 static void on_action_pin(GSimpleAction *, GVariant *, gpointer);
+static void on_action_move_to_new_window(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close_to_left(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close_to_right(GSimpleAction *, GVariant *, gpointer);
@@ -61,6 +62,7 @@ enum {
   SIGNAL_MUTE_TAB,
   SIGNAL_DUPLICATE_TAB,
   SIGNAL_COPY_LINK_TAB,
+  SIGNAL_DETACH_TAB,
   N_SIGNALS
 };
 static guint signals[N_SIGNALS];
@@ -104,6 +106,7 @@ static void wig_tab_list_init(WigTabList *self)
     { "duplicate", on_action_duplicate, "u", NULL, NULL },
     { "copy-link", on_action_copy_link, "u", NULL, NULL },
     { "pin", on_action_pin, "u", NULL, NULL },
+    { "move-to-new-window", on_action_move_to_new_window, "u", NULL, NULL },
     { "close", on_action_close, "u", NULL, NULL },
     { "close-to-left", on_action_close_to_left, "u", NULL, NULL },
     { "close-to-right", on_action_close_to_right, "u", NULL, NULL },
@@ -151,6 +154,8 @@ static void wig_tab_list_class_init(WigTabListClass *klass)
                                                NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
   signals[SIGNAL_COPY_LINK_TAB] = g_signal_new("copy-link-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL,
                                                NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
+  signals[SIGNAL_DETACH_TAB] = g_signal_new("detach-tab", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+                                            NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
 }
 
 WigTabList *wig_tab_list_new(void)
@@ -448,6 +453,14 @@ static void on_action_pin(GSimpleAction *action, GVariant *parameter, gpointer u
   } else {
     wig_tab_list_set_pinned(self, tab, pinned);
   }
+}
+
+/* The window takes the whole selection along, so this fires once however many
+ * tabs are going. */
+static void on_action_move_to_new_window(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  g_signal_emit(self, signals[SIGNAL_DETACH_TAB], 0, g_variant_get_uint32(parameter));
 }
 
 static void on_action_close(GSimpleAction *action, GVariant *parameter, gpointer user_data)
