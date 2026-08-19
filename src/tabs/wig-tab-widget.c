@@ -71,7 +71,7 @@ static void wig_tab_widget_on_icon_changed(WigTabWidget *self, GParamSpec *pspec
       gtk_widget_set_halign(self->favicon, GTK_ALIGN_CENTER);
       gtk_widget_set_hexpand(self->favicon, FALSE);
       gtk_widget_add_css_class(self->favicon, "tab-favicon");
-      gtk_widget_insert_before(self->favicon, self->content, self->title_label);
+      gtk_widget_insert_after(self->favicon, self->content, NULL);
     }
     gtk_image_set_from_gicon(GTK_IMAGE(self->favicon), icon);
   } else {
@@ -100,7 +100,7 @@ static void wig_tab_widget_on_loading_changed(WigTabWidget *self, GParamSpec *ps
       gtk_widget_set_size_request(self->spinner, WIG_TAB_FAVICON_SIZE, WIG_TAB_FAVICON_SIZE);
       gtk_widget_set_halign(self->spinner, GTK_ALIGN_START);
       gtk_widget_add_css_class(self->spinner, "tab-favicon");
-      gtk_widget_insert_before(self->spinner, self->content, self->title_label);
+      gtk_widget_insert_after(self->spinner, self->content, NULL);
     }
     gtk_spinner_set_spinning(GTK_SPINNER(self->spinner), TRUE);
   } else {
