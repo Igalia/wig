@@ -1458,6 +1458,33 @@ static void wig_window_move_tab_to(GtkWidget *widget, const char *action_name, G
     gtk_window_destroy(GTK_WINDOW(src));
 }
 
+/* A torn-off tab keeps the shape of where it came from, so the window it lands
+ * in opens the size and state of the one it left. */
+static void wig_window_match_window(WigWindow *win, WigWindow *other)
+{
+  int width = 0, height = 0;
+
+  /* The default size is the one to come back at: it holds the size the window
+   * had before it was maximised or fullscreened. */
+  gtk_window_get_default_size(GTK_WINDOW(other), &width, &height);
+  if (width > 0 && height > 0)
+    gtk_window_set_default_size(GTK_WINDOW(win), width, height);
+
+  gtk_paned_set_position(GTK_PANED(win->paned), gtk_paned_get_position(GTK_PANED(other->paned)));
+
+  if (gtk_window_is_maximized(GTK_WINDOW(other)))
+    gtk_window_maximize(GTK_WINDOW(win));
+
+  if (gtk_window_is_fullscreen(GTK_WINDOW(other))) {
+    g_autoptr(GdkMonitor) monitor = wig_window_find_monitor(gtk_widget_get_display(GTK_WIDGET(other)),
+                                                            wig_window_monitor_connector(other));
+    if (monitor)
+      gtk_window_fullscreen_on_monitor(GTK_WINDOW(win), monitor);
+    else
+      gtk_window_fullscreen(GTK_WINDOW(win));
+  }
+}
+
 /* Both the context menu and a tab let go outside the windows come through
  * tab.detach, so the two agree on what moves and when it is refused. */
 static void wig_window_tab_detach_requested(WigTabList *list, guint tab_id, WigWindow *win)
@@ -1482,6 +1509,7 @@ static void wig_window_detach_tab(GtkWidget *widget, const char *action_name, GV
 
   WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
   WigWindow *new_win = wig_window_new(app);
+  wig_window_match_window(new_win, win);
 
   for (guint i = 0; i < tabs->len; i++) {
     /* Detach reuses the existing WigTab — no close-tab signal, no history save.
