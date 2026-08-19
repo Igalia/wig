@@ -34,6 +34,7 @@ typedef struct {
   double drag_hot_y;
   GtkWidget *drag_widget; /* owned while dragging */
   int drop_indicator;
+  gboolean drop_pinned;
 
   /* Index of the last tab that was Ctrl+clicked; used as the anchor for
    * Shift+click range selection.  -1 when no anchor has been set yet. */
@@ -166,13 +167,19 @@ static void wig_tab_list_view_tab_right_pressed(GtkGestureClick *gesture, int n_
   wig_tab_widget_show_context_menu(WIG_TAB_WIDGET(widget), priv->list);
 }
 
-static void wig_tab_list_view_set_drop_indicator(WigTabListView *self, int index)
+static void wig_tab_list_view_set_drop_indicator(WigTabListView *self, int index, gboolean pinned)
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
-  if (priv->drop_indicator == index)
+  if (priv->drop_indicator == index && priv->drop_pinned == pinned)
     return;
   priv->drop_indicator = index;
+  priv->drop_pinned = pinned;
   gtk_widget_queue_draw(GTK_WIDGET(self));
+}
+
+static void wig_tab_list_view_clear_drop_indicator(WigTabListView *self)
+{
+  wig_tab_list_view_set_drop_indicator(self, -1, FALSE);
 }
 
 static GType wig_tab_id_get_type(void)
@@ -254,51 +261,92 @@ static void wig_tab_list_view_drag_end(GtkDragSource *source, GdkDrag *drag, gbo
   gtk_widget_remove_css_class(GTK_WIDGET(self), "tab-drag-active");
   if (widget)
     gtk_widget_remove_css_class(widget, "dragging");
-  wig_tab_list_view_set_drop_indicator(self, -1);
+  wig_tab_list_view_clear_drop_indicator(self);
   wig_tab_list_view_sync_placement(self);
 }
 
-/* Returns the index in tab_widgets that @widget corresponds to, or -1. */
-static int wig_tab_list_view_widget_index(WigTabListView *self, GtkWidget *widget)
+/* Pinned tabs are favicon-sized and run across in both layouts; the rest follow
+ * the view.  The boxes cannot be asked, because GtkBox forwards "orientation" to
+ * its layout manager and both of ours replace it. */
+static GtkOrientation wig_tab_list_view_block_orientation(WigTabListView *self, gboolean pinned)
 {
   WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
-  int i = 0;
-  for (GSList *l = priv->tab_widgets; l; l = g_slist_next(l), i++) {
-    if (GTK_WIDGET(l->data) == widget)
-      return i;
-  }
-  return -1;
+  return pinned ? GTK_ORIENTATION_HORIZONTAL : priv->orientation;
 }
 
-/* The two boxes do not have to run the same way — the sidebar stacks its tabs
- * downwards but wraps the pinned ones across — so which axis a drop divides on
- * follows the box the tab under the cursor sits in. */
-static GtkOrientation wig_tab_list_view_tab_orientation(WigTabListView *self, GtkWidget *tab_widget)
+static gboolean wig_tab_list_view_widget_is_pinned(GtkWidget *tab_widget)
 {
-  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
   WigTab *tab = wig_tab_widget_get_tab(WIG_TAB_WIDGET(tab_widget));
-
-  /* Pinned tabs are favicon-sized and run across in both layouts; the rest
-   * follow the view.  The boxes cannot be asked, because GtkBox forwards
-   * "orientation" to its layout manager and both of ours replace it. */
-  return tab && wig_tab_get_pinned(tab) ? GTK_ORIENTATION_HORIZONTAL : priv->orientation;
+  return tab && wig_tab_get_pinned(tab);
 }
 
-/* Compute the insertion index given the cursor position within a tab widget.
- * Returns the index before which the dragged tab should be inserted. */
-static int wig_tab_list_view_compute_insert_index(WigTabListView *self, GtkWidget *drop_widget, double x, double y)
+/* Squared distance from @point to the nearest edge of @rect, zero inside it. */
+static float wig_tab_list_view_distance_to(const graphene_rect_t *rect, const graphene_point_t *point)
 {
-  int target_index = wig_tab_list_view_widget_index(self, drop_widget);
-  if (target_index < 0)
-    return -1;
+  float dx = MAX(MAX(rect->origin.x - point->x, point->x - (rect->origin.x + rect->size.width)), 0.0f);
+  float dy = MAX(MAX(rect->origin.y - point->y, point->y - (rect->origin.y + rect->size.height)), 0.0f);
+  return dx * dx + dy * dy;
+}
 
-  GtkOrientation orientation = wig_tab_list_view_tab_orientation(self, drop_widget);
-  double pos = orientation == GTK_ORIENTATION_HORIZONTAL ? x : y;
-  int size = orientation == GTK_ORIENTATION_HORIZONTAL ? gtk_widget_get_width(drop_widget)
-                                                       : gtk_widget_get_height(drop_widget);
+/* Whether the drop lands in the pinned block.  During a drag the pinned area is
+ * shown even when empty, so it is a region rather than a set of tabs. */
+static gboolean wig_tab_list_view_point_is_pinned(WigTabListView *self, const graphene_point_t *point)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  graphene_rect_t bounds;
 
-  /* Insert after the target when in the right/bottom half. */
-  return (pos > size / 2.0) ? target_index + 1 : target_index;
+  if (!gtk_widget_get_visible(GTK_WIDGET(priv->pinned_box)))
+    return FALSE;
+  if (!gtk_widget_compute_bounds(GTK_WIDGET(priv->pinned_box), GTK_WIDGET(self), &bounds))
+    return FALSE;
+
+  return graphene_rect_contains_point(&bounds, point);
+}
+
+/* The index the dragged tab would take if it were dropped at (@x, @y) anywhere
+ * in the view.  The tab nearest the pointer decides it, so the gaps between
+ * tabs, the space past the last one and the chrome around the strip all resolve
+ * to the neighbour they sit next to.  Also reports which block was hit, since
+ * that is what pins or unpins the tab. */
+static int wig_tab_list_view_insert_index_at(WigTabListView *self, double x, double y, gboolean *out_pinned)
+{
+  WigTabListViewPrivate *priv = wig_tab_list_view_get_instance_private(self);
+  graphene_point_t point = GRAPHENE_POINT_INIT((float)x, (float)y);
+
+  gboolean pinned = wig_tab_list_view_point_is_pinned(self, &point);
+  GtkOrientation orientation = wig_tab_list_view_block_orientation(self, pinned);
+  *out_pinned = pinned;
+
+  int index = 0;
+  int nearest = -1;
+  float nearest_distance = 0.0f;
+  gboolean after = FALSE;
+
+  for (GSList *l = priv->tab_widgets; l; l = g_slist_next(l), index++) {
+    GtkWidget *tab_widget = GTK_WIDGET(l->data);
+    graphene_rect_t bounds;
+
+    if (wig_tab_list_view_widget_is_pinned(tab_widget) != pinned)
+      continue;
+    if (!gtk_widget_compute_bounds(tab_widget, GTK_WIDGET(self), &bounds))
+      continue;
+
+    float distance = wig_tab_list_view_distance_to(&bounds, &point);
+    if (nearest >= 0 && distance >= nearest_distance)
+      continue;
+
+    nearest = index;
+    nearest_distance = distance;
+    after = orientation == GTK_ORIENTATION_HORIZONTAL ? point.x > bounds.origin.x + bounds.size.width / 2.0f
+                                                      : point.y > bounds.origin.y + bounds.size.height / 2.0f;
+  }
+
+  /* An empty block still has a place in the list: pinned tabs come first, so
+   * the pinned one starts at the front and the regular one ends at the back. */
+  if (nearest < 0)
+    return pinned ? 0 : (int)wig_tab_list_get_n_tabs(priv->list);
+
+  return after ? nearest + 1 : nearest;
 }
 
 /* Only accept drags originating from within this process (same-process drags
@@ -310,73 +358,35 @@ static gboolean wig_tab_list_view_drop_accept(GtkDropTarget *target, GdkDrop *dr
   return gdk_content_formats_contain_gtype(gdk_drop_get_formats(drop), wig_tab_id_get_type());
 }
 
-static GdkDragAction wig_tab_list_view_tab_drop_motion(GtkDropTarget *target, double x, double y, WigTabListView *self)
+static GdkDragAction wig_tab_list_view_drop_motion(GtkDropTarget *target, double x, double y, WigTabListView *self)
 {
-  GtkWidget *widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(target));
-  int insert_index = wig_tab_list_view_compute_insert_index(self, widget, x, y);
-  wig_tab_list_view_set_drop_indicator(self, insert_index);
+  gboolean pinned;
+  int insert_index = wig_tab_list_view_insert_index_at(self, x, y, &pinned);
+  wig_tab_list_view_set_drop_indicator(self, insert_index, pinned);
   return GDK_ACTION_MOVE;
 }
 
-static void wig_tab_list_view_tab_drop_leave(GtkDropTarget *target, WigTabListView *self)
+static void wig_tab_list_view_drop_leave(GtkDropTarget *target, WigTabListView *self)
 {
-  wig_tab_list_view_set_drop_indicator(self, -1);
+  wig_tab_list_view_clear_drop_indicator(self);
 }
 
-static gboolean wig_tab_list_view_tab_drop(GtkDropTarget *target, const GValue *value, double x, double y,
-                                           WigTabListView *self)
+static gboolean wig_tab_list_view_drop(GtkDropTarget *target, const GValue *value, double x, double y,
+                                       WigTabListView *self)
 {
-  wig_tab_list_view_set_drop_indicator(self, -1);
+  wig_tab_list_view_clear_drop_indicator(self);
 
   if (!G_VALUE_HOLDS(value, wig_tab_id_get_type()))
     return FALSE;
 
+  /* Landing among the pinned tabs pins the dropped tab, and landing anywhere
+   * else unpins it. */
+  gboolean pinned;
+  int insert_index = wig_tab_list_view_insert_index_at(self, x, y, &pinned);
   guint32 tab_id = GPOINTER_TO_UINT(g_value_get_pointer(value));
-
-  GtkWidget *drop_widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(target));
-  int insert_index = wig_tab_list_view_compute_insert_index(self, drop_widget, x, y);
-  if (insert_index < 0)
-    return FALSE;
-
-  /* Landing among the pinned tabs pins the dropped tab, and landing among the
-   * regular ones unpins it. */
-  gboolean pinned = wig_tab_get_pinned(wig_tab_widget_get_tab(WIG_TAB_WIDGET(drop_widget)));
 
   /* tab.move-to handles both same-window reorder and cross-window moves. */
   gtk_widget_activate_action(GTK_WIDGET(self), "tab.move-to", "(uub)", tab_id, (guint32)insert_index, pinned);
-
-  return TRUE;
-}
-
-/* Drop onto the pinned area — pin the tab and put it at the end of the block. */
-static gboolean wig_tab_list_view_pinned_box_drop(GtkDropTarget *target, const GValue *value, double x, double y,
-                                                  WigTabListView *self)
-{
-  wig_tab_list_view_set_drop_indicator(self, -1);
-
-  if (!G_VALUE_HOLDS(value, wig_tab_id_get_type()))
-    return FALSE;
-
-  guint32 tab_id = GPOINTER_TO_UINT(g_value_get_pointer(value));
-  gtk_widget_activate_action(GTK_WIDGET(self), "tab.move-to", "(uub)", tab_id, G_MAXUINT32, TRUE);
-
-  return TRUE;
-}
-
-/* Drop onto the tab box past the last tab — append. */
-static gboolean wig_tab_list_view_box_drop(GtkDropTarget *target, const GValue *value, double x, double y,
-                                           WigTabListView *self)
-{
-  wig_tab_list_view_set_drop_indicator(self, -1);
-
-  if (!G_VALUE_HOLDS(value, wig_tab_id_get_type()))
-    return FALSE;
-
-  guint32 tab_id = GPOINTER_TO_UINT(g_value_get_pointer(value));
-
-  /* Append: pass G_MAXUINT32 as insert_index; tab.move-to clamps to n.  Past the
-   * last tab is regular territory, so the tab is unpinned if it was pinned. */
-  gtk_widget_activate_action(GTK_WIDGET(self), "tab.move-to", "(uub)", tab_id, G_MAXUINT32, FALSE);
 
   return TRUE;
 }
@@ -465,14 +475,6 @@ static void wig_tab_list_view_tab_added(WigTabList *list, WigTab *tab, guint pos
   g_signal_connect_object(drag_source, "drag-end", G_CALLBACK(wig_tab_list_view_drag_end), self, G_CONNECT_DEFAULT);
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(drag_source));
 
-  GtkDropTarget *drop_target = gtk_drop_target_new(wig_tab_id_get_type(), GDK_ACTION_MOVE);
-  g_signal_connect_object(drop_target, "accept", G_CALLBACK(wig_tab_list_view_drop_accept), self, G_CONNECT_DEFAULT);
-  g_signal_connect_object(drop_target, "motion", G_CALLBACK(wig_tab_list_view_tab_drop_motion), self,
-                          G_CONNECT_DEFAULT);
-  g_signal_connect_object(drop_target, "leave", G_CALLBACK(wig_tab_list_view_tab_drop_leave), self, G_CONNECT_DEFAULT);
-  g_signal_connect_object(drop_target, "drop", G_CALLBACK(wig_tab_list_view_tab_drop), self, G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(drop_target));
-
   priv->tab_widgets = g_slist_insert(priv->tab_widgets, tab_widget, (gint)position);
   wig_tab_list_view_sync_placement(self);
 
@@ -526,34 +528,40 @@ static void wig_tab_list_view_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
   if (priv->drop_indicator < 0)
     return;
 
-  guint n = wig_tab_list_get_n_tabs(priv->list);
-  if (n == 0)
-    return;
-
-  /* Determine where to draw the line: at the left/top edge of the widget at
-   * drop_indicator, or at the right/bottom edge of the last widget. */
+  /* The line sits at the leading edge of the tab the drop would push along, or
+   * at the trailing edge of the block's last tab when it lands past them all.
+   * Only the block being dropped into counts, so a drop at the end of the pinned
+   * tabs does not draw itself onto the first regular one. */
   GtkWidget *ref_widget = NULL;
   gboolean use_end = FALSE;
-  if ((guint)priv->drop_indicator >= n) {
-    ref_widget = GTK_WIDGET(g_slist_nth_data(priv->tab_widgets, n - 1));
-    use_end = TRUE;
-  } else {
-    ref_widget = GTK_WIDGET(g_slist_nth_data(priv->tab_widgets, (guint)priv->drop_indicator));
+  int index = 0;
+  for (GSList *l = priv->tab_widgets; l; l = g_slist_next(l), index++) {
+    GtkWidget *tab_widget = GTK_WIDGET(l->data);
+    if (wig_tab_list_view_widget_is_pinned(tab_widget) != priv->drop_pinned)
+      continue;
+
+    ref_widget = tab_widget;
+    use_end = index != priv->drop_indicator;
+    if (!use_end)
+      break;
   }
 
-  if (!ref_widget)
-    return;
-
   graphene_rect_t bounds;
-  if (!gtk_widget_compute_bounds(ref_widget, widget, &bounds))
+  if (ref_widget) {
+    if (!gtk_widget_compute_bounds(ref_widget, widget, &bounds))
+      return;
+  } else if (!gtk_widget_compute_bounds(GTK_WIDGET(priv->drop_pinned ? priv->pinned_box : priv->tab_box), widget,
+                                        &bounds)) {
+    /* An empty block still shows where the tab would land. */
     return;
+  }
 
   GdkRGBA color;
   gtk_widget_get_color(widget, &color);
 
   const float LINE_HALF = 1.5f;
 
-  if (wig_tab_list_view_tab_orientation(self, ref_widget) == GTK_ORIENTATION_HORIZONTAL) {
+  if (wig_tab_list_view_block_orientation(self, priv->drop_pinned) == GTK_ORIENTATION_HORIZONTAL) {
     float x = use_end ? bounds.origin.x + bounds.size.width : bounds.origin.x;
     graphene_rect_t line_rect = GRAPHENE_RECT_INIT(x - LINE_HALF, bounds.origin.y, LINE_HALF * 2.0f,
                                                    bounds.size.height);
@@ -621,18 +629,14 @@ void wig_tab_list_view_setup(WigTabListView *self, WigTabList *list, GtkBox *pin
                           G_CONNECT_DEFAULT);
   gtk_widget_add_controller(GTK_WIDGET(self), GTK_EVENT_CONTROLLER(bg_gesture));
 
-  GtkDropTarget *box_drop_target = gtk_drop_target_new(wig_tab_id_get_type(), GDK_ACTION_MOVE);
-  g_signal_connect_object(box_drop_target, "accept", G_CALLBACK(wig_tab_list_view_drop_accept), self,
-                          G_CONNECT_DEFAULT);
-  g_signal_connect_object(box_drop_target, "drop", G_CALLBACK(wig_tab_list_view_box_drop), self, G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(GTK_WIDGET(tab_box), GTK_EVENT_CONTROLLER(box_drop_target));
-
-  GtkDropTarget *pinned_drop_target = gtk_drop_target_new(wig_tab_id_get_type(), GDK_ACTION_MOVE);
-  g_signal_connect_object(pinned_drop_target, "accept", G_CALLBACK(wig_tab_list_view_drop_accept), self,
-                          G_CONNECT_DEFAULT);
-  g_signal_connect_object(pinned_drop_target, "drop", G_CALLBACK(wig_tab_list_view_pinned_box_drop), self,
-                          G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(GTK_WIDGET(pinned_box), GTK_EVENT_CONTROLLER(pinned_drop_target));
+  /* One target for the whole view: a drop anywhere in the bar belongs to the tab
+   * nearest to it, so there is no dead space between or beyond the tabs. */
+  GtkDropTarget *drop_target = gtk_drop_target_new(wig_tab_id_get_type(), GDK_ACTION_MOVE);
+  g_signal_connect_object(drop_target, "accept", G_CALLBACK(wig_tab_list_view_drop_accept), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(drop_target, "motion", G_CALLBACK(wig_tab_list_view_drop_motion), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(drop_target, "leave", G_CALLBACK(wig_tab_list_view_drop_leave), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(drop_target, "drop", G_CALLBACK(wig_tab_list_view_drop), self, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(GTK_WIDGET(self), GTK_EVENT_CONTROLLER(drop_target));
 
   guint n = wig_tab_list_get_n_tabs(list);
   for (guint i = 0; i < n; i++)
