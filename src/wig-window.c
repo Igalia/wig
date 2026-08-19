@@ -163,9 +163,8 @@ static WigTab *wig_window_get_tab_for_web_view(WigWindow *win, WebKitWebView *we
 
 static void wig_window_save_tab_to_history(WigWindow *win, WigTab *tab)
 {
-  WebKitWebView *web_view = wig_tab_get_web_view(tab);
   WigSessionWindow *closed = wig_session_window_new(wig_window_base_get_id(WIG_WINDOW_BASE(win)));
-  wig_session_window_add_tab(closed, webkit_web_view_get_session_state(web_view), win->current_web_view == web_view,
+  wig_session_window_add_tab(closed, wig_tab_get_session_state(tab), win->current_web_view == wig_tab_get_web_view(tab),
                              wig_tab_get_pinned(tab));
   wig_session_push_closed_window(wig_application_get_session(wig_application_get()), closed);
 }
@@ -207,12 +206,17 @@ static gboolean wig_window_tab_close(WigTabList *list, WigTab *tab, WigWindow *w
    * answers by emitting close on the view, which comes back here with the tab
    * marked; a page that is refused keeps its tab. */
   if (!wig_tab_get_closing(tab)) {
-    if (!wig_tab_get_close_pending(tab)) {
-      g_debug("tab %u: asking the page to close", wig_tab_get_id(tab));
-      wig_tab_set_close_pending(tab, TRUE);
-      webkit_web_view_try_close(wig_tab_get_web_view(tab));
+    /* A discarded tab has no page to ask, so it goes without argument. */
+    if (wig_tab_get_web_view(tab)) {
+      if (!wig_tab_get_close_pending(tab)) {
+        g_debug("tab %u: asking the page to close", wig_tab_get_id(tab));
+        wig_tab_set_close_pending(tab, TRUE);
+        webkit_web_view_try_close(wig_tab_get_web_view(tab));
+      }
+      return TRUE;
     }
-    return TRUE;
+
+    wig_tab_set_closing(tab, TRUE);
   }
 
   if (wig_window_tab_agreed_to_close(win, tab))
@@ -501,9 +505,8 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
 
   for (guint i = 0; i < n_tabs; i++) {
     WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
-    WebKitWebView *web_view = wig_tab_get_web_view(tab);
-    wig_session_window_add_tab(captured, webkit_web_view_get_session_state(web_view), web_view == win->current_web_view,
-                               wig_tab_get_pinned(tab));
+    wig_session_window_add_tab(captured, wig_tab_get_session_state(tab),
+                               wig_tab_get_web_view(tab) == win->current_web_view, wig_tab_get_pinned(tab));
   }
 
   return captured;
@@ -719,8 +722,16 @@ static const GActionEntry context_menu_actions[] = {
 static void wig_window_tab_reload(WigTabList *list, guint tab_id, WigWindow *win)
 {
   WigTab *tab = wig_tab_list_get_by_id(list, tab_id);
-  if (tab)
-    webkit_web_view_reload(wig_tab_get_web_view(tab));
+  if (!tab)
+    return;
+
+  /* Reloading a discarded tab is what finally loads it. */
+  if (wig_tab_get_discarded(tab)) {
+    wig_tab_load_discarded(tab);
+    return;
+  }
+
+  webkit_web_view_reload(wig_tab_get_web_view(tab));
 }
 
 static void wig_window_tab_mute(WigTabList *list, guint tab_id, WigWindow *win)
@@ -729,6 +740,9 @@ static void wig_window_tab_mute(WigTabList *list, guint tab_id, WigWindow *win)
   if (!tab)
     return;
   WebKitWebView *web_view = wig_tab_get_web_view(tab);
+  if (!web_view)
+    return;
+
   webkit_web_view_set_is_muted(web_view, !webkit_web_view_get_is_muted(web_view));
 }
 
@@ -737,7 +751,7 @@ static void wig_window_tab_duplicate(WigTabList *list, guint tab_id, WigWindow *
   WigTab *tab = wig_tab_list_get_by_id(list, tab_id);
   if (!tab)
     return;
-  const char *uri = webkit_web_view_get_uri(wig_tab_get_web_view(tab));
+  const char *uri = wig_tab_get_uri(tab);
   g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
   WigTab *new_tab = wig_window_add_tab_for_view(win, web_view);
   if (uri)
@@ -750,7 +764,7 @@ static void wig_window_tab_copy_link(WigTabList *list, guint tab_id, WigWindow *
   WigTab *tab = wig_tab_list_get_by_id(list, tab_id);
   if (!tab)
     return;
-  const char *uri = webkit_web_view_get_uri(wig_tab_get_web_view(tab));
+  const char *uri = wig_tab_get_uri(tab);
   if (uri)
     gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(win)), uri);
 }
@@ -1322,11 +1336,27 @@ static void wig_window_tab_wants_attention(WigWindow *win, WigTab *tab)
   gtk_window_present(GTK_WINDOW(win));
 }
 
+/* A discarded tab has no view to be wired to, and the one it builds when it is
+ * looked at again is not the one this window was told about. */
+static void wig_window_tab_web_view_changed(WigWindow *win, WebKitWebView *old_view, WigTab *tab)
+{
+  if (old_view)
+    wig_window_detach_web_view(win, old_view);
+
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
+  if (web_view)
+    wig_window_attach_web_view(win, web_view);
+}
+
 static void wig_window_tab_added(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
 {
   g_signal_connect_object(tab, "wants-attention", G_CALLBACK(wig_window_tab_wants_attention), win, G_CONNECT_SWAPPED);
+  g_signal_connect_object(tab, "web-view-changed", G_CALLBACK(wig_window_tab_web_view_changed), win, G_CONNECT_SWAPPED);
   gtk_stack_add_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
-  wig_window_attach_web_view(win, wig_tab_get_web_view(tab));
+
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
+  if (web_view)
+    wig_window_attach_web_view(win, web_view);
   wig_session_queue_save(wig_application_get_session(wig_application_get()));
 }
 
@@ -1337,7 +1367,9 @@ static void wig_window_tab_moved(WigTabList *list, WigTab *tab, guint old_index,
 
 static void wig_window_tab_removed(WigTabList *list, WigTab *tab, guint position, WigWindow *win)
 {
-  wig_window_detach_web_view(win, wig_tab_get_web_view(tab));
+  WebKitWebView *web_view = wig_tab_get_web_view(tab);
+  if (web_view)
+    wig_window_detach_web_view(win, web_view);
   gtk_stack_remove(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
   wig_session_queue_save(wig_application_get_session(wig_application_get()));
 }
@@ -1345,6 +1377,12 @@ static void wig_window_tab_removed(WigTabList *list, WigTab *tab, guint position
 static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, WigTabList *list)
 {
   WigTab *tab = wig_tab_list_get_active(win->tab_list);
+
+  /* Looking at a discarded tab builds its view again, so this comes first and
+   * everything below sees the view the tab now has. */
+  if (tab)
+    wig_tab_load_discarded(tab);
+
   WebKitWebView *web_view = tab ? wig_tab_get_web_view(tab) : NULL;
   g_set_object(&win->current_web_view, web_view);
   g_signal_group_set_target(win->active_web_view_signals, web_view);
@@ -1362,9 +1400,6 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
   wig_window_reset_url_entry(win);
 
   wig_window_update_load_progress(win);
-
-  if (tab)
-    wig_tab_load_discarded(tab);
 
   wig_session_queue_save(wig_application_get_session(wig_application_get()));
 }

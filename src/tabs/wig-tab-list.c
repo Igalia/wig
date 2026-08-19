@@ -31,6 +31,7 @@ static void on_action_duplicate(GSimpleAction *, GVariant *, gpointer);
 static void on_action_copy_link(GSimpleAction *, GVariant *, gpointer);
 static void on_action_pin(GSimpleAction *, GVariant *, gpointer);
 static void on_action_move_to_new_window(GSimpleAction *, GVariant *, gpointer);
+static void on_action_unload(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close_to_left(GSimpleAction *, GVariant *, gpointer);
 static void on_action_close_to_right(GSimpleAction *, GVariant *, gpointer);
@@ -107,6 +108,7 @@ static void wig_tab_list_init(WigTabList *self)
     { "copy-link", on_action_copy_link, "u", NULL, NULL },
     { "pin", on_action_pin, "u", NULL, NULL },
     { "move-to-new-window", on_action_move_to_new_window, "u", NULL, NULL },
+    { "unload", on_action_unload, "u", NULL, NULL },
     { "close", on_action_close, "u", NULL, NULL },
     { "close-to-left", on_action_close_to_left, "u", NULL, NULL },
     { "close-to-right", on_action_close_to_right, "u", NULL, NULL },
@@ -453,6 +455,62 @@ static void on_action_pin(GSimpleAction *action, GVariant *parameter, gpointer u
   } else {
     wig_tab_list_set_pinned(self, tab, pinned);
   }
+}
+
+/* The tab being looked at cannot simply go blank, so it hands over to the
+ * nearest one that is staying, searching outwards from where it sits. */
+static WigTab *wig_tab_list_nearest_outside(WigTabList *self, guint pos, GPtrArray *excluded)
+{
+  for (guint distance = 1; distance <= self->tabs->len; distance++) {
+    if (pos >= distance) {
+      WigTab *tab = g_ptr_array_index(self->tabs, pos - distance);
+      if (!g_ptr_array_find(excluded, tab, NULL))
+        return tab;
+    }
+    if (pos + distance < self->tabs->len) {
+      WigTab *tab = g_ptr_array_index(self->tabs, pos + distance);
+      if (!g_ptr_array_find(excluded, tab, NULL))
+        return tab;
+    }
+  }
+  return NULL;
+}
+
+void wig_tab_list_discard_many(WigTabList *self, GPtrArray *tabs)
+{
+  if (self->active && g_ptr_array_find(tabs, self->active, NULL)) {
+    WigTab *survivor = wig_tab_list_nearest_outside(self, wig_tab_list_index_of(self, self->active), tabs);
+    if (survivor)
+      wig_tab_list_set_active(self, survivor);
+  }
+
+  for (guint i = 0; i < tabs->len; i++) {
+    WigTab *tab = g_ptr_array_index(tabs, i);
+
+    /* Every tab was asked to go, so the one on screen stays loaded. */
+    if (tab == self->active)
+      continue;
+
+    wig_tab_discard(tab);
+  }
+}
+
+static void on_action_unload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigTabList *self = WIG_TAB_LIST(user_data);
+  WigTab *tab = wig_tab_list_get_by_id(self, g_variant_get_uint32(parameter));
+  if (!tab)
+    return;
+
+  if (wig_tab_get_selected(tab)) {
+    g_autoptr(GPtrArray) selected = wig_tab_list_get_selected(self);
+    wig_tab_list_discard_many(self, selected);
+    return;
+  }
+
+  g_autoptr(GPtrArray) one = g_ptr_array_new();
+  g_ptr_array_add(one, tab);
+  wig_tab_list_discard_many(self, one);
 }
 
 /* The window takes the whole selection along, so this fires once however many

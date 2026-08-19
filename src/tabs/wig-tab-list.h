@@ -37,6 +37,7 @@ WigTabList *wig_tab_list_new(void);
 WigTab *wig_tab_list_append(WigTabList *self, WebKitWebView *web_view);
 void wig_tab_list_close(WigTabList *self, WigTab *tab);
 void wig_tab_list_close_many(WigTabList *self, GPtrArray *tabs);
+void wig_tab_list_discard_many(WigTabList *self, GPtrArray *tabs);
 void wig_tab_list_move(WigTabList *self, WigTab *tab, guint new_index);
 void wig_tab_list_move_many(WigTabList *self, GPtrArray *tabs, guint new_index);
 WigTab *wig_tab_list_detach(WigTabList *self, WigTab *tab);

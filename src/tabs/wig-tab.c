@@ -55,6 +55,10 @@ struct _WigTab {
   GtkWidget *status_label;
   GIcon *icon;
   char *title;
+  /* Kept so a discarded tab can still say what it is and be brought back once
+   * its view is gone. */
+  char *uri;
+  WebKitWebViewSessionState *session_state;
   gboolean discarded;
   gboolean restoring_icon;
   gboolean pinned;
@@ -83,13 +87,15 @@ typedef enum {
   PROP_PLAYING_AUDIO,
   PROP_MUTED,
   PROP_PAGE_URI,
+  PROP_DISCARDED,
 } WigTabProps;
 
-static GParamSpec *props[PROP_PAGE_URI + 1];
+static GParamSpec *props[PROP_DISCARDED + 1];
 
 enum {
   CAPTURE_CHANGED,
   WANTS_ATTENTION,
+  WEB_VIEW_CHANGED,
   N_SIGNALS,
 };
 
@@ -107,6 +113,15 @@ static const struct {
   [WIG_CAPTURE_DISPLAY] = { "display-capture-state", webkit_web_view_get_display_capture_state,
                             webkit_web_view_set_display_capture_state },
 };
+
+static void wig_tab_set_discarded(WigTab *self, gboolean discarded)
+{
+  if (self->discarded == discarded)
+    return;
+
+  self->discarded = discarded;
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_DISCARDED]);
+}
 
 static void wig_tab_set_loading(WigTab *self, gboolean loading)
 {
@@ -418,6 +433,9 @@ static void wig_tab_get_property(GObject *object, guint prop_id, GValue *value, 
   case PROP_MUTED:
     g_value_set_boolean(value, self->muted);
     break;
+  case PROP_DISCARDED:
+    g_value_set_boolean(value, self->discarded);
+    break;
   case PROP_PAGE_URI:
     g_value_set_string(value, wig_tab_get_page_uri(self));
     break;
@@ -460,6 +478,7 @@ static void wig_tab_set_property(GObject *object, guint prop_id, const GValue *v
     break;
   }
   case PROP_PAGE_URI:
+  case PROP_DISCARDED:
     break;
   }
 }
@@ -482,6 +501,8 @@ static void wig_tab_finalize(GObject *object)
 {
   WigTab *self = WIG_TAB(object);
   g_free(self->title);
+  g_free(self->uri);
+  g_clear_pointer(&self->session_state, webkit_web_view_session_state_unref);
   G_OBJECT_CLASS(wig_tab_parent_class)->finalize(object);
 }
 
@@ -511,6 +532,8 @@ static void wig_tab_class_init(WigTabClass *klass)
                                            G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
   props[PROP_PAGE_URI] = g_param_spec_string("page-uri", NULL, NULL, NULL,
                                              G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
+  props[PROP_DISCARDED] = g_param_spec_boolean("discarded", NULL, NULL, FALSE,
+                                               G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties(gobject_class, G_N_ELEMENTS(props), props);
 
@@ -521,6 +544,12 @@ static void wig_tab_class_init(WigTabClass *klass)
    * has to be the tab on screen for the question to be answerable at all. */
   signals[WANTS_ATTENTION] = g_signal_new("wants-attention", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
                                           NULL, G_TYPE_NONE, 0);
+
+  /* The view a tab shows is not for life: discarding one drops it and looking at
+   * the tab again builds another, and whoever wired signals to it has to follow.
+   * The old view, if there was one, comes with it. */
+  signals[WEB_VIEW_CHANGED] = g_signal_new("web-view-changed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL,
+                                           NULL, NULL, G_TYPE_NONE, 1, WEBKIT_TYPE_WEB_VIEW);
 }
 
 /* The title shown for a committed page that provides no <title> of its own. */
@@ -832,37 +861,13 @@ static void wig_tab_update_label_position(WigTab *self, double cx, double cy)
   gtk_widget_set_visible(label, !over_label);
 }
 
-WigTab *wig_tab_new(WebKitWebView *web_view)
+/* Everything hung off a particular view, so that a tab brought back from being
+ * discarded is wired up the same as one that was never discarded. */
+static void wig_tab_bind_web_view(WigTab *self, WebKitWebView *web_view)
 {
-  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
-
-  WigTab *self = WIG_TAB(g_object_new(WIG_TYPE_TAB, NULL));
   self->web_view = g_object_ref(web_view);
-
   self->web_view_widget = wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)));
-  self->view_overlay = g_object_ref_sink(gtk_overlay_new());
   gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), self->web_view_widget);
-
-  self->status_label = gtk_label_new(NULL);
-  gtk_label_set_ellipsize(GTK_LABEL(self->status_label), PANGO_ELLIPSIZE_END);
-  gtk_label_set_xalign(GTK_LABEL(self->status_label), 0.0f);
-  gtk_widget_set_halign(self->status_label, GTK_ALIGN_START);
-  gtk_widget_set_valign(self->status_label, GTK_ALIGN_END);
-  gtk_widget_add_css_class(self->status_label, "link-status-bar");
-  gtk_widget_set_visible(self->status_label, FALSE);
-  gtk_widget_set_can_target(self->status_label, FALSE);
-
-  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), self->status_label);
-
-  /* Capture phase, so a click lands here before the frozen view swallows it. */
-  GtkGesture *click = gtk_gesture_click_new();
-  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
-  g_signal_connect_object(click, "pressed", G_CALLBACK(wig_tab_view_pressed), self, G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(self->view_overlay, GTK_EVENT_CONTROLLER(click));
-
-  GtkEventController *motion = gtk_event_controller_motion_new();
-  g_signal_connect_object(motion, "motion", G_CALLBACK(wig_tab_overlay_motion), self, G_CONNECT_DEFAULT);
-  gtk_widget_add_controller(self->view_overlay, motion);
 
   g_signal_connect_object(web_view, "notify::title", G_CALLBACK(wig_tab_on_title_changed), self, G_CONNECT_SWAPPED);
 #if HAVE_FAVICON_SUPPORT
@@ -891,6 +896,40 @@ WigTab *wig_tab_new(WebKitWebView *web_view)
   g_object_bind_property(G_OBJECT(web_view), "is-playing-audio", self, "playing-audio", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-muted", self, "muted",
                          G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
+}
+
+WigTab *wig_tab_new(WebKitWebView *web_view)
+{
+  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
+
+  WigTab *self = WIG_TAB(g_object_new(WIG_TYPE_TAB, NULL));
+
+  /* The overlay outlives any one view: it stays in the window's stack while the
+   * view inside it comes and goes. */
+  self->view_overlay = g_object_ref_sink(gtk_overlay_new());
+
+  self->status_label = gtk_label_new(NULL);
+  gtk_label_set_ellipsize(GTK_LABEL(self->status_label), PANGO_ELLIPSIZE_END);
+  gtk_label_set_xalign(GTK_LABEL(self->status_label), 0.0f);
+  gtk_widget_set_halign(self->status_label, GTK_ALIGN_START);
+  gtk_widget_set_valign(self->status_label, GTK_ALIGN_END);
+  gtk_widget_add_css_class(self->status_label, "link-status-bar");
+  gtk_widget_set_visible(self->status_label, FALSE);
+  gtk_widget_set_can_target(self->status_label, FALSE);
+
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), self->status_label);
+
+  /* Capture phase, so a click lands here before the frozen view swallows it. */
+  GtkGesture *click = gtk_gesture_click_new();
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
+  g_signal_connect_object(click, "pressed", G_CALLBACK(wig_tab_view_pressed), self, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(self->view_overlay, GTK_EVENT_CONTROLLER(click));
+
+  GtkEventController *motion = gtk_event_controller_motion_new();
+  g_signal_connect_object(motion, "motion", G_CALLBACK(wig_tab_overlay_motion), self, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(self->view_overlay, motion);
+
+  wig_tab_bind_web_view(self, web_view);
 
   /* Pick up a title and icons the view may already have (e.g. a related view). */
   wig_tab_on_title_changed(self);
@@ -937,6 +976,9 @@ const char *wig_tab_get_title(WigTab *self)
 
 const char *wig_tab_get_uri(WigTab *self)
 {
+  if (!self->web_view)
+    return self->uri;
+
   if (self->discarded) {
     WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(self->web_view);
     WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
@@ -971,12 +1013,15 @@ void wig_tab_mark_discarded(WigTab *self)
 {
   g_assert(WIG_IS_TAB(self));
 
+  if (!self->web_view)
+    return;
+
   WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(self->web_view);
   WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
   if (!item)
     return;
 
-  self->discarded = TRUE;
+  wig_tab_set_discarded(self, TRUE);
 
 #if HAVE_FAVICON_SUPPORT
   self->restoring_icon = TRUE;
@@ -994,6 +1039,54 @@ void wig_tab_mark_discarded(WigTab *self)
     wig_tab_set_title(self, host);
 }
 
+/* What a discarded tab would be built back from, which is the same thing the
+ * session writes down for every tab.
+ *
+ * Returns: (transfer full) (nullable): the tab's session state. */
+WebKitWebViewSessionState *wig_tab_get_session_state(WigTab *self)
+{
+  g_assert(WIG_IS_TAB(self));
+
+  if (self->web_view)
+    return webkit_web_view_get_session_state(self->web_view);
+
+  return self->session_state ? webkit_web_view_session_state_ref(self->session_state) : NULL;
+}
+
+/* Give up the view and keep only what is needed to build an equivalent one: the
+ * session state, and the title, icon and address the tab goes on showing while
+ * it has nothing loaded. */
+void wig_tab_discard(WigTab *self)
+{
+  g_assert(WIG_IS_TAB(self));
+
+  if (self->discarded || !self->web_view)
+    return;
+
+  g_debug("tab %u: discarding (%s)", self->id, wig_tab_get_uri(self));
+
+  g_set_str(&self->uri, wig_tab_get_uri(self));
+  g_clear_pointer(&self->session_state, webkit_web_view_session_state_unref);
+  self->session_state = webkit_web_view_get_session_state(self->web_view);
+
+  /* A native page stands in front of the view and belongs to the load that is
+   * being thrown away. */
+  wig_tab_clear_native_page(self);
+  wig_tab_dismiss_unresponsive_dialog(self);
+  self->unresponsive = FALSE;
+  g_clear_handle_id(&self->unresponsive_timeout_id, g_source_remove);
+
+  g_autoptr(WebKitWebView) old_view = g_steal_pointer(&self->web_view);
+  g_signal_handlers_disconnect_by_data(old_view, self);
+  gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), NULL);
+  self->web_view_widget = NULL;
+
+  wig_tab_set_discarded(self, TRUE);
+  wig_tab_set_loading(self, FALSE);
+
+  g_signal_emit(self, signals[WEB_VIEW_CHANGED], 0, old_view);
+}
+
 void wig_tab_load_discarded(WigTab *self)
 {
   g_assert(WIG_IS_TAB(self));
@@ -1001,12 +1094,27 @@ void wig_tab_load_discarded(WigTab *self)
   if (!self->discarded)
     return;
 
-  self->discarded = FALSE;
+  wig_tab_set_discarded(self, FALSE);
+
+  /* A tab discarded by hand gave its view up, so looking at it again has to
+   * build one and put the stored session back into it. */
+  if (!self->web_view) {
+    g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(wig_application_get());
+    if (self->session_state)
+      webkit_web_view_restore_session_state(web_view, self->session_state);
+
+    wig_tab_bind_web_view(self, web_view);
+    g_signal_emit(self, signals[WEB_VIEW_CHANGED], 0, NULL);
+  }
 
   WebKitBackForwardList *list = webkit_web_view_get_back_forward_list(self->web_view);
   WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(list);
-  if (!item)
+  if (!item) {
+    /* Nothing was ever committed, so there is no history entry to go back to. */
+    if (self->uri)
+      webkit_web_view_load_uri(self->web_view, self->uri);
     return;
+  }
 
   g_debug("tab: loading discarded tab %u (%s)", self->id, webkit_back_forward_list_item_get_uri(item));
   webkit_web_view_go_to_back_forward_list_item(self->web_view, item);
@@ -1074,6 +1182,9 @@ WebKitMediaCaptureState wig_tab_get_capture_state(WigTab *self, WigCaptureKind k
 {
   g_assert(WIG_IS_TAB(self));
 
+  if (!self->web_view)
+    return WEBKIT_MEDIA_CAPTURE_STATE_NONE;
+
   return capture_kinds[kind].get_state(self->web_view);
 }
 
@@ -1082,6 +1193,9 @@ WebKitMediaCaptureState wig_tab_get_capture_state(WigTab *self, WigCaptureKind k
 void wig_tab_set_capture_state(WigTab *self, WigCaptureKind kind, WebKitMediaCaptureState state)
 {
   g_assert(WIG_IS_TAB(self));
+
+  if (!self->web_view)
+    return;
 
   capture_kinds[kind].set_state(self->web_view, state);
 }

@@ -32,13 +32,17 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   guint n_tabs = wig_tab_list_get_n_tabs(list);
 
   guint n_selected = 0;
+  guint n_selected_loaded = 0;
   guint n_closable_left = 0;
   guint n_closable_right = 0;
   guint n_closable_others = 0;
   for (guint i = 0; i < n_tabs; i++) {
     WigTab *other = wig_tab_list_get_nth(list, i);
-    if (wig_tab_get_selected(other))
+    if (wig_tab_get_selected(other)) {
       n_selected++;
+      if (!wig_tab_get_discarded(other))
+        n_selected_loaded++;
+    }
     if (wig_tab_get_pinned(other) || other == tab)
       continue;
     n_closable_others++;
@@ -57,9 +61,15 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   guint n_moving = wig_tab_get_selected(tab) ? n_selected : 1;
   gboolean can_move_out = n_moving < n_tabs;
 
+  /* Unloading needs a loaded tab to act on, and somewhere to hand over to if the
+   * one being looked at is going. */
+  guint n_unloadable = wig_tab_get_selected(tab) ? n_selected_loaded : !wig_tab_get_discarded(tab);
+  gboolean can_unload = n_unloadable > 0 && n_tabs > 1;
+
   GSimpleActionGroup *group = wig_tab_list_get_action_group(list);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "move-to-new-window")),
                               can_move_out);
+  g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "unload")), can_unload);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-to-left")),
                               has_left && !multi_selected);
   g_simple_action_set_enabled(G_SIMPLE_ACTION(g_action_map_lookup_action(G_ACTION_MAP(group), "close-to-right")),
@@ -88,6 +98,7 @@ GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section1));
 
   g_autoptr(GMenu) section2 = g_menu_new();
+  APPEND_TAB_ITEM(section2, "Unload", "unload");
   APPEND_TAB_ITEM(section2, "Move to a New Window", "move-to-new-window");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section2));
 

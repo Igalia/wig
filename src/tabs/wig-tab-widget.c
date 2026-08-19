@@ -79,6 +79,16 @@ static void wig_tab_widget_on_icon_changed(WigTabWidget *self, GParamSpec *pspec
   }
 }
 
+/* A discarded tab holds its place with nothing loaded behind it, which the icon
+ * says by being dimmed. */
+static void wig_tab_widget_on_discarded_changed(WigTabWidget *self, GParamSpec *pspec, WigTab *tab)
+{
+  if (wig_tab_get_discarded(tab))
+    gtk_widget_add_css_class(GTK_WIDGET(self), "discarded");
+  else
+    gtk_widget_remove_css_class(GTK_WIDGET(self), "discarded");
+}
+
 static void wig_tab_widget_on_loading_changed(WigTabWidget *self, GParamSpec *pspec, WigTab *tab)
 {
   gboolean loading = wig_tab_get_loading(tab);
@@ -500,10 +510,13 @@ GtkWidget *wig_tab_widget_new(WigTab *tab)
   g_signal_connect_object(tab, "notify::pinned", G_CALLBACK(wig_tab_widget_on_pinned_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(tab, "capture-changed", G_CALLBACK(wig_tab_widget_on_capture_changed), self,
                           G_CONNECT_SWAPPED);
+  g_signal_connect_object(tab, "notify::discarded", G_CALLBACK(wig_tab_widget_on_discarded_changed), self,
+                          G_CONNECT_SWAPPED);
   wig_tab_widget_on_loading_changed(self, NULL, tab);
   wig_tab_widget_on_playing_audio_changed(self, NULL, tab);
   wig_tab_widget_on_pinned_changed(self, NULL, tab);
   wig_tab_widget_on_capture_changed(self, tab);
+  wig_tab_widget_on_discarded_changed(self, NULL, tab);
 
   return GTK_WIDGET(self);
 }

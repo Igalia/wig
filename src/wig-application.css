@@ -277,6 +277,10 @@ wig-tab .tab-favicon {
   margin: 6px 6px 6px 0px;
 }
 
+wig-tab.discarded .tab-favicon {
+  opacity: 0.5;
+}
+
 wig-tab .tab-audio {
   margin: 6px 6px 6px 0px;
 }
