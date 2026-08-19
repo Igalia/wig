@@ -261,6 +261,14 @@ GMenu *wig_context_menu_build(WebKitContextMenu *context_menu, GSimpleActionGrou
   g_autoptr(GMenu) menu = build_items(webkit_context_menu_get_items(context_menu), action_group, &context);
   flush_pending_items(&context, menu);
 
+  /* WebKit only offers a copy when the click landed on nothing else, so a
+   * selection right-clicked over a link, an image, or media is left without
+   * one. */
+  if (!context.has_copy_item && webkit_hit_test_result_context_is_selection(hit_test_result)) {
+    g_autoptr(GMenuItem) copy_item = g_menu_item_new("Copy Selected Text", "popup.copy-selection");
+    append_item_in_section(menu, copy_item);
+  }
+
   /* With no copy item to sit under, a search for the selection waits below
    * everything WebKit offered. */
   if (!context.search_section)

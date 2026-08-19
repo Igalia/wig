@@ -713,9 +713,19 @@ static void wig_window_copy_text(GSimpleAction *action, GVariant *parameter, gpo
   gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(win)), g_variant_get_string(parameter, NULL));
 }
 
+static void wig_window_copy_selection(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  if (!win->current_web_view)
+    return;
+
+  webkit_web_view_execute_editing_command(win->current_web_view, WEBKIT_EDITING_COMMAND_COPY);
+}
+
 static const GActionEntry context_menu_actions[] = {
   { "open-in-new-tab", wig_window_open_in_new_tab, "s" },
   { "copy-text", wig_window_copy_text, "s" },
+  { "copy-selection", wig_window_copy_selection },
 };
 
 static void wig_window_tab_reload(WigTabList *list, guint tab_id, WigWindow *win)
