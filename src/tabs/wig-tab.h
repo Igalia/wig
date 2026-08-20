@@ -61,6 +61,7 @@ WebKitWebViewSessionState *wig_tab_get_session_state(WigTab *self);
 GtkWidget *wig_tab_get_native_page(WigTab *self);
 void wig_tab_discard(WigTab *self);
 void wig_tab_load_discarded(WigTab *self);
+guint wig_tab_get_unused_seconds(WigTab *self);
 gboolean wig_tab_get_pinned(WigTab *self);
 void wig_tab_set_pinned(WigTab *self, gboolean pinned);
 gboolean wig_tab_get_closing(WigTab *self);
@@ -75,6 +76,8 @@ WebKitMediaCaptureState wig_tab_get_capture_state(WigTab *self, WigCaptureKind k
 void wig_tab_set_capture_state(WigTab *self, WigCaptureKind kind, WebKitMediaCaptureState state);
 gboolean wig_tab_get_selected(WigTab *self);
 void wig_tab_set_selected(WigTab *self, gboolean selected);
+gboolean wig_tab_get_active(WigTab *self);
+void wig_tab_set_active(WigTab *self, gboolean active);
 gboolean wig_tab_get_search_active(WigTab *self);
 void wig_tab_set_search_active(WigTab *self, gboolean search_active);
 guint wig_tab_get_search_match_count(WigTab *self);

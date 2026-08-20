@@ -193,8 +193,7 @@ void wig_tab_list_close(WigTabList *self, WigTab *tab)
     WigTab *new_active = NULL;
     if (self->tabs->len > 1)
       new_active = g_ptr_array_index(self->tabs, pos > 0 ? pos - 1 : pos + 1);
-    g_set_object(&self->active, new_active);
-    g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE_TAB]);
+    wig_tab_list_set_active(self, new_active);
   }
 
   g_autoptr(WigTab) alive_tab = g_object_ref(tab);
@@ -213,8 +212,7 @@ WigTab *wig_tab_list_detach(WigTabList *self, WigTab *tab)
 
   if (self->active == tab) {
     WigTab *new_active = self->tabs->len > 1 ? g_ptr_array_index(self->tabs, pos > 0 ? pos - 1 : pos + 1) : NULL;
-    g_set_object(&self->active, new_active);
-    g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE_TAB]);
+    wig_tab_list_set_active(self, new_active);
   }
 
   g_autoptr(WigTab) alive_tab = g_object_ref(tab);
@@ -364,7 +362,15 @@ void wig_tab_list_set_active(WigTabList *self, WigTab *tab)
 {
   if (self->active == tab)
     return;
+
+  if (self->active)
+    wig_tab_set_active(self->active, FALSE);
+
   g_set_object(&self->active, tab);
+
+  if (tab)
+    wig_tab_set_active(tab, TRUE);
+
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE_TAB]);
 }
 
@@ -495,6 +501,28 @@ void wig_tab_list_discard_many(WigTabList *self, GPtrArray *tabs)
 
     wig_tab_discard(tab);
   }
+}
+
+void wig_tab_list_discard_unused(WigTabList *self, guint wait_seconds)
+{
+  g_autoptr(GPtrArray) unused = g_ptr_array_new();
+
+  for (guint i = 0; i < self->tabs->len; i++) {
+    WigTab *tab = g_ptr_array_index(self->tabs, i);
+
+    if (wig_tab_get_pinned(tab) || wig_tab_get_discarded(tab))
+      continue;
+
+    guint unused_seconds = wig_tab_get_unused_seconds(tab);
+    if (unused_seconds < wait_seconds)
+      continue;
+
+    g_debug("tab %u: unused for %u seconds", wig_tab_get_id(tab), unused_seconds);
+    g_ptr_array_add(unused, tab);
+  }
+
+  if (unused->len > 0)
+    wig_tab_list_discard_many(self, unused);
 }
 
 static void on_action_unload(GSimpleAction *action, GVariant *parameter, gpointer user_data)

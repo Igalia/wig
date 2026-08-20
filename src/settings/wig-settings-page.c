@@ -170,6 +170,10 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
 {
   static const char *tab_layout_nicks[] = { "horizontal", "vertical", NULL };
   static const char *const tab_layout_labels[] = { "Tab Bar", "Sidebar", NULL };
+  static const char *unload_nicks[] = { "never", "15-minutes", "30-minutes", "1-hour", "6-hours", NULL };
+  static const char *const unload_labels[] = {
+    "Never", "After 15 Minutes", "After 30 Minutes", "After 1 Hour", "After 6 Hours", NULL,
+  };
 
   Pane pane;
   wig_settings_page_new_pane(self, &pane, "browser", "Browsing", "web-browser-symbolic");
@@ -181,6 +185,12 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
            wig_settings_combo_row_new(settings, "tab-layout", "Tab Layout",
                                       "Show tabs in a bar above the page or in a sidebar beside it.", tab_layout_nicks,
                                       tab_layout_labels));
+  pane_add(
+      &pane,
+      wig_settings_combo_row_new(
+          settings, "unload-unused-tabs", "Unload Unused Tabs",
+          "Reduce memory usage by unloading tabs. Ignores active and pinned tabs or ones with audio, microphone, etc.",
+          unload_nicks, unload_labels));
 
 #if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
   static const char *https_nicks[] = { "keep-as-requested", "https-first", "https-only", NULL };

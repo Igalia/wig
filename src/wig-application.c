@@ -34,6 +34,8 @@
 #include "wig-window.h"
 #include "wpe-display-gtk.h"
 
+#define WIG_APPLICATION_UNLOAD_INTERVAL_SECONDS 60
+
 struct _WigApplication {
   AdwApplication parent;
 
@@ -59,6 +61,7 @@ struct _WigApplication {
   WigPermissionsManager *permissions_manager;
   WigUpdateMonitor *update_monitor;
   WigNetworkMonitor *network_monitor;
+  guint unload_unused_tabs_id;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -397,6 +400,42 @@ static void wig_application_cookie_policy_changed(WigApplication *app)
   wig_application_update_cookie_policy(app);
 }
 
+static guint wig_application_unload_wait_seconds(WigApplication *app)
+{
+  int minutes = g_settings_get_enum(app->settings, "unload-unused-tabs");
+
+  return minutes > 0 ? (guint)minutes * 60 : 0;
+}
+
+static gboolean wig_application_unload_unused_tabs(gpointer user_data)
+{
+  WigApplication *app = user_data;
+  guint wait_seconds = wig_application_unload_wait_seconds(app);
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (WIG_IS_WINDOW(l->data))
+      wig_tab_list_discard_unused(wig_window_get_tab_list(WIG_WINDOW(l->data)), wait_seconds);
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static void wig_application_update_unload_unused_tabs(WigApplication *app)
+{
+  guint wait_seconds = wig_application_unload_wait_seconds(app);
+
+  g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
+
+  if (wait_seconds == 0) {
+    g_debug("tabs: unused tabs are left loaded");
+    return;
+  }
+
+  g_debug("tabs: unloading tabs unused for %u seconds", wait_seconds);
+  app->unload_unused_tabs_id = g_timeout_add_seconds(WIG_APPLICATION_UNLOAD_INTERVAL_SECONDS,
+                                                     wig_application_unload_unused_tabs, app);
+}
+
 /* Ordered as WebKitNetworkProxyMode is. */
 static void wig_application_update_proxy_settings(WigApplication *app)
 {
@@ -649,6 +688,9 @@ static void wig_application_startup(GApplication *application)
   wig_application_update_cookie_policy(app);
   g_signal_connect_object(app->settings, "changed::cookie-accept-policy",
                           G_CALLBACK(wig_application_cookie_policy_changed), app, G_CONNECT_SWAPPED);
+  wig_application_update_unload_unused_tabs(app);
+  g_signal_connect_object(app->settings, "changed::unload-unused-tabs",
+                          G_CALLBACK(wig_application_update_unload_unused_tabs), app, G_CONNECT_SWAPPED);
   wig_application_update_proxy_settings(app);
   g_signal_connect_object(app->settings, "changed::proxy-mode", G_CALLBACK(wig_application_proxy_settings_changed), app,
                           G_CONNECT_SWAPPED);
@@ -743,6 +785,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->permissions_manager);
   g_clear_object(&app->update_monitor);
   g_clear_object(&app->network_monitor);
+  g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }

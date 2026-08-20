@@ -23,6 +23,7 @@
 #pragma once
 
 #include "wig-application.h"
+#include "wig-tab-list.h"
 #include "wig-window-base.h"
 
 G_BEGIN_DECLS
@@ -39,6 +40,7 @@ typedef enum {
 GType wig_tab_layout_get_type(void);
 
 WigWindow *wig_window_new(WigApplication *application);
+WigTabList *wig_window_get_tab_list(WigWindow *win);
 void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view);
 void wig_window_add_web_view_in_background(WigWindow *win, WebKitWebView *web_view);
 WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore, gboolean reload);

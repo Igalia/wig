@@ -68,8 +68,11 @@ struct _WigTab {
   gboolean playing_audio;
   gboolean muted;
   gboolean selected;
+  gboolean active;
   gboolean search_active;
   guint search_match_count;
+  gboolean in_use;
+  gint64 last_used;
 
   gboolean status_active;
   double cursor_x;
@@ -84,6 +87,7 @@ typedef enum {
   PROP_PINNED,
   PROP_LOADING,
   PROP_SELECTED,
+  PROP_ACTIVE,
   PROP_PLAYING_AUDIO,
   PROP_MUTED,
   PROP_PAGE_URI,
@@ -114,12 +118,45 @@ static const struct {
                             webkit_web_view_set_display_capture_state },
 };
 
+static gboolean wig_tab_compute_in_use(WigTab *self)
+{
+  if (self->active)
+    return TRUE;
+
+  if (!self->web_view)
+    return FALSE;
+
+  if (self->playing_audio || self->loading)
+    return TRUE;
+
+  for (WigCaptureKind kind = WIG_CAPTURE_CAMERA; kind <= WIG_CAPTURE_DISPLAY; kind++) {
+    if (capture_kinds[kind].get_state(self->web_view) != WEBKIT_MEDIA_CAPTURE_STATE_NONE)
+      return TRUE;
+  }
+
+  return FALSE;
+}
+
+static void wig_tab_update_in_use(WigTab *self)
+{
+  gboolean in_use = wig_tab_compute_in_use(self);
+
+  if (self->in_use == in_use)
+    return;
+
+  self->in_use = in_use;
+
+  if (!in_use)
+    self->last_used = g_get_monotonic_time();
+}
+
 static void wig_tab_set_discarded(WigTab *self, gboolean discarded)
 {
   if (self->discarded == discarded)
     return;
 
   self->discarded = discarded;
+  wig_tab_update_in_use(self);
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_DISCARDED]);
 }
 
@@ -129,6 +166,7 @@ static void wig_tab_set_loading(WigTab *self, gboolean loading)
     return;
 
   self->loading = loading;
+  wig_tab_update_in_use(self);
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_LOADING]);
 }
 
@@ -139,6 +177,7 @@ static void wig_tab_on_capture_changed(WigTab *self)
           webkit_web_view_get_microphone_capture_state(self->web_view),
           webkit_web_view_get_display_capture_state(self->web_view));
 
+  wig_tab_update_in_use(self);
   g_signal_emit(self, signals[CAPTURE_CHANGED], 0);
 }
 
@@ -427,6 +466,9 @@ static void wig_tab_get_property(GObject *object, guint prop_id, GValue *value, 
   case PROP_SELECTED:
     g_value_set_boolean(value, self->selected);
     break;
+  case PROP_ACTIVE:
+    g_value_set_boolean(value, self->active);
+    break;
   case PROP_PLAYING_AUDIO:
     g_value_set_boolean(value, self->playing_audio);
     break;
@@ -461,10 +503,14 @@ static void wig_tab_set_property(GObject *object, guint prop_id, const GValue *v
   case PROP_SELECTED:
     wig_tab_set_selected(self, g_value_get_boolean(value));
     break;
+  case PROP_ACTIVE:
+    wig_tab_set_active(self, g_value_get_boolean(value));
+    break;
   case PROP_PLAYING_AUDIO: {
     gboolean playing_audio = g_value_get_boolean(value);
     if (self->playing_audio != playing_audio) {
       self->playing_audio = playing_audio;
+      wig_tab_update_in_use(self);
       g_object_notify_by_pspec(object, props[PROP_PLAYING_AUDIO]);
     }
     break;
@@ -510,6 +556,7 @@ static void wig_tab_init(WigTab *self)
 {
   self->id = wig_tab_next_id++;
   self->title = g_strdup("New Tab");
+  self->last_used = g_get_monotonic_time();
 }
 
 static void wig_tab_class_init(WigTabClass *klass)
@@ -526,6 +573,8 @@ static void wig_tab_class_init(WigTabClass *klass)
   props[PROP_LOADING] = g_param_spec_boolean("loading", NULL, NULL, FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
   props[PROP_SELECTED] = g_param_spec_boolean("selected", NULL, NULL, FALSE,
                                               G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
+  props[PROP_ACTIVE] = g_param_spec_boolean("active", NULL, NULL, FALSE,
+                                            G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
   props[PROP_PLAYING_AUDIO] = g_param_spec_boolean(
       "playing-audio", NULL, NULL, FALSE, G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
   props[PROP_MUTED] = g_param_spec_boolean("muted", NULL, NULL, FALSE,
@@ -1125,6 +1174,14 @@ void wig_tab_load_discarded(WigTab *self)
   webkit_web_view_go_to_back_forward_list_item(self->web_view, item);
 }
 
+guint wig_tab_get_unused_seconds(WigTab *self)
+{
+  if (self->in_use)
+    return 0;
+
+  return (guint)((g_get_monotonic_time() - self->last_used) / G_USEC_PER_SEC);
+}
+
 gboolean wig_tab_get_pinned(WigTab *self)
 {
   return self->pinned;
@@ -1208,6 +1265,21 @@ void wig_tab_set_capture_state(WigTab *self, WigCaptureKind kind, WebKitMediaCap
 gboolean wig_tab_get_selected(WigTab *self)
 {
   return self->selected;
+}
+
+gboolean wig_tab_get_active(WigTab *self)
+{
+  return self->active;
+}
+
+void wig_tab_set_active(WigTab *self, gboolean active)
+{
+  if (self->active == active)
+    return;
+
+  self->active = active;
+  wig_tab_update_in_use(self);
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE]);
 }
 
 gboolean wig_tab_get_search_active(WigTab *self)

@@ -6,6 +6,14 @@
     <value nick="vertical" value="1"/>
   </enum>
 
+  <enum id="com.igalia.wig.UnloadUnusedTabs">
+    <value nick="never" value="0"/>
+    <value nick="15-minutes" value="15"/>
+    <value nick="30-minutes" value="30"/>
+    <value nick="1-hour" value="60"/>
+    <value nick="6-hours" value="360"/>
+  </enum>
+
   <enum id="com.igalia.wig.HTTPSNavigationPolicy">
     <value nick="keep-as-requested" value="0"/>
     <value nick="https-first" value="1"/>
@@ -33,6 +41,11 @@
     <key name="tab-layout" enum="com.igalia.wig.TabLayout">
       <default>'horizontal'</default>
       <summary>Tab Layout</summary>
+    </key>
+
+    <key name="unload-unused-tabs" enum="com.igalia.wig.UnloadUnusedTabs">
+      <default>'never'</default>
+      <summary>Unload Unused Tabs</summary>
     </key>
 
     <key name="feature-overrides" type="a{sb}">

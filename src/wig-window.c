@@ -1854,6 +1854,11 @@ WigWindow *wig_window_new(WigApplication *application)
   return g_object_new(WIG_TYPE_WINDOW, "application", application, NULL);
 }
 
+WigTabList *wig_window_get_tab_list(WigWindow *win)
+{
+  return win->tab_list;
+}
+
 void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view)
 {
   g_return_if_fail(WIG_IS_WINDOW(win));
