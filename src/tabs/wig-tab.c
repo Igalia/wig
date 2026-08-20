@@ -61,6 +61,8 @@ struct _WigTab {
   WebKitWebViewSessionState *session_state;
   gboolean discarded;
   gboolean restoring_icon;
+  gboolean has_committed;
+  gboolean page_is_stand_in;
   gboolean pinned;
   gboolean closing;
   gboolean close_pending;
@@ -365,7 +367,6 @@ static gboolean wig_tab_on_load_failed_with_tls_errors(WigTab *self, const char 
   wig_tab_set_loading(self, FALSE);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
-  wig_tab_clear_native_page(self);
   GtkWidget *page = wig_tls_error_page_new(failing_uri, certificate, errors,
                                            webkit_web_view_can_go_back(self->web_view));
   g_signal_connect_object(page, "proceed", G_CALLBACK(wig_tab_tls_error_page_proceed), self, G_CONNECT_SWAPPED);
@@ -390,7 +391,6 @@ static gboolean wig_tab_on_load_failed(WigTab *self, WebKitLoadEvent load_event,
   wig_tab_set_loading(self, FALSE);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
-  wig_tab_clear_native_page(self);
   GtkWidget *page = wig_error_page_new(failing_uri, error, webkit_web_view_can_go_back(self->web_view), offline);
   g_signal_connect_object(page, "reload", G_CALLBACK(wig_tab_error_page_reload), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(page, "go-back", G_CALLBACK(wig_tab_error_page_go_back), self, G_CONNECT_SWAPPED);
@@ -422,11 +422,14 @@ static void wig_tab_on_web_process_terminated(WigTab *self, WebKitWebProcessTerm
   wig_tab_set_loading(self, FALSE);
   wig_tab_set_hovered_link(self, NULL, NULL);
 
+  /* Nothing of the page it was showing survives the process, so the reload has
+   * an unpainted view to fill again. */
+  self->has_committed = FALSE;
+
   /* The dead process cannot report itself responsive again. */
   wig_tab_set_unresponsive(self, FALSE);
   wig_tab_dismiss_unresponsive_dialog(self);
 
-  wig_tab_clear_native_page(self);
   GtkWidget *page = wig_crash_page_new(self->web_view, reason, self->id);
   g_signal_connect_object(page, "reload", G_CALLBACK(wig_tab_error_page_reload), self, G_CONNECT_SWAPPED);
 
@@ -660,6 +663,9 @@ static gboolean wig_tab_focus_is_in_input(WigTab *self)
 
 static void wig_tab_show_native_page(WigTab *self, GtkWidget *page)
 {
+  /* One page at a time: a page left in the overlay would stay on screen. */
+  wig_tab_clear_native_page(self);
+
   self->native_page = page;
 
   gtk_widget_set_visible(self->web_view_widget, FALSE);
@@ -692,9 +698,37 @@ static void wig_tab_clear_native_page(WigTab *self)
 
   gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), self->native_page);
   self->native_page = NULL;
+  self->page_is_stand_in = FALSE;
   gtk_widget_set_visible(self->web_view_widget, TRUE);
 
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PAGE_URI]);
+}
+
+static void wig_tab_show_stand_in_page(WigTab *self, const char *uri)
+{
+  g_debug("tab %u: nothing painted yet, standing in for %s with a blank page", self->id, uri ? uri : "(null)");
+
+  self->native_page = wig_blank_page_new(uri);
+  self->page_is_stand_in = TRUE;
+
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->view_overlay), self->native_page);
+
+  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PAGE_URI]);
+}
+
+static void wig_tab_on_buffer_rendered(WigTab *self)
+{
+  /* What wig draws over the view is what the tab is showing, so a frame painted
+   * underneath one of those pages is not the view having something to show. The
+   * page standing in until this very frame is the exception. */
+  if (self->native_page && !self->page_is_stand_in)
+    return;
+
+  if (!self->has_committed || !self->page_is_stand_in)
+    return;
+
+  g_debug("tab %u: the site painted its first frame, taking the blank page down", self->id);
+  wig_tab_clear_native_page(self);
 }
 
 /* A native page answers to every address of the page it is, panes included, so
@@ -702,6 +736,11 @@ static void wig_tab_clear_native_page(WigTab *self)
 static gboolean wig_tab_native_page_answers_to(WigTab *self, const char *uri)
 {
   if (!WIG_IS_NATIVE_PAGE(self->native_page))
+    return FALSE;
+
+  /* A page standing in for an unpainted view answers to no address of its own:
+   * whatever the load turns out to be replaces it. */
+  if (self->page_is_stand_in)
     return FALSE;
 
   return wig_util_uris_are_same_page(wig_native_page_get_uri(WIG_NATIVE_PAGE(self->native_page)), uri);
@@ -778,12 +817,18 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
 
     /* Moving between panes would otherwise take the page down and put an empty
      * document on screen until the next one commits. */
-    if (!wig_tab_native_page_answers_to(self, webkit_web_view_get_uri(self->web_view)))
+    const char *started_uri = webkit_web_view_get_uri(self->web_view);
+    if (!wig_tab_native_page_answers_to(self, started_uri))
       wig_tab_clear_native_page(self);
+
+    if (!self->has_committed && !self->native_page)
+      wig_tab_show_stand_in_page(self, started_uri);
   }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
+
+  self->has_committed = TRUE;
 
   const char *uri = webkit_web_view_get_uri(self->web_view);
   if (uri_is_settings_page(uri)) {
@@ -805,9 +850,11 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
   }
 
   /* Whatever is left of wig's own addresses commits an empty document, and so
-   * does about:blank; both are shown as the nothing they are. */
+   * does about:blank; both are shown as the nothing they are. A page standing in
+   * for the frame this document will never usefully paint becomes the page the
+   * tab keeps. */
   if (uri_is_blank_page(uri)) {
-    if (!WIG_IS_BLANK_PAGE(self->native_page))
+    if (!WIG_IS_BLANK_PAGE(self->native_page) || self->page_is_stand_in)
       wig_tab_show_native_page(self, wig_blank_page_new(uri));
     return;
   }
@@ -946,6 +993,8 @@ static void wig_tab_bind_web_view(WigTab *self, WebKitWebView *web_view)
   g_signal_connect_object(web_view, "load-failed", G_CALLBACK(wig_tab_on_load_failed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(wig_application_get_network_monitor(wig_application_get()), "came-online",
                           G_CALLBACK(wig_tab_network_came_online), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(webkit_web_view_get_wpe_view(web_view), "buffer-rendered",
+                          G_CALLBACK(wig_tab_on_buffer_rendered), self, G_CONNECT_SWAPPED);
   g_object_bind_property(G_OBJECT(web_view), "is-loading", self, "loading", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-playing-audio", self, "playing-audio", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-muted", self, "muted",
@@ -1132,8 +1181,10 @@ void wig_tab_discard(WigTab *self)
 
   g_autoptr(WebKitWebView) old_view = g_steal_pointer(&self->web_view);
   g_signal_handlers_disconnect_by_data(old_view, self);
+  g_signal_handlers_disconnect_by_data(webkit_web_view_get_wpe_view(old_view), self);
   gtk_overlay_set_child(GTK_OVERLAY(self->view_overlay), NULL);
   self->web_view_widget = NULL;
+  self->has_committed = FALSE;
 
   wig_tab_set_discarded(self, TRUE);
   wig_tab_set_loading(self, FALSE);
