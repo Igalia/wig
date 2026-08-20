@@ -164,6 +164,9 @@ static void wig_tab_set_discarded(WigTab *self, gboolean discarded)
 
 static void wig_tab_set_loading(WigTab *self, gboolean loading)
 {
+  if (loading && self->web_view && uri_is_blank_page(webkit_web_view_get_uri(self->web_view)))
+    loading = FALSE;
+
   if (self->loading == loading)
     return;
 
@@ -821,7 +824,7 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
     if (!wig_tab_native_page_answers_to(self, started_uri))
       wig_tab_clear_native_page(self);
 
-    if (!self->has_committed && !self->native_page)
+    if (!self->has_committed && !self->native_page && !uri_is_blank_page(started_uri))
       wig_tab_show_stand_in_page(self, started_uri);
   }
 
