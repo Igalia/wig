@@ -35,6 +35,7 @@ G_DECLARE_FINAL_TYPE(WigTabList, wig_tab_list, WIG, TAB_LIST, GObject)
 WigTabList *wig_tab_list_new(void);
 
 WigTab *wig_tab_list_append(WigTabList *self, WebKitWebView *web_view);
+WigTab *wig_tab_list_insert(WigTabList *self, WebKitWebView *web_view, guint index);
 void wig_tab_list_close(WigTabList *self, WigTab *tab);
 void wig_tab_list_close_many(WigTabList *self, GPtrArray *tabs);
 void wig_tab_list_discard_many(WigTabList *self, GPtrArray *tabs);

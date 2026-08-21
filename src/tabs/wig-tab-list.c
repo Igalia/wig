@@ -165,16 +165,22 @@ WigTabList *wig_tab_list_new(void)
   return WIG_TAB_LIST(g_object_new(WIG_TYPE_TAB_LIST, NULL));
 }
 
-WigTab *wig_tab_list_append(WigTabList *self, WebKitWebView *web_view)
+WigTab *wig_tab_list_insert(WigTabList *self, WebKitWebView *web_view, guint index)
 {
   g_autoptr(WigTab) tab = wig_tab_new(web_view);
   gboolean first = self->tabs->len == 0;
-  g_ptr_array_add(self->tabs, g_object_ref(tab));
-  guint pos = self->tabs->len - 1;
-  g_signal_emit(self, signals[SIGNAL_TAB_ADDED], 0, tab, pos);
+
+  index = CLAMP(index, wig_tab_list_get_n_pinned(self), self->tabs->len);
+  g_ptr_array_insert(self->tabs, (gint)index, g_object_ref(tab));
+  g_signal_emit(self, signals[SIGNAL_TAB_ADDED], 0, tab, index);
   if (first)
     wig_tab_list_set_active(self, tab);
   return tab;
+}
+
+WigTab *wig_tab_list_append(WigTabList *self, WebKitWebView *web_view)
+{
+  return wig_tab_list_insert(self, web_view, self->tabs->len);
 }
 
 void wig_tab_list_close(WigTabList *self, WigTab *tab)

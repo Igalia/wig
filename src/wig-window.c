@@ -329,6 +329,14 @@ static WigTab *wig_window_add_tab_for_view(WigWindow *win, WebKitWebView *web_vi
   return wig_tab_list_append(win->tab_list, web_view);
 }
 
+static WigTab *wig_window_add_tab_after_active(WigWindow *win, WebKitWebView *web_view)
+{
+  WigTab *active = wig_tab_list_get_active(win->tab_list);
+  guint index = active ? wig_tab_list_index_of(win->tab_list, active) + 1 : wig_tab_list_get_n_tabs(win->tab_list);
+
+  return wig_tab_list_insert(win->tab_list, web_view, index);
+}
+
 static WebKitWebView *wig_window_create_web_view_for_new_tab(WigWindow *win)
 {
   WebKitWebView *view = wig_application_create_web_view(wig_application_get());
@@ -700,7 +708,7 @@ static void wig_window_open_uri_in_new_tab(WigWindow *win, GVariant *parameter, 
   WigTab *tab = wig_window_add_tab_after_active(win, web_view);
 
   if (!background)
-  wig_tab_list_set_active(win->tab_list, tab);
+    wig_tab_list_set_active(win->tab_list, tab);
 
   if (parameter) {
     const char *uri = g_variant_get_string(parameter, NULL);
@@ -736,6 +744,7 @@ static void wig_window_copy_selection(GSimpleAction *action, GVariant *parameter
 
 static const GActionEntry context_menu_actions[] = {
   { "open-in-new-tab", wig_window_open_in_new_tab, "s" },
+  { "open-in-background-tab", wig_window_open_in_background_tab, "s" },
   { "copy-text", wig_window_copy_text, "s" },
   { "copy-selection", wig_window_copy_selection },
 };
@@ -1885,5 +1894,8 @@ void wig_window_add_web_view_in_background(WigWindow *win, WebKitWebView *web_vi
   g_return_if_fail(WIG_IS_WINDOW(win));
   g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
 
-  wig_window_add_tab_for_view(win, web_view);
+  WigTab *active = wig_tab_list_get_active(win->tab_list);
+  guint index = active ? wig_tab_list_index_of(win->tab_list, active) + 1 : wig_tab_list_get_n_tabs(win->tab_list);
+
+  wig_tab_list_insert(win->tab_list, web_view, index);
 }
