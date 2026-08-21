@@ -48,14 +48,17 @@ struct _WigNewTabPage {
 
   WigHistoryStore *store;
   WigBookmarksStore *bookmarks;
+  WigSession *session;
   GSettings *settings;
 
   GtkWidget *overlay;
   GtkWidget *stack;
-  GtkWidget *sites;
-  GtkWidget *sites_section;
-  GtkWidget *favorites;
   GtkWidget *favorites_section;
+  GtkWidget *frequent_section;
+  GtkWidget *closed_section;
+  GtkWidget *favorites;
+  GtkWidget *sites;
+  GtkWidget *closed;
 };
 
 G_DEFINE_FINAL_TYPE(WigNewTabPage, wig_new_tab_page, WIG_TYPE_NATIVE_PAGE)
@@ -121,24 +124,19 @@ static void new_tab_page_site_middle_clicked(GtkGestureClick *gesture, int n_pre
   g_signal_emit(self, signals[OPEN_URI_SIGNAL], 0, gtk_widget_get_name(button), TRUE);
 }
 
-static GtkWidget *new_tab_page_build_site(WigNewTabPage *self, const char *url, const char *title)
+static GtkWidget *new_tab_page_build_card(const char *icon_name, const char *title, const char *subtitle,
+                                          GtkWidget **icon)
 {
-  g_autofree char *site = new_tab_page_site_name(url);
-
-  GtkWidget *image = gtk_image_new_from_icon_name("web-browser-symbolic");
+  GtkWidget *image = gtk_image_new_from_icon_name(icon_name);
   gtk_image_set_pixel_size(GTK_IMAGE(image), NEW_TAB_PAGE_FAVICON_SIZE);
 
-#if HAVE_FAVICON_SUPPORT
-  new_tab_page_load_favicon(image, url);
-#endif
-
-  GtkWidget *name = gtk_label_new(title && *title ? title : site);
+  GtkWidget *name = gtk_label_new(title);
   gtk_label_set_xalign(GTK_LABEL(name), 0.0);
   gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
   gtk_label_set_max_width_chars(GTK_LABEL(name), NEW_TAB_PAGE_LABEL_CHARS);
   gtk_widget_add_css_class(name, "site-name");
 
-  GtkWidget *host = gtk_label_new(site);
+  GtkWidget *host = gtk_label_new(subtitle);
   gtk_label_set_xalign(GTK_LABEL(host), 0.0);
   gtk_label_set_ellipsize(GTK_LABEL(host), PANGO_ELLIPSIZE_MIDDLE);
   gtk_label_set_max_width_chars(GTK_LABEL(host), NEW_TAB_PAGE_LABEL_CHARS);
@@ -159,6 +157,21 @@ static GtkWidget *new_tab_page_build_site(WigNewTabPage *self, const char *url, 
   gtk_button_set_child(GTK_BUTTON(button), content);
   gtk_widget_add_css_class(button, "card");
   gtk_widget_add_css_class(button, "frequent-site");
+
+  *icon = image;
+  return button;
+}
+
+static GtkWidget *new_tab_page_build_site(WigNewTabPage *self, const char *url, const char *title)
+{
+  g_autofree char *site = new_tab_page_site_name(url);
+  GtkWidget *icon = NULL;
+  GtkWidget *button = new_tab_page_build_card("web-browser-symbolic", title && *title ? title : site, site, &icon);
+
+#if HAVE_FAVICON_SUPPORT
+  new_tab_page_load_favicon(icon, url);
+#endif
+
   gtk_widget_set_tooltip_text(button, url);
   gtk_widget_set_name(button, url);
   g_signal_connect_object(button, "clicked", G_CALLBACK(new_tab_page_site_clicked), self, G_CONNECT_SWAPPED);
@@ -172,43 +185,69 @@ static GtkWidget *new_tab_page_build_site(WigNewTabPage *self, const char *url, 
   return button;
 }
 
-static GtkWidget *new_tab_page_build_grid(void)
+static GtkWidget *new_tab_page_build_closed_tab(const WigSessionTab *tab, guint index)
 {
-  GtkWidget *grid = gtk_flow_box_new();
+  g_autofree char *site = new_tab_page_site_name(tab->uri);
+  GtkWidget *icon = NULL;
+  GtkWidget *button = new_tab_page_build_card("web-browser-symbolic", tab->title && *tab->title ? tab->title : site,
+                                              site, &icon);
 
-  gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(grid), GTK_SELECTION_NONE);
-  gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(grid), TRUE);
-  gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(grid), 1);
-  gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(grid), NEW_TAB_PAGE_COLUMNS);
-  gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(grid), 18);
-  gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(grid), 18);
+#if HAVE_FAVICON_SUPPORT
+  new_tab_page_load_favicon(icon, tab->uri);
+#endif
 
-  return grid;
+  gtk_widget_set_tooltip_text(button, tab->uri);
+  gtk_actionable_set_action_name(GTK_ACTIONABLE(button), "win.restore-closed");
+  gtk_actionable_set_action_target_value(GTK_ACTIONABLE(button), g_variant_new_uint32(index));
+
+  return button;
 }
 
-static GtkWidget *new_tab_page_build_section(const char *title, GtkWidget *grid)
+static GtkWidget *new_tab_page_build_closed_window(const WigSessionWindow *window, guint index)
+{
+  guint n_tabs = g_slist_length(window->tabs);
+  const WigSessionTab *first = window->tabs->data;
+  g_autofree char *site = new_tab_page_site_name(first->uri);
+  g_autofree char *count = g_strdup_printf("%u Tabs", n_tabs);
+  GtkWidget *icon = NULL;
+  GtkWidget *button = new_tab_page_build_card("window-new-symbolic", count, site, &icon);
+
+  gtk_widget_set_tooltip_text(button, "Reopen this window");
+  gtk_actionable_set_action_name(GTK_ACTIONABLE(button), "win.restore-closed");
+  gtk_actionable_set_action_target_value(GTK_ACTIONABLE(button), g_variant_new_uint32(index));
+
+  return button;
+}
+
+static GtkWidget *new_tab_page_build_section(const char *title, GtkWidget **flow_box)
 {
   GtkWidget *heading = gtk_label_new(title);
   gtk_label_set_xalign(GTK_LABEL(heading), 0.0);
   gtk_widget_add_css_class(heading, "heading");
 
+  *flow_box = gtk_flow_box_new();
+  gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(*flow_box), GTK_SELECTION_NONE);
+  gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(*flow_box), TRUE);
+  gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(*flow_box), 1);
+  gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(*flow_box), NEW_TAB_PAGE_COLUMNS);
+  gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(*flow_box), 18);
+  gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(*flow_box), 18);
+
   GtkWidget *section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
   gtk_box_append(GTK_BOX(section), heading);
-  gtk_box_append(GTK_BOX(section), grid);
+  gtk_box_append(GTK_BOX(section), *flow_box);
 
   return section;
 }
 
-static void new_tab_page_append_site(WigNewTabPage *self, GtkWidget *box, const char *url, const char *title)
+static void new_tab_page_add_card(GtkWidget *flow_box, GtkWidget *card)
 {
-  GtkWidget *site = new_tab_page_build_site(self, url, title);
-
-  gtk_flow_box_append(GTK_FLOW_BOX(box), site);
-  gtk_widget_set_focusable(gtk_widget_get_parent(site), FALSE);
+  gtk_flow_box_append(GTK_FLOW_BOX(flow_box), card);
+  gtk_widget_set_focusable(gtk_widget_get_parent(card), FALSE);
 }
 
 /* Favourites are kept by hand, so all of them are shown rather than the handful
- * the frequently visited list is trimmed to. */
+ * the other sections are trimmed to. */
 static guint wig_new_tab_page_load_favorites(WigNewTabPage *self)
 {
   g_autoptr(GError) error = NULL;
@@ -228,7 +267,64 @@ static guint wig_new_tab_page_load_favorites(WigNewTabPage *self)
     if (wig_bookmark_get_is_folder(bookmark))
       continue;
 
-    new_tab_page_append_site(self, self->favorites, wig_bookmark_get_url(bookmark), wig_bookmark_get_title(bookmark));
+    new_tab_page_add_card(
+        self->favorites,
+        new_tab_page_build_site(self, wig_bookmark_get_url(bookmark), wig_bookmark_get_title(bookmark)));
+    shown++;
+  }
+
+  return shown;
+}
+
+static guint wig_new_tab_page_load_frequent(WigNewTabPage *self)
+{
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GPtrArray) items = NULL;
+
+  gtk_flow_box_remove_all(GTK_FLOW_BOX(self->sites));
+
+  if (self->store && g_settings_get_boolean(self->settings, "show-frequently-visited"))
+    items = wig_history_store_query_most_typed(self->store, NEW_TAB_PAGE_SITE_LIMIT, &error);
+
+  if (error)
+    g_warning("new-tab: query failed: %s", error->message);
+
+  for (guint i = 0; items && i < items->len; i++) {
+    WigHistoryItem *item = g_ptr_array_index(items, i);
+    GtkWidget *card = new_tab_page_build_site(self, wig_history_item_get_url(item), wig_history_item_get_title(item));
+
+    new_tab_page_add_card(self->sites, card);
+  }
+
+  return items ? items->len : 0;
+}
+
+static guint wig_new_tab_page_load_closed(WigNewTabPage *self)
+{
+  g_autoptr(GPtrArray) windows = NULL;
+  guint shown = 0;
+
+  gtk_flow_box_remove_all(GTK_FLOW_BOX(self->closed));
+
+  if (self->session && g_settings_get_boolean(self->settings, "show-recently-closed"))
+    windows = wig_session_list_closed_windows(self->session);
+
+  for (guint i = 0; windows && i < windows->len && shown < NEW_TAB_PAGE_SITE_LIMIT; i++) {
+    const WigSessionWindow *window = g_ptr_array_index(windows, i);
+    const WigSessionTab *tab = window->tabs ? window->tabs->data : NULL;
+
+    if (!tab)
+      continue;
+
+    if (window->tabs->next) {
+      new_tab_page_add_card(self->closed, new_tab_page_build_closed_window(window, i));
+    } else {
+      if (!tab->uri || !*tab->uri || uri_is_new_tab_page(tab->uri))
+        continue;
+
+      new_tab_page_add_card(self->closed, new_tab_page_build_closed_tab(tab, i));
+    }
+
     shown++;
   }
 
@@ -237,36 +333,24 @@ static guint wig_new_tab_page_load_favorites(WigNewTabPage *self)
 
 static void wig_new_tab_page_load(WigNewTabPage *self)
 {
-  g_autoptr(GError) error = NULL;
-  g_autoptr(GPtrArray) items = NULL;
-  guint n_favorites = wig_new_tab_page_load_favorites(self);
-  gboolean show_sites = g_settings_get_boolean(self->settings, "show-frequently-visited");
+  guint favorites = wig_new_tab_page_load_favorites(self);
+  guint frequent = wig_new_tab_page_load_frequent(self);
+  guint closed = wig_new_tab_page_load_closed(self);
+  gboolean anything_enabled = g_settings_get_boolean(self->settings, "show-favorites")
+      || g_settings_get_boolean(self->settings, "show-frequently-visited")
+      || g_settings_get_boolean(self->settings, "show-recently-closed");
 
-  gtk_flow_box_remove_all(GTK_FLOW_BOX(self->sites));
+  gtk_widget_set_visible(self->favorites_section, favorites > 0);
+  gtk_widget_set_visible(self->frequent_section, frequent > 0);
+  gtk_widget_set_visible(self->closed_section, closed > 0);
 
-  if (show_sites && self->store)
-    items = wig_history_store_query_most_typed(self->store, NEW_TAB_PAGE_SITE_LIMIT, &error);
+  g_debug("new-tab: showing %u favourite(s), %u frequently visited site(s) and %u recently closed item(s)", favorites,
+          frequent, closed);
 
-  if (error)
-    g_warning("new-tab: query failed: %s", error->message);
-
-  for (guint i = 0; items && i < items->len; i++) {
-    WigHistoryItem *item = g_ptr_array_index(items, i);
-    new_tab_page_append_site(self, self->sites, wig_history_item_get_url(item), wig_history_item_get_title(item));
-  }
-
-  guint n_sites = items ? items->len : 0;
-
-  gtk_widget_set_visible(self->favorites_section, n_favorites > 0);
-  gtk_widget_set_visible(self->sites_section, n_sites > 0);
-
-  g_debug("new-tab: showing %u favourite(s) and %u frequently visited site(s)%s", n_favorites, n_sites,
-          show_sites ? "" : ", frequently visited is turned off");
-
-  if (n_favorites > 0 || n_sites > 0)
+  if (favorites > 0 || frequent > 0 || closed > 0)
     gtk_stack_set_visible_child_name(GTK_STACK(self->stack), "sites");
   else
-    gtk_stack_set_visible_child_name(GTK_STACK(self->stack), show_sites ? "empty" : "off");
+    gtk_stack_set_visible_child_name(GTK_STACK(self->stack), anything_enabled ? "empty" : "off");
 }
 
 static void wig_new_tab_page_map(GtkWidget *widget)
@@ -283,9 +367,6 @@ static void wig_new_tab_page_dispose(GObject *object)
   g_clear_pointer(&self->overlay, gtk_widget_unparent);
   self->stack = NULL;
   self->sites = NULL;
-  self->sites_section = NULL;
-  self->favorites = NULL;
-  self->favorites_section = NULL;
 
   G_OBJECT_CLASS(wig_new_tab_page_parent_class)->dispose(object);
 }
@@ -308,25 +389,22 @@ static void wig_new_tab_page_init(WigNewTabPage *self)
 {
   self->store = wig_application_get_history_store(wig_application_get());
   self->bookmarks = wig_application_get_bookmarks_store(wig_application_get());
+  self->session = wig_application_get_session(wig_application_get());
   self->settings = wig_application_get_settings(wig_application_get());
 
-  if (self->bookmarks)
-    g_signal_connect_object(self->bookmarks, "changed", G_CALLBACK(wig_new_tab_page_load), self, G_CONNECT_SWAPPED);
+  self->favorites_section = new_tab_page_build_section("Favorites", &self->favorites);
+  self->frequent_section = new_tab_page_build_section("Frequently Visited", &self->sites);
+  self->closed_section = new_tab_page_build_section("Recently Closed", &self->closed);
 
-  self->favorites = new_tab_page_build_grid();
-  self->favorites_section = new_tab_page_build_section("Favorites", self->favorites);
-
-  self->sites = new_tab_page_build_grid();
-  self->sites_section = new_tab_page_build_section("Frequently Visited", self->sites);
-
-  GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 30);
+  GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 36);
   gtk_widget_set_valign(content, GTK_ALIGN_START);
   gtk_widget_set_margin_top(content, 48);
   gtk_widget_set_margin_bottom(content, 48);
   gtk_widget_set_margin_start(content, 24);
   gtk_widget_set_margin_end(content, 24);
   gtk_box_append(GTK_BOX(content), self->favorites_section);
-  gtk_box_append(GTK_BOX(content), self->sites_section);
+  gtk_box_append(GTK_BOX(content), self->frequent_section);
+  gtk_box_append(GTK_BOX(content), self->closed_section);
 
   GtkWidget *clamp = adw_clamp_new();
   adw_clamp_set_child(ADW_CLAMP(clamp), content);
@@ -339,8 +417,8 @@ static void wig_new_tab_page_init(WigNewTabPage *self)
 
   GtkWidget *empty = adw_status_page_new();
   adw_status_page_set_icon_name(ADW_STATUS_PAGE(empty), "user-bookmarks-symbolic");
-  adw_status_page_set_title(ADW_STATUS_PAGE(empty), "Nothing Frequently Visited");
-  adw_status_page_set_description(ADW_STATUS_PAGE(empty), "Addresses you type are listed here.");
+  adw_status_page_set_title(ADW_STATUS_PAGE(empty), "Nothing to Show Yet");
+  adw_status_page_set_description(ADW_STATUS_PAGE(empty), "Addresses you type and tabs you close are listed here.");
 
   self->stack = gtk_stack_new();
   gtk_stack_add_named(GTK_STACK(self->stack), scroller, "sites");
@@ -349,14 +427,17 @@ static void wig_new_tab_page_init(WigNewTabPage *self)
 
   g_autoptr(GSimpleActionGroup) actions = g_simple_action_group_new();
   g_autoptr(GAction) show_favorites = g_settings_create_action(self->settings, "show-favorites");
-  g_action_map_add_action(G_ACTION_MAP(actions), show_favorites);
   g_autoptr(GAction) show_sites = g_settings_create_action(self->settings, "show-frequently-visited");
+  g_autoptr(GAction) show_closed = g_settings_create_action(self->settings, "show-recently-closed");
+  g_action_map_add_action(G_ACTION_MAP(actions), show_favorites);
   g_action_map_add_action(G_ACTION_MAP(actions), show_sites);
+  g_action_map_add_action(G_ACTION_MAP(actions), show_closed);
   gtk_widget_insert_action_group(GTK_WIDGET(self), "new-tab", G_ACTION_GROUP(actions));
 
   g_autoptr(GMenu) menu = g_menu_new();
   g_menu_append(menu, "Favorites", "new-tab.show-favorites");
   g_menu_append(menu, "Frequently Visited", "new-tab.show-frequently-visited");
+  g_menu_append(menu, "Recently Closed", "new-tab.show-recently-closed");
 
   GtkWidget *gear = gtk_menu_button_new();
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(gear), "emblem-system-symbolic");
@@ -379,6 +460,15 @@ static void wig_new_tab_page_init(WigNewTabPage *self)
                           G_CONNECT_SWAPPED);
   g_signal_connect_object(self->settings, "changed::show-frequently-visited", G_CALLBACK(wig_new_tab_page_load), self,
                           G_CONNECT_SWAPPED);
+  g_signal_connect_object(self->settings, "changed::show-recently-closed", G_CALLBACK(wig_new_tab_page_load), self,
+                          G_CONNECT_SWAPPED);
+
+  if (self->session)
+    g_signal_connect_object(self->session, "closed-changed", G_CALLBACK(wig_new_tab_page_load), self,
+                            G_CONNECT_SWAPPED);
+
+  if (self->bookmarks)
+    g_signal_connect_object(self->bookmarks, "changed", G_CALLBACK(wig_new_tab_page_load), self, G_CONNECT_SWAPPED);
 
   wig_native_page_set_title(WIG_NATIVE_PAGE(self), WIG_NEW_TAB_PAGE_TITLE);
 }

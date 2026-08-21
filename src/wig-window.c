@@ -611,6 +611,14 @@ WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved
   return win;
 }
 
+static void wig_window_restore_closed_window(WigWindow *win, WigSessionWindow *closed)
+{
+  WigWindow *target_win = wig_window_restore(wig_application_get(), closed, FALSE);
+
+  if (target_win != win)
+    gtk_window_present(GTK_WINDOW(target_win));
+}
+
 static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -620,9 +628,22 @@ static void wig_window_undo_close_tab(GSimpleAction *action, GVariant *parameter
   if (!closed)
     return;
 
-  WigWindow *target_win = wig_window_restore(app, closed, FALSE);
-  if (target_win != win)
-    gtk_window_present(GTK_WINDOW(target_win));
+  wig_window_restore_closed_window(win, closed);
+}
+
+static void wig_window_restore_closed(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  WigApplication *app = wig_application_get();
+  guint index = g_variant_get_uint32(parameter);
+
+  g_autoptr(WigSessionWindow) closed = wig_session_take_closed_window(wig_application_get_session(app), index);
+  if (!closed) {
+    g_debug("window: nothing closed at %u to restore", index);
+    return;
+  }
+
+  wig_window_restore_closed_window(win, closed);
 }
 
 static void wig_window_tab_view_right_pressed(GtkGestureClick *gesture, int n_press, double x, double y, WigWindow *win)
@@ -725,6 +746,7 @@ static const GActionEntry actions[] = {
   { "toggle-inspector", wig_window_toggle_inspector },
   { "close-tab", wig_window_close_tab_action },
   { "undo-close-tab", wig_window_undo_close_tab },
+  { "restore-closed", wig_window_restore_closed, "u" },
   { "duplicate-active-tab", wig_window_duplicate_active_tab },
 };
 

@@ -79,5 +79,7 @@ gboolean wig_session_take_restore_on_next_start(WigSession *self);
 
 void wig_session_push_closed_window(WigSession *self, WigSessionWindow *window);
 WigSessionWindow *wig_session_pop_closed_window(WigSession *self);
+WigSessionWindow *wig_session_take_closed_window(WigSession *self, guint index);
+GPtrArray *wig_session_list_closed_windows(WigSession *self);
 
 G_END_DECLS

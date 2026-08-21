@@ -48,6 +48,11 @@
       <summary>Show Frequently Visited Sites</summary>
     </key>
 
+    <key name="show-recently-closed" type="b">
+      <default>true</default>
+      <summary>Show Recently Closed Tabs</summary>
+    </key>
+
     <key name="tab-layout" enum="com.igalia.wig.TabLayout">
       <default>'horizontal'</default>
       <summary>Tab Layout</summary>

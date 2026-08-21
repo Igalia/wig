@@ -31,6 +31,13 @@
 #define WIG_SESSION_FORMAT_VERSION 1
 #define WIG_SESSION_GROUP "Session"
 
+enum {
+  CLOSED_CHANGED_SIGNAL,
+  N_SIGNALS,
+};
+
+static guint signals[N_SIGNALS];
+
 struct _WigSession {
   GObject parent;
 
@@ -357,6 +364,9 @@ static void wig_session_class_init(WigSessionClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS(klass);
   object_class->dispose = wig_session_dispose;
   object_class->finalize = wig_session_finalize;
+
+  signals[CLOSED_CHANGED_SIGNAL] = g_signal_new("closed-changed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL,
+                                                NULL, NULL, G_TYPE_NONE, 0);
 }
 
 static void wig_session_init(WigSession *self)
@@ -416,6 +426,8 @@ void wig_session_load(WigSession *self)
 
   g_debug("session: loaded %d window(s) and %d closed window(s) from '%s'", g_slist_length(self->restored_windows),
           g_queue_get_length(self->closed_windows), self->path);
+
+  g_signal_emit(self, signals[CLOSED_CHANGED_SIGNAL], 0);
 }
 
 GSList *wig_session_take_restored_windows(WigSession *self)
@@ -528,20 +540,41 @@ void wig_session_push_closed_window(WigSession *self, WigSessionWindow *window)
     wig_session_window_free(g_queue_pop_head(self->closed_windows));
 
   wig_session_queue_save(self);
+  g_signal_emit(self, signals[CLOSED_CHANGED_SIGNAL], 0);
 }
 
-WigSessionWindow *wig_session_pop_closed_window(WigSession *self)
+GPtrArray *wig_session_list_closed_windows(WigSession *self)
+{
+  GPtrArray *windows = g_ptr_array_new();
+
+  for (GList *l = self->closed_windows->tail; l; l = l->prev)
+    g_ptr_array_add(windows, l->data);
+
+  return windows;
+}
+
+WigSessionWindow *wig_session_take_closed_window(WigSession *self, guint index)
 {
   g_return_val_if_fail(WIG_IS_SESSION(self), NULL);
 
   if (self->quitting)
     return NULL;
 
-  WigSessionWindow *window = g_queue_pop_tail(self->closed_windows);
+  guint length = g_queue_get_length(self->closed_windows);
+  if (index >= length)
+    return NULL;
+
+  WigSessionWindow *window = g_queue_pop_nth(self->closed_windows, length - 1 - index);
   if (window) {
-    g_debug("session: popping closed window %u with %d tab(s)", window->window_id, g_slist_length(window->tabs));
+    g_debug("session: taking closed window %u with %d tab(s)", window->window_id, g_slist_length(window->tabs));
     wig_session_queue_save(self);
+    g_signal_emit(self, signals[CLOSED_CHANGED_SIGNAL], 0);
   }
 
   return window;
+}
+
+WigSessionWindow *wig_session_pop_closed_window(WigSession *self)
+{
+  return wig_session_take_closed_window(self, 0);
 }
