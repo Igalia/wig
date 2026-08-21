@@ -694,17 +694,29 @@ static const GActionEntry actions[] = {
   { "duplicate-active-tab", wig_window_duplicate_active_tab },
 };
 
-static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+static void wig_window_open_uri_in_new_tab(WigWindow *win, GVariant *parameter, gboolean background)
 {
-  WigWindow *win = WIG_WINDOW(user_data);
   g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
-  WigTab *tab = wig_window_add_tab_for_view(win, web_view);
+  WigTab *tab = wig_window_add_tab_after_active(win, web_view);
+
+  if (!background)
   wig_tab_list_set_active(win->tab_list, tab);
+
   if (parameter) {
     const char *uri = g_variant_get_string(parameter, NULL);
     if (uri)
       webkit_web_view_load_uri(web_view, uri);
   }
+}
+
+static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_window_open_uri_in_new_tab(WIG_WINDOW(user_data), parameter, FALSE);
+}
+
+static void wig_window_open_in_background_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_window_open_uri_in_new_tab(WIG_WINDOW(user_data), parameter, TRUE);
 }
 
 static void wig_window_copy_text(GSimpleAction *action, GVariant *parameter, gpointer user_data)

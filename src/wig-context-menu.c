@@ -82,31 +82,45 @@ static GMenuItem *build_uri_item(const char *label, const char *action, const ch
 
 /* WebKit offers a new window for anything it can open on its own; wig browses in
  * tabs, so the stock item is swapped for one aimed at the tab it would land in. */
-static GMenuItem *build_new_tab_item(const BuildContext *context, WebKitContextMenuAction stock_action)
+static gboolean append_new_tab_items(const BuildContext *context, WebKitContextMenuAction stock_action, GMenu *section)
 {
   WebKitHitTestResult *hit_test_result = context->hit_test_result;
+  const char *subject;
+  const char *uri;
 
   switch (stock_action) {
   case WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK:
     if (!webkit_hit_test_result_context_is_link(hit_test_result))
-      return NULL;
-    return build_uri_item("Open Link in New Tab", "popup.open-in-new-tab",
-                          webkit_hit_test_result_get_link_uri(hit_test_result));
+      return FALSE;
+    subject = "Link";
+    uri = webkit_hit_test_result_get_link_uri(hit_test_result);
+    break;
   case WEBKIT_CONTEXT_MENU_ACTION_OPEN_IMAGE_IN_NEW_WINDOW:
     if (!webkit_hit_test_result_context_is_image(hit_test_result))
-      return NULL;
-    return build_uri_item("Open Image in New Tab", "popup.open-in-new-tab",
-                          webkit_hit_test_result_get_image_uri(hit_test_result));
+      return FALSE;
+    subject = "Image";
+    uri = webkit_hit_test_result_get_image_uri(hit_test_result);
+    break;
   case WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW:
   case WEBKIT_CONTEXT_MENU_ACTION_OPEN_AUDIO_IN_NEW_WINDOW:
     if (!webkit_hit_test_result_context_is_media(hit_test_result))
-      return NULL;
-    return build_uri_item(stock_action == WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW ? "Open Video in New Tab"
-                                                                                              : "Open Audio in New Tab",
-                          "popup.open-in-new-tab", webkit_hit_test_result_get_media_uri(hit_test_result));
+      return FALSE;
+    subject = stock_action == WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW ? "Video" : "Audio";
+    uri = webkit_hit_test_result_get_media_uri(hit_test_result);
+    break;
   default:
-    return NULL;
+    return FALSE;
   }
+
+  g_autofree char *new_tab_label = g_strdup_printf("Open %s in New Tab", subject);
+  g_autoptr(GMenuItem) new_tab_item = build_uri_item(new_tab_label, "popup.open-in-new-tab", uri);
+  g_menu_append_item(section, new_tab_item);
+
+  g_autofree char *background_label = g_strdup_printf("Open %s in Background Tab", subject);
+  g_autoptr(GMenuItem) background_item = build_uri_item(background_label, "popup.open-in-background-tab", uri);
+  g_menu_append_item(section, background_item);
+
+  return TRUE;
 }
 
 static gboolean is_image_action(WebKitContextMenuAction action)
@@ -202,11 +216,8 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildC
     else if (stock_action == WEBKIT_CONTEXT_MENU_ACTION_COPY)
       context->has_copy_item = TRUE;
 
-    g_autoptr(GMenuItem) new_tab_item = build_new_tab_item(context, stock_action);
-    if (new_tab_item) {
-      g_menu_append_item(section_menu, new_tab_item);
+    if (append_new_tab_items(context, stock_action, section_menu))
       continue;
-    }
 
     GAction *action = webkit_context_menu_item_get_gaction(item);
     if (!action)
