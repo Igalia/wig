@@ -454,3 +454,29 @@ GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gi
   sqlite3_finalize(stmt);
   return items;
 }
+
+GPtrArray *wig_history_store_query_most_typed(WigHistoryStore *self, guint limit, GError **error)
+{
+  sqlite3_stmt *stmt = prepare_stmt(self,
+                                    "SELECT id, url, title, last_visit_time, visit_count, typed_count "
+                                    "FROM history_pages WHERE typed_count > 0 "
+                                    "ORDER BY typed_count DESC, visit_count DESC, last_visit_time DESC LIMIT ?",
+                                    error);
+  if (!stmt)
+    return NULL;
+
+  sqlite3_bind_int(stmt, 1, (int)CLAMP(limit, 1, 100));
+
+  GPtrArray *items = g_ptr_array_new_with_free_func(g_object_unref);
+  int rc;
+  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
+    g_ptr_array_add(items, item_from_stmt(stmt));
+
+  if (rc != SQLITE_DONE) {
+    set_sqlite_error(error, self->db, "history: query most typed");
+    g_clear_pointer(&items, g_ptr_array_unref);
+  }
+
+  sqlite3_finalize(stmt);
+  return items;
+}

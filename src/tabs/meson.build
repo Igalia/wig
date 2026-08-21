@@ -5,6 +5,7 @@ wig_tab_sources = files(
     'wig-error-page.c',
     'wig-modal-dialog.c',
     'wig-native-page.c',
+    'wig-new-tab-page.c',
     'wig-option-menu.c',
     'wig-page-details.c',
     'wig-script-dialog.c',

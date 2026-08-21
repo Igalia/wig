@@ -22,20 +22,18 @@
 
 #pragma once
 
-#include "wig-history-item.h"
+#include "wig-native-page.h"
 
 G_BEGIN_DECLS
 
-#define WIG_TYPE_HISTORY_STORE (wig_history_store_get_type())
-G_DECLARE_FINAL_TYPE(WigHistoryStore, wig_history_store, WIG, HISTORY_STORE, GObject)
+#define WIG_NEW_TAB_PAGE_URI "wig:new-tab"
+#define WIG_NEW_TAB_PAGE_TITLE "New Tab"
 
-WigHistoryStore *wig_history_store_new(const char *state_dir, GError **error);
+#define WIG_TYPE_NEW_TAB_PAGE (wig_new_tab_page_get_type())
+G_DECLARE_FINAL_TYPE(WigNewTabPage, wig_new_tab_page, WIG, NEW_TAB_PAGE, WigNativePage)
 
-void wig_history_store_record_visit(WigHistoryStore *self, const char *url, const char *title, gboolean typed,
-                                    gint64 visit_time, GError **error);
-void wig_history_store_update_title(WigHistoryStore *self, const char *url, const char *title, GError **error);
-GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gint64 before_time, guint limit,
-                                   gboolean *has_more, GError **error);
-GPtrArray *wig_history_store_query_most_typed(WigHistoryStore *self, guint limit, GError **error);
+GtkWidget *wig_new_tab_page_new(const char *uri);
+
+gboolean uri_is_new_tab_page(const char *uri);
 
 G_END_DECLS

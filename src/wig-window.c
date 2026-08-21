@@ -26,6 +26,7 @@
 #include "wig-context-menu.h"
 #include "wig-downloads-button.h"
 #include "wig-entry-completion-popover.h"
+#include "wig-new-tab-page.h"
 #include "wig-search-bar.h"
 #include "wig-settings-page.h"
 #include "wig-tab-bar.h"
@@ -339,8 +340,11 @@ static WigTab *wig_window_add_tab_after_active(WigWindow *win, WebKitWebView *we
 
 static WebKitWebView *wig_window_create_web_view_for_new_tab(WigWindow *win)
 {
-  WebKitWebView *view = wig_application_create_web_view(wig_application_get());
-  webkit_web_view_load_uri(view, "about:blank");
+  WigApplication *app = wig_application_get();
+  WebKitWebView *view = wig_application_create_web_view(app);
+
+  wig_application_mark_internal_navigation(app, view, WIG_NEW_TAB_PAGE_URI);
+  webkit_web_view_load_uri(view, WIG_NEW_TAB_PAGE_URI);
   return view;
 }
 
@@ -704,17 +708,16 @@ static const GActionEntry actions[] = {
 
 static void wig_window_open_uri_in_new_tab(WigWindow *win, GVariant *parameter, gboolean background)
 {
-  g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
+  const char *uri = parameter ? g_variant_get_string(parameter, NULL) : NULL;
+  g_autoptr(WebKitWebView) web_view = uri && *uri ? wig_application_create_web_view(wig_application_get())
+                                                  : wig_window_create_web_view_for_new_tab(win);
   WigTab *tab = wig_window_add_tab_after_active(win, web_view);
 
   if (!background)
     wig_tab_list_set_active(win->tab_list, tab);
 
-  if (parameter) {
-    const char *uri = g_variant_get_string(parameter, NULL);
-    if (uri)
-      webkit_web_view_load_uri(web_view, uri);
-  }
+  if (uri && *uri)
+    webkit_web_view_load_uri(web_view, uri);
 }
 
 static void wig_window_open_in_new_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -821,7 +824,7 @@ static void wig_window_update_url(WigWindow *win)
   /* A tab with nothing in it has no address worth showing, and an entry left
    * holding "about:blank" is something to be deleted before the address the
    * user opened the tab to type. */
-  if (g_strcmp0(url, "about:blank") == 0)
+  if (g_strcmp0(url, "about:blank") == 0 || uri_is_new_tab_page(url))
     url = NULL;
 
   win->suppress_entry_completion = TRUE;

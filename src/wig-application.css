@@ -371,3 +371,11 @@ list.nested > row.expander:not(:checked) > box > list > row image.expander-row-a
 list.nested > row.expander:not(:checked) > box > list > row image.expander-row-arrow:dir(rtl) {
   -gtk-icon-transform: rotate(-0.5turn);
 }
+
+wig-new-tab-page .frequent-site {
+  padding: 16px;
+}
+
+wig-new-tab-page .frequent-site .site-name {
+  font-weight: bold;
+}

@@ -27,6 +27,7 @@
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
 #include "wig-history-page.h"
+#include "wig-new-tab-page.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
 #include "wig-settings-page.h"
@@ -125,6 +126,9 @@ gboolean wig_application_open_uri(WigApplication *app, GtkWindow *win, const cha
 
 gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore)
 {
+  if (uri_is_new_tab_page(uri))
+    return FALSE;
+
   for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
     if (!WIG_IS_WINDOW(l->data))
       continue;
@@ -140,18 +144,20 @@ gboolean wig_application_focus_internal_page(WigApplication *app, const char *ur
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
 {
-  if (WIG_IS_WINDOW(win) && wig_application_focus_internal_page_in_window(WIG_WINDOW(win), uri, NULL, TRUE))
-    return;
-
-  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
-    if (l->data == win)
-      continue;
-    if (!WIG_IS_WINDOW(l->data))
-      continue;
-
-    if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, NULL, TRUE)) {
-      gtk_window_present(GTK_WINDOW(l->data));
+  if (!uri_is_new_tab_page(uri)) {
+    if (WIG_IS_WINDOW(win) && wig_application_focus_internal_page_in_window(WIG_WINDOW(win), uri, NULL, TRUE))
       return;
+
+    for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+      if (l->data == win)
+        continue;
+      if (!WIG_IS_WINDOW(l->data))
+        continue;
+
+      if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, NULL, TRUE)) {
+        gtk_window_present(GTK_WINDOW(l->data));
+        return;
+      }
     }
   }
 
@@ -281,8 +287,7 @@ static void wig_application_new_window_action(GSimpleAction *action, GVariant *p
   WigApplication *app = WIG_APPLICATION(user_data);
   WigWindow *win = wig_window_new(app);
 
-  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
-  wig_window_add_web_view(win, web_view);
+  wig_application_add_new_tab_with_uri(app, win, WIG_NEW_TAB_PAGE_URI);
 
   gtk_window_present(GTK_WINDOW(win));
   g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
@@ -872,7 +877,7 @@ static void wig_application_activate(GApplication *application)
     if (!win || !restore_tabs) {
       if (!win)
         win = wig_window_new(app);
-      wig_application_add_new_tab_with_uri(app, win, "https://wpewebkit.org");
+      wig_application_add_new_tab_with_uri(app, win, WIG_NEW_TAB_PAGE_URI);
       fresh = TRUE;
     }
   }
