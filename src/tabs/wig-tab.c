@@ -75,6 +75,7 @@ struct _WigTab {
   guint search_match_count;
   gboolean in_use;
   gint64 last_used;
+  gint64 last_active;
 
   gboolean status_active;
   double cursor_x;
@@ -1326,12 +1327,18 @@ gboolean wig_tab_get_active(WigTab *self)
   return self->active;
 }
 
+gint64 wig_tab_get_last_active(WigTab *self)
+{
+  return self->last_active;
+}
+
 void wig_tab_set_active(WigTab *self, gboolean active)
 {
   if (self->active == active)
     return;
 
   self->active = active;
+  self->last_active = g_get_monotonic_time();
   wig_tab_update_in_use(self);
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE]);
 }

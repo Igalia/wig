@@ -24,6 +24,7 @@
 
 static void wig_tab_list_reorder(WigTabList *, WigTab *, guint);
 static guint wig_tab_list_clamp_to_block(WigTabList *, WigTab *, guint);
+static WigTab *wig_tab_list_successor(WigTabList *, guint);
 
 static void on_action_reload(GSimpleAction *, GVariant *, gpointer);
 static void on_action_mute(GSimpleAction *, GVariant *, gpointer);
@@ -183,6 +184,31 @@ WigTab *wig_tab_list_append(WigTabList *self, WebKitWebView *web_view)
   return wig_tab_list_insert(self, web_view, self->tabs->len);
 }
 
+static WigTab *wig_tab_list_successor(WigTabList *self, guint pos)
+{
+  WigTab *leaving = g_ptr_array_index(self->tabs, pos);
+  WigTab *successor = NULL;
+  gint64 last_active = 0;
+
+  for (guint i = 0; i < self->tabs->len; i++) {
+    WigTab *tab = g_ptr_array_index(self->tabs, i);
+
+    if (tab == leaving || wig_tab_get_last_active(tab) <= last_active)
+      continue;
+
+    successor = tab;
+    last_active = wig_tab_get_last_active(tab);
+  }
+
+  if (successor)
+    return successor;
+
+  if (self->tabs->len < 2)
+    return NULL;
+
+  return g_ptr_array_index(self->tabs, pos > 0 ? pos - 1 : pos + 1);
+}
+
 void wig_tab_list_close(WigTabList *self, WigTab *tab)
 {
   guint pos = wig_tab_list_index_of(self, tab);
@@ -194,13 +220,8 @@ void wig_tab_list_close(WigTabList *self, WigTab *tab)
   if (handled)
     return;
 
-  /* If the active tab is being closed, move active to the nearest neighbour. */
-  if (self->active == tab) {
-    WigTab *new_active = NULL;
-    if (self->tabs->len > 1)
-      new_active = g_ptr_array_index(self->tabs, pos > 0 ? pos - 1 : pos + 1);
-    wig_tab_list_set_active(self, new_active);
-  }
+  if (self->active == tab)
+    wig_tab_list_set_active(self, wig_tab_list_successor(self, pos));
 
   g_autoptr(WigTab) alive_tab = g_object_ref(tab);
   g_ptr_array_remove_index(self->tabs, pos);
@@ -216,10 +237,8 @@ WigTab *wig_tab_list_detach(WigTabList *self, WigTab *tab)
   if (pos == GTK_INVALID_LIST_POSITION)
     return NULL;
 
-  if (self->active == tab) {
-    WigTab *new_active = self->tabs->len > 1 ? g_ptr_array_index(self->tabs, pos > 0 ? pos - 1 : pos + 1) : NULL;
-    wig_tab_list_set_active(self, new_active);
-  }
+  if (self->active == tab)
+    wig_tab_list_set_active(self, wig_tab_list_successor(self, pos));
 
   g_autoptr(WigTab) alive_tab = g_object_ref(tab);
   g_ptr_array_remove_index(self->tabs, pos);

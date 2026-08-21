@@ -78,6 +78,7 @@ gboolean wig_tab_get_selected(WigTab *self);
 void wig_tab_set_selected(WigTab *self, gboolean selected);
 gboolean wig_tab_get_active(WigTab *self);
 void wig_tab_set_active(WigTab *self, gboolean active);
+gint64 wig_tab_get_last_active(WigTab *self);
 gboolean wig_tab_get_search_active(WigTab *self);
 void wig_tab_set_search_active(WigTab *self, gboolean search_active);
 guint wig_tab_get_search_match_count(WigTab *self);
