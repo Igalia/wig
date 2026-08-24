@@ -838,6 +838,9 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
       wig_tab_show_stand_in_page(self, started_uri);
   }
 
+  if (load_event == WEBKIT_LOAD_FINISHED && self->page_is_stand_in && !self->has_committed)
+    wig_tab_clear_native_page(self);
+
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
 
