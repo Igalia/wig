@@ -857,10 +857,19 @@ static void wig_window_tab_duplicate(WigTabList *list, guint tab_id, WigWindow *
   if (!tab)
     return;
   const char *uri = wig_tab_get_uri(tab);
-  g_autoptr(WebKitWebView) web_view = wig_window_create_web_view_for_new_tab(win);
+
+  if (uri && g_strcmp0(g_uri_peek_scheme(uri), "wig") == 0) {
+    wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(win), uri);
+    return;
+  }
+
+  g_autoptr(WebKitWebView) web_view = uri && *uri ? wig_application_create_web_view(wig_application_get())
+                                                  : wig_window_create_web_view_for_new_tab(win);
   WigTab *new_tab = wig_window_add_tab_for_view(win, web_view);
-  if (uri)
+
+  if (uri && *uri)
     webkit_web_view_load_uri(web_view, uri);
+
   wig_tab_list_set_active(win->tab_list, new_tab);
 }
 
