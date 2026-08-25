@@ -177,7 +177,7 @@ static void wig_history_store_init(WigHistoryStore *self)
 
 WigHistoryStore *wig_history_store_new(const char *state_dir, GError **error)
 {
-  g_return_val_if_fail(state_dir != NULL, NULL);
+  g_assert(state_dir != NULL);
 
   if (g_mkdir_with_parents(state_dir, 0700) != 0) {
     g_set_error(error, G_IO_ERROR, (gint)g_io_error_from_errno(errno), "history: create state directory: %s",
@@ -243,8 +243,7 @@ static char *lookup_page_id(WigHistoryStore *self, const char *url, GError **err
 void wig_history_store_record_visit(WigHistoryStore *self, const char *url, const char *title, gboolean typed,
                                     gint64 visit_time, GError **error)
 {
-  g_return_if_fail(WIG_IS_HISTORY_STORE(self));
-  g_return_if_fail(url != NULL);
+  g_assert(url != NULL);
 
   g_autofree char *page_id = g_uuid_string_random();
   g_autofree char *stored_page_id = NULL;
@@ -306,8 +305,7 @@ fail:
 
 void wig_history_store_update_title(WigHistoryStore *self, const char *url, const char *title, GError **error)
 {
-  g_return_if_fail(WIG_IS_HISTORY_STORE(self));
-  g_return_if_fail(url != NULL);
+  g_assert(url != NULL);
 
   if (!title || !*title)
     return;
@@ -387,8 +385,6 @@ static WigHistoryItem *item_from_stmt(sqlite3_stmt *stmt)
 GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gint64 before_time, guint limit,
                                    gboolean *has_more, GError **error)
 {
-  g_return_val_if_fail(WIG_IS_HISTORY_STORE(self), NULL);
-
   if (has_more)
     *has_more = FALSE;
 

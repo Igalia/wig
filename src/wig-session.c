@@ -376,7 +376,7 @@ static void wig_session_init(WigSession *self)
 
 WigSession *wig_session_new(const char *state_dir)
 {
-  g_return_val_if_fail(state_dir != NULL, NULL);
+  g_assert(state_dir != NULL);
 
   WigSession *self = g_object_new(WIG_TYPE_SESSION, NULL);
   self->path = g_build_filename(state_dir, "session.ini", NULL);
@@ -385,16 +385,12 @@ WigSession *wig_session_new(const char *state_dir)
 
 void wig_session_set_collect_func(WigSession *self, WigSessionCollectFunc func, gpointer user_data)
 {
-  g_return_if_fail(WIG_IS_SESSION(self));
-
   self->collect_func = func;
   self->collect_data = user_data;
 }
 
 void wig_session_load(WigSession *self)
 {
-  g_return_if_fail(WIG_IS_SESSION(self));
-
   g_autoptr(GKeyFile) key_file = g_key_file_new();
   g_autoptr(GError) error = NULL;
   if (!g_key_file_load_from_file(key_file, self->path, G_KEY_FILE_NONE, &error)) {
@@ -432,8 +428,6 @@ void wig_session_load(WigSession *self)
 
 GSList *wig_session_take_restored_windows(WigSession *self)
 {
-  g_return_val_if_fail(WIG_IS_SESSION(self), NULL);
-
   return g_steal_pointer(&self->restored_windows);
 }
 
@@ -442,8 +436,6 @@ GSList *wig_session_take_restored_windows(WigSession *self)
  * not what should come back on the next launch. */
 void wig_session_set_quitting(WigSession *self)
 {
-  g_return_if_fail(WIG_IS_SESSION(self));
-
   g_debug("session: quitting, the saved state is now final");
   self->quitting = TRUE;
   g_clear_handle_id(&self->save_timeout_id, g_source_remove);
@@ -469,8 +461,6 @@ gboolean wig_session_take_restore_on_next_start(WigSession *self)
  * being put back together. */
 void wig_session_set_restoring(WigSession *self, gboolean restoring)
 {
-  g_return_if_fail(WIG_IS_SESSION(self));
-
   if (self->restoring == restoring)
     return;
 
@@ -483,8 +473,6 @@ void wig_session_set_restoring(WigSession *self, gboolean restoring)
 
 void wig_session_save(WigSession *self)
 {
-  g_return_if_fail(WIG_IS_SESSION(self));
-
   if (self->quitting || self->restoring)
     return;
 
@@ -515,8 +503,6 @@ static gboolean wig_session_on_save_timeout(gpointer user_data)
 
 void wig_session_queue_save(WigSession *self)
 {
-  g_return_if_fail(WIG_IS_SESSION(self));
-
   if (self->quitting || self->restoring || self->save_timeout_id)
     return;
 
@@ -525,8 +511,7 @@ void wig_session_queue_save(WigSession *self)
 
 void wig_session_push_closed_window(WigSession *self, WigSessionWindow *window)
 {
-  g_return_if_fail(WIG_IS_SESSION(self));
-  g_return_if_fail(window != NULL);
+  g_assert(window != NULL);
 
   if (self->quitting || !window->tabs) {
     wig_session_window_free(window);
@@ -555,8 +540,6 @@ GPtrArray *wig_session_list_closed_windows(WigSession *self)
 
 WigSessionWindow *wig_session_take_closed_window(WigSession *self, guint index)
 {
-  g_return_val_if_fail(WIG_IS_SESSION(self), NULL);
-
   if (self->quitting)
     return NULL;
 

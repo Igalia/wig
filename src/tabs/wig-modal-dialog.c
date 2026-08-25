@@ -54,9 +54,8 @@ static void escape_data_free(gpointer data, GClosure *closure)
 GtkWidget *wig_modal_dialog_present(GtkOverlay *overlay, GtkWidget **out_card, WigModalDialogCancelFunc on_cancel,
                                     gpointer user_data)
 {
-  g_return_val_if_fail(GTK_IS_OVERLAY(overlay), NULL);
-  g_return_val_if_fail(out_card != NULL, NULL);
-  g_return_val_if_fail(on_cancel != NULL, NULL);
+  g_assert(out_card != NULL);
+  g_assert(on_cancel != NULL);
 
   /* Backdrop: a full-size overlay child that dims the web view and blocks input. */
   GtkWidget *backdrop = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -111,9 +110,6 @@ static void wig_modal_dialog_release_focus(GtkOverlay *overlay, GtkWidget *backd
 
 void wig_modal_dialog_dismiss(GtkOverlay *overlay, GtkWidget *backdrop)
 {
-  g_return_if_fail(GTK_IS_OVERLAY(overlay));
-  g_return_if_fail(GTK_IS_WIDGET(backdrop));
-
   wig_modal_dialog_release_focus(overlay, backdrop);
   gtk_overlay_remove_overlay(overlay, backdrop);
 }

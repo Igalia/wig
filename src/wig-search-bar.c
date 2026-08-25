@@ -341,8 +341,6 @@ void wig_search_bar_set_tab(WigSearchBar *self, WigTab *tab)
 
 void wig_search_bar_open(WigSearchBar *self)
 {
-  g_return_if_fail(WIG_IS_SEARCH_BAR(self));
-
   gtk_widget_set_visible(GTK_WIDGET(self), TRUE);
   gtk_widget_grab_focus(self->entry);
   gtk_editable_select_region(GTK_EDITABLE(self->entry), 0, -1);
@@ -350,8 +348,6 @@ void wig_search_bar_open(WigSearchBar *self)
 
 void wig_search_bar_close(WigSearchBar *self)
 {
-  g_return_if_fail(WIG_IS_SEARCH_BAR(self));
-
   if (!gtk_widget_get_visible(GTK_WIDGET(self)))
     return;
 
@@ -367,15 +363,11 @@ void wig_search_bar_close(WigSearchBar *self)
 
 gboolean wig_search_bar_is_open(WigSearchBar *self)
 {
-  g_return_val_if_fail(WIG_IS_SEARCH_BAR(self), FALSE);
-
   return gtk_widget_get_visible(GTK_WIDGET(self));
 }
 
 void wig_search_bar_find_next(WigSearchBar *self)
 {
-  g_return_if_fail(WIG_IS_SEARCH_BAR(self));
-
   /* Stepping before a search has been started is a WebKit programming error. */
   WebKitFindController *controller = wig_search_bar_get_controller(self);
   if (controller && webkit_find_controller_get_search_text(controller))
@@ -384,8 +376,6 @@ void wig_search_bar_find_next(WigSearchBar *self)
 
 void wig_search_bar_find_previous(WigSearchBar *self)
 {
-  g_return_if_fail(WIG_IS_SEARCH_BAR(self));
-
   WebKitFindController *controller = wig_search_bar_get_controller(self);
   if (controller && webkit_find_controller_get_search_text(controller))
     webkit_find_controller_search_previous(controller);

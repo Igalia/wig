@@ -24,9 +24,6 @@
 
 GtkWidget *wig_tab_context_menu_popup(WigTabList *list, WigTab *tab)
 {
-  g_return_val_if_fail(WIG_IS_TAB_LIST(list), NULL);
-  g_return_val_if_fail(WIG_IS_TAB(tab), NULL);
-
   guint tab_id = wig_tab_get_id(tab);
   guint pos = wig_tab_list_index_of(list, tab);
   guint n_tabs = wig_tab_list_get_n_tabs(list);

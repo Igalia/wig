@@ -66,8 +66,8 @@ gint64 wig_key_file_get_int64(GKeyFile *key_file, const char *group, const char 
 
 gboolean wig_key_file_save(GKeyFile *key_file, const char *path, GError **error)
 {
-  g_return_val_if_fail(key_file != NULL, FALSE);
-  g_return_val_if_fail(path != NULL, FALSE);
+  g_assert(key_file != NULL);
+  g_assert(path != NULL);
 
   gsize length;
   g_autofree char *data = g_key_file_to_data(key_file, &length, error);

@@ -135,9 +135,6 @@ static GtkWidget *wig_auth_dialog_add_field(GtkGrid *grid, int row, const char *
 
 void wig_auth_dialog_show(GtkOverlay *overlay, WebKitAuthenticationRequest *request)
 {
-  g_return_if_fail(GTK_IS_OVERLAY(overlay));
-  g_return_if_fail(WEBKIT_IS_AUTHENTICATION_REQUEST(request));
-
   WebKitAuthenticationScheme scheme = webkit_authentication_request_get_scheme(request);
   if (!scheme_uses_password(scheme)) {
     g_debug("auth: rejecting authentication scheme %d that needs no password", scheme);

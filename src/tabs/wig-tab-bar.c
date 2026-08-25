@@ -346,8 +346,6 @@ static void wig_tab_bar_class_init(WigTabBarClass *klass)
 
 GtkWidget *wig_tab_bar_new(WigTabList *list)
 {
-  g_return_val_if_fail(WIG_IS_TAB_LIST(list), NULL);
-
   WigTabBar *self = WIG_TAB_BAR(g_object_new(WIG_TYPE_TAB_BAR, NULL));
   gtk_widget_set_hexpand(GTK_WIDGET(self), TRUE);
 

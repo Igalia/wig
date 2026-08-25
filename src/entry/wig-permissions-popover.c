@@ -221,9 +221,6 @@ GtkWidget *wig_permissions_popover_new(void)
 
 void wig_permissions_popover_set_permissions(WigPermissionsPopover *self, WigPermissions *permissions)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_POPOVER(self));
-  g_return_if_fail(permissions == NULL || WIG_IS_PERMISSIONS(permissions));
-
   if (self->permissions == permissions)
     return;
 

@@ -1112,8 +1112,6 @@ static WigTab *wig_tab_new_empty(void)
 
 WigTab *wig_tab_new(WebKitWebView *web_view)
 {
-  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), NULL);
-
   WigTab *self = wig_tab_new_empty();
   wig_tab_bind_web_view(self, web_view);
 
@@ -1417,15 +1415,11 @@ void wig_tab_set_active(WigTab *self, gboolean active)
 
 gboolean wig_tab_get_search_active(WigTab *self)
 {
-  g_return_val_if_fail(WIG_IS_TAB(self), FALSE);
-
   return self->search_active;
 }
 
 void wig_tab_set_search_active(WigTab *self, gboolean search_active)
 {
-  g_return_if_fail(WIG_IS_TAB(self));
-
   self->search_active = search_active;
 }
 
@@ -1433,15 +1427,11 @@ void wig_tab_set_search_active(WigTab *self, gboolean search_active)
  * last count is kept here rather than asked for again when the tab is shown. */
 guint wig_tab_get_search_match_count(WigTab *self)
 {
-  g_return_val_if_fail(WIG_IS_TAB(self), 0);
-
   return self->search_match_count;
 }
 
 void wig_tab_set_search_match_count(WigTab *self, guint match_count)
 {
-  g_return_if_fail(WIG_IS_TAB(self));
-
   self->search_match_count = match_count;
 }
 

@@ -346,7 +346,7 @@ guint wig_tab_list_get_n_pinned(WigTabList *self)
 
 WigTab *wig_tab_list_get_nth(WigTabList *self, guint i)
 {
-  g_return_val_if_fail(i < self->tabs->len, NULL);
+  g_assert(i < self->tabs->len);
   return g_ptr_array_index(self->tabs, i);
 }
 

@@ -486,9 +486,6 @@ static void wig_tab_widget_class_init(WigTabWidgetClass *klass)
 
 void wig_tab_widget_show_context_menu(WigTabWidget *self, WigTabList *list)
 {
-  g_return_if_fail(WIG_IS_TAB_WIDGET(self));
-  g_return_if_fail(WIG_IS_TAB_LIST(list));
-
   g_clear_pointer(&self->context_menu_popover, gtk_widget_unparent);
   self->context_menu_popover = wig_tab_context_menu_popup(list, self->tab);
   gtk_widget_set_parent(self->context_menu_popover, GTK_WIDGET(self));

@@ -172,8 +172,6 @@ WigPermissions *wig_permissions_new(void)
 
 WebKitPermissionState wig_permissions_get_state(WigPermissions *self, WigPermissionKind kind)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS(self), WEBKIT_PERMISSION_STATE_PROMPT);
-
   return self->states[wig_permission_kind_index(kind)];
 }
 

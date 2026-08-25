@@ -68,8 +68,6 @@ static void wig_tab_sidebar_class_init(WigTabSidebarClass *klass)
 
 GtkWidget *wig_tab_sidebar_new(WigTabList *list)
 {
-  g_return_val_if_fail(WIG_IS_TAB_LIST(list), NULL);
-
   WigTabSidebar *self = WIG_TAB_SIDEBAR(g_object_new(WIG_TYPE_TAB_SIDEBAR, NULL));
 
   gtk_orientable_set_orientation(GTK_ORIENTABLE(gtk_widget_get_layout_manager(GTK_WIDGET(self))),

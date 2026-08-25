@@ -190,17 +190,14 @@ GtkWidget *wig_entry_completion_popover_new(void)
 
 void wig_entry_completion_popover_set_width(WigEntryCompletionPopover *self, int width)
 {
-  g_return_if_fail(WIG_IS_ENTRY_COMPLETION_POPOVER(self));
-
   gtk_widget_set_size_request(self->list, width, -1);
 }
 
 void wig_entry_completion_popover_set_items(WigEntryCompletionPopover *self, const char *entry_text,
                                             const char *search_engine, GPtrArray *items)
 {
-  g_return_if_fail(WIG_IS_ENTRY_COMPLETION_POPOVER(self));
-  g_return_if_fail(entry_text != NULL);
-  g_return_if_fail(items != NULL);
+  g_assert(entry_text != NULL);
+  g_assert(items != NULL);
 
   wig_entry_completion_popover_clear_rows(self);
   g_ptr_array_set_size(self->items, 0);
@@ -238,8 +235,6 @@ static gboolean wig_entry_completion_popover_select_index(WigEntryCompletionPopo
 
 gboolean wig_entry_completion_popover_select_next(WigEntryCompletionPopover *self)
 {
-  g_return_val_if_fail(WIG_IS_ENTRY_COMPLETION_POPOVER(self), FALSE);
-
   if (self->items->len == 0)
     return FALSE;
 
@@ -256,8 +251,6 @@ gboolean wig_entry_completion_popover_select_next(WigEntryCompletionPopover *sel
 
 gboolean wig_entry_completion_popover_select_previous(WigEntryCompletionPopover *self)
 {
-  g_return_val_if_fail(WIG_IS_ENTRY_COMPLETION_POPOVER(self), FALSE);
-
   if (self->items->len == 0)
     return FALSE;
 
@@ -274,7 +267,5 @@ gboolean wig_entry_completion_popover_select_previous(WigEntryCompletionPopover 
 
 guint wig_entry_completion_popover_get_n_items(WigEntryCompletionPopover *self)
 {
-  g_return_val_if_fail(WIG_IS_ENTRY_COMPLETION_POPOVER(self), 0);
-
   return self->items->len;
 }

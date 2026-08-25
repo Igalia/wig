@@ -793,35 +793,24 @@ static void wig_window_base_init(WigWindowBase *self)
 
 void wig_window_base_set_toplevel(WigWindowBase *self, WPEToplevel *toplevel)
 {
-  g_return_if_fail(WIG_IS_WINDOW_BASE(self));
-  g_return_if_fail(WPE_IS_TOPLEVEL(toplevel));
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   g_set_object(&priv->toplevel, toplevel);
 }
 
 guint wig_window_base_get_id(WigWindowBase *self)
 {
-  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), 0);
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->id;
 }
 
 WPEToplevel *wig_window_base_get_toplevel(WigWindowBase *self)
 {
-  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->toplevel;
 }
 
 void wig_window_base_set_navigation_buttons(WigWindowBase *self, GtkWidget *back_button, GtkWidget *forward_button)
 {
-  g_return_if_fail(WIG_IS_WINDOW_BASE(self));
-  g_return_if_fail(GTK_IS_WIDGET(back_button));
-  g_return_if_fail(GTK_IS_WIDGET(forward_button));
-
   GtkGestureClick *back_gesture = GTK_GESTURE_CLICK(gtk_gesture_click_new());
   gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(back_gesture), GDK_BUTTON_SECONDARY);
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(back_gesture), GTK_PHASE_CAPTURE);
@@ -838,11 +827,8 @@ void wig_window_base_set_navigation_buttons(WigWindowBase *self, GtkWidget *back
 
 void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_view)
 {
-  g_return_if_fail(WIG_IS_WINDOW_BASE(self));
-  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
-  g_return_if_fail(WPE_IS_TOPLEVEL(priv->toplevel));
+  g_assert(priv->toplevel != NULL);
 
   wpe_view_set_toplevel(webkit_web_view_get_wpe_view(web_view), priv->toplevel);
   if (g_hash_table_contains(priv->web_view_signal_groups, web_view))
@@ -862,9 +848,6 @@ void wig_window_base_attach_web_view(WigWindowBase *self, WebKitWebView *web_vie
 
 void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_view)
 {
-  g_return_if_fail(WIG_IS_WINDOW_BASE(self));
-  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   GSignalGroup *signals = g_hash_table_lookup(priv->web_view_signal_groups, web_view);
   if (signals)
@@ -874,9 +857,6 @@ void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_vie
 
 void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web_view)
 {
-  g_return_if_fail(WIG_IS_WINDOW_BASE(self));
-  g_return_if_fail(web_view == NULL || WEBKIT_IS_WEB_VIEW(web_view));
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   if (priv->active_web_view == web_view)
     return;
@@ -894,7 +874,6 @@ void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web
 
 WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self)
 {
-  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
   return get_active_web_view(self);
 }
 
@@ -917,24 +896,18 @@ void wig_window_base_set_loading(WigWindowBase *self, gboolean loading)
 
 GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self)
 {
-  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->permissions_button;
 }
 
 GtkWidget *wig_window_base_get_downloads_button(WigWindowBase *self)
 {
-  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->downloads_button;
 }
 
 const char *wig_window_base_get_active_origin(WigWindowBase *self)
 {
-  g_return_val_if_fail(WIG_IS_WINDOW_BASE(self), NULL);
-
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->active_origin;
 }

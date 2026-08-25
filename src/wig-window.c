@@ -519,8 +519,6 @@ static void wig_window_sidebar_position_changed(GtkPaned *paned, GParamSpec *psp
 
 WigSessionWindow *wig_window_capture_session(WigWindow *win)
 {
-  g_return_val_if_fail(WIG_IS_WINDOW(win), NULL);
-
   WigSessionWindow *captured = wig_session_window_new(wig_window_base_get_id(WIG_WINDOW_BASE(win)));
   captured->focused = gtk_window_is_active(GTK_WINDOW(win));
   captured->maximized = gtk_window_is_maximized(GTK_WINDOW(win));
@@ -546,8 +544,7 @@ WigSessionWindow *wig_window_capture_session(WigWindow *win)
 
 WigWindow *wig_window_restore(WigApplication *app, const WigSessionWindow *saved, gboolean pinned_only)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-  g_return_val_if_fail(saved != NULL, NULL);
+  g_assert(saved != NULL);
 
   g_debug("session: restoring window %u with %d tab(s), %dx%d sidebar=%d on '%s' maximized=%d fullscreen=%d "
           "minimized=%d focused=%d",
@@ -2040,18 +2037,12 @@ WigTabList *wig_window_get_tab_list(WigWindow *win)
 
 void wig_window_add_web_view(WigWindow *win, WebKitWebView *web_view)
 {
-  g_return_if_fail(WIG_IS_WINDOW(win));
-  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
-
   WigTab *tab = wig_window_add_tab_for_view(win, web_view);
   wig_tab_list_set_active(win->tab_list, tab);
 }
 
 void wig_window_add_web_view_in_background(WigWindow *win, WebKitWebView *web_view)
 {
-  g_return_if_fail(WIG_IS_WINDOW(win));
-  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
-
   WigTab *active = wig_tab_list_get_active(win->tab_list);
   guint index = active ? wig_tab_list_index_of(win->tab_list, active) + 1 : wig_tab_list_get_n_tabs(win->tab_list);
 

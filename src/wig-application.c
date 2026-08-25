@@ -495,8 +495,6 @@ static const char *autoplay_policy_name(WebKitAutoplayPolicy autoplay)
  * navigations only share one if they are going to the same place. */
 WebKitWebsitePolicies *wig_application_create_website_policies(WigApplication *app, const char *uri)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   g_autoptr(WebKitSecurityOrigin) origin = uri ? webkit_security_origin_new_for_uri(uri) : NULL;
   g_autofree char *site = origin ? webkit_security_origin_to_string(origin) : NULL;
 
@@ -540,8 +538,6 @@ static void on_notification_clicked_action(GSimpleAction *action, GVariant *para
 
 gboolean wig_application_is_quitting(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), FALSE);
-
   return app->quitting;
 }
 
@@ -955,15 +951,11 @@ WigApplication *wig_application_get(void)
 
 WPEDisplay *wig_application_get_display(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   return app->display;
 }
 
 WebKitNetworkSession *wig_application_get_network_session(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   return app->network_session;
 }
 
@@ -1003,8 +995,6 @@ static gboolean on_web_view_decide_policy(WebKitWebView *web_view, WebKitPolicyD
 
 WebKitWebView *wig_application_create_web_view(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(
       WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context, "network-session",
       app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
@@ -1019,8 +1009,6 @@ WebKitWebView *wig_application_create_web_view(WigApplication *app)
 
 WigHistoryStore *wig_application_get_history_store(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   return app->history_store;
 }
 
@@ -1036,9 +1024,6 @@ WigDownloadsManager *wig_application_get_downloads_manager(WigApplication *app)
 
 void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
 {
-  g_return_if_fail(WIG_IS_APPLICATION(app));
-  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
-
   if (g_strcmp0(g_uri_peek_scheme(uri), "wig") != 0)
     return;
 
@@ -1048,9 +1033,6 @@ void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView
 
 gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), FALSE);
-  g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(web_view), FALSE);
-
   const char *pending = g_hash_table_lookup(app->internal_navigations, web_view);
   if (g_strcmp0(pending, uri) != 0)
     return FALSE;
@@ -1061,9 +1043,6 @@ gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWeb
 
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
 {
-  g_return_if_fail(WIG_IS_APPLICATION(app));
-  g_return_if_fail(WEBKIT_IS_WEB_VIEW(web_view));
-
   g_debug("[mark-typed-navigation] web_view=%p uri=%s recordable=%d", (void *)web_view, uri ? uri : "(null)",
           uri_should_be_recorded(uri));
 
@@ -1075,8 +1054,6 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
 
 GSettings *wig_application_get_settings(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   return app->settings;
 }
 
@@ -1112,32 +1089,25 @@ WebKitMemoryPressureSettings *wig_application_get_memory_pressure_settings(WigAp
 
 WigSession *wig_application_get_session(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   return app->session;
 }
 
 void wig_application_track_notification(WigApplication *app, const char *id, WebKitNotification *notif)
 {
-  g_return_if_fail(WIG_IS_APPLICATION(app));
-  g_return_if_fail(id != NULL);
-  g_return_if_fail(WEBKIT_IS_NOTIFICATION(notif));
+  g_assert(id != NULL);
 
   g_hash_table_insert(app->notifications, g_strdup(id), g_object_ref(notif));
 }
 
 void wig_application_untrack_notification(WigApplication *app, const char *id)
 {
-  g_return_if_fail(WIG_IS_APPLICATION(app));
-  g_return_if_fail(id != NULL);
+  g_assert(id != NULL);
 
   g_hash_table_remove(app->notifications, id);
 }
 
 WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *app)
 {
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
   return app->permissions_manager;
 }
 

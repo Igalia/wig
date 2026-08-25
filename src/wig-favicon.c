@@ -63,9 +63,8 @@ static void favicon_loaded(GObject *source, GAsyncResult *result, gpointer user_
 void wig_favicon_get_async(WebKitFaviconDatabase *database, const char *page_uri, int size, GCancellable *cancellable,
                            GAsyncReadyCallback callback, gpointer user_data)
 {
-  g_return_if_fail(WEBKIT_IS_FAVICON_DATABASE(database));
-  g_return_if_fail(page_uri && *page_uri);
-  g_return_if_fail(size > 0);
+  g_assert(page_uri != NULL && *page_uri != '\0');
+  g_assert(size > 0);
 
   g_autoptr(GTask) task = g_task_new(database, cancellable, callback, user_data);
   g_task_set_source_tag(task, wig_favicon_get_async);
@@ -78,8 +77,8 @@ void wig_favicon_get_async(WebKitFaviconDatabase *database, const char *page_uri
 
 GIcon *wig_favicon_get_finish(WebKitFaviconDatabase *database, GAsyncResult *result, GError **error)
 {
-  g_return_val_if_fail(g_task_is_valid(result, database), NULL);
-  g_return_val_if_fail(g_async_result_is_tagged(result, wig_favicon_get_async), NULL);
+  g_assert(g_task_is_valid(result, database));
+  g_assert(g_async_result_is_tagged(result, wig_favicon_get_async));
 
   return g_task_propagate_pointer(G_TASK(result), error);
 }

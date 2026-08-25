@@ -411,8 +411,6 @@ gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **erro
 
 void wig_permissions_manager_save(WigPermissionsManager *self)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-
   g_clear_handle_id(&self->save_timeout_id, g_source_remove);
   if (!self->dirty || self->unsupported_format)
     return;
@@ -515,7 +513,7 @@ static void wig_permissions_manager_init(WigPermissionsManager *self)
 
 WigPermissionsManager *wig_permissions_manager_new(const char *state_dir)
 {
-  g_return_val_if_fail(state_dir != NULL, NULL);
+  g_assert(state_dir != NULL);
 
   WigPermissionsManager *self = g_object_new(WIG_TYPE_PERMISSIONS_MANAGER, NULL);
   self->path = g_build_filename(state_dir, "permissions.ini", NULL);
@@ -524,8 +522,7 @@ WigPermissionsManager *wig_permissions_manager_new(const char *state_dir)
 
 WigPermissions *wig_permissions_manager_lookup(WigPermissionsManager *self, const char *origin)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-  g_return_val_if_fail(origin != NULL, NULL);
+  g_assert(origin != NULL);
 
   WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
   return record && permission_origin_has_decisions(record) ? record->permissions : NULL;
@@ -551,16 +548,14 @@ static WigPermissionOrigin *permission_origin_ensure(WigPermissionsManager *self
 
 WigPermissions *wig_permissions_manager_ensure(WigPermissionsManager *self, const char *origin)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-  g_return_val_if_fail(origin != NULL, NULL);
+  g_assert(origin != NULL);
 
   return permission_origin_ensure(self, origin)->permissions;
 }
 
 void wig_permissions_manager_visit(WigPermissionsManager *self, const char *origin)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-  g_return_if_fail(origin != NULL);
+  g_assert(origin != NULL);
 
   WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
   if (!record)
@@ -589,8 +584,6 @@ static void wig_permissions_manager_policy_changed(WigPermissionsManager *self, 
 gboolean wig_permissions_manager_get_autoplay(WigPermissionsManager *self, const char *origin,
                                               WebKitAutoplayPolicy *autoplay)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), FALSE);
-
   WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
   if (!record || !record->has_autoplay)
     return FALSE;
@@ -604,8 +597,7 @@ gboolean wig_permissions_manager_get_autoplay(WigPermissionsManager *self, const
 void wig_permissions_manager_set_autoplay(WigPermissionsManager *self, const char *origin,
                                           WebKitAutoplayPolicy autoplay)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-  g_return_if_fail(origin != NULL);
+  g_assert(origin != NULL);
 
   WigPermissionOrigin *record = permission_origin_ensure(self, origin);
   if (record->has_autoplay && record->autoplay == autoplay)
@@ -619,8 +611,7 @@ void wig_permissions_manager_set_autoplay(WigPermissionsManager *self, const cha
 
 void wig_permissions_manager_clear_autoplay(WigPermissionsManager *self, const char *origin)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-  g_return_if_fail(origin != NULL);
+  g_assert(origin != NULL);
 
   WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
   if (!record || !record->has_autoplay)
@@ -635,8 +626,6 @@ void wig_permissions_manager_clear_autoplay(WigPermissionsManager *self, const c
 gboolean wig_permissions_manager_get_https_navigation(WigPermissionsManager *self, const char *origin,
                                                       WebKitHTTPSNavigationPolicy *https_navigation)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), FALSE);
-
   WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
   if (!record || !record->has_https_navigation)
     return FALSE;
@@ -649,8 +638,7 @@ gboolean wig_permissions_manager_get_https_navigation(WigPermissionsManager *sel
 void wig_permissions_manager_set_https_navigation(WigPermissionsManager *self, const char *origin,
                                                   WebKitHTTPSNavigationPolicy https_navigation)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-  g_return_if_fail(origin != NULL);
+  g_assert(origin != NULL);
 
   WigPermissionOrigin *record = permission_origin_ensure(self, origin);
   if (record->has_https_navigation && record->https_navigation == https_navigation)
@@ -664,8 +652,7 @@ void wig_permissions_manager_set_https_navigation(WigPermissionsManager *self, c
 
 void wig_permissions_manager_clear_https_navigation(WigPermissionsManager *self, const char *origin)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-  g_return_if_fail(origin != NULL);
+  g_assert(origin != NULL);
 
   WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
   if (!record || !record->has_https_navigation)
@@ -679,8 +666,6 @@ void wig_permissions_manager_clear_https_navigation(WigPermissionsManager *self,
 GList *wig_permissions_manager_list_https_navigation_sites(WigPermissionsManager *self,
                                                            WebKitHTTPSNavigationPolicy https_navigation)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-
   GList *sites = NULL;
 
   GHashTableIter iter;
@@ -698,16 +683,13 @@ GList *wig_permissions_manager_list_https_navigation_sites(WigPermissionsManager
 
 const char *wig_permissions_manager_get_user_agent(WigPermissionsManager *self, const char *origin)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-
   WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
   return record ? record->user_agent : NULL;
 }
 
 void wig_permissions_manager_set_user_agent(WigPermissionsManager *self, const char *origin, const char *user_agent)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-  g_return_if_fail(origin != NULL);
+  g_assert(origin != NULL);
 
   if (user_agent && !*user_agent)
     user_agent = NULL;
@@ -722,8 +704,6 @@ void wig_permissions_manager_set_user_agent(WigPermissionsManager *self, const c
 
 GList *wig_permissions_manager_list_autoplay_sites(WigPermissionsManager *self, WebKitAutoplayPolicy autoplay)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-
   GList *sites = NULL;
 
   GHashTableIter iter;
@@ -740,8 +720,6 @@ GList *wig_permissions_manager_list_autoplay_sites(WigPermissionsManager *self, 
 
 GList *wig_permissions_manager_list_user_agent_sites(WigPermissionsManager *self)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-
   GList *sites = NULL;
 
   GHashTableIter iter;
@@ -759,8 +737,6 @@ GList *wig_permissions_manager_list_user_agent_sites(WigPermissionsManager *self
 GList *wig_permissions_manager_list_sites(WigPermissionsManager *self, WigPermissionKind kind,
                                           WebKitPermissionState state)
 {
-  g_return_val_if_fail(WIG_IS_PERMISSIONS_MANAGER(self), NULL);
-
   GList *sites = NULL;
 
   GHashTableIter iter;
@@ -797,10 +773,7 @@ GList *wig_permissions_manager_list_origins(WigPermissionsManager *self, WigPerm
 void wig_permissions_manager_handle_request(WigPermissionsManager *self, const char *origin,
                                             WebKitPermissionRequest *request, WigPermissionRequestPopover *popover)
 {
-  g_return_if_fail(WIG_IS_PERMISSIONS_MANAGER(self));
-  g_return_if_fail(origin != NULL);
-  g_return_if_fail(WEBKIT_IS_PERMISSION_REQUEST(request));
-  g_return_if_fail(WIG_IS_PERMISSION_REQUEST_POPOVER(popover));
+  g_assert(origin != NULL);
 
   WigPermissionKind undecided = wig_permission_kinds_for_request(request);
   g_assert(undecided != 0);

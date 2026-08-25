@@ -146,36 +146,30 @@ WigHistoryItem *wig_history_item_new(const char *id, const char *url, const char
 
 const char *wig_history_item_get_id(WigHistoryItem *self)
 {
-  g_return_val_if_fail(WIG_IS_HISTORY_ITEM(self), NULL);
   return self->id;
 }
 
 const char *wig_history_item_get_url(WigHistoryItem *self)
 {
-  g_return_val_if_fail(WIG_IS_HISTORY_ITEM(self), NULL);
   return self->url;
 }
 
 const char *wig_history_item_get_title(WigHistoryItem *self)
 {
-  g_return_val_if_fail(WIG_IS_HISTORY_ITEM(self), NULL);
   return self->title;
 }
 
 gint64 wig_history_item_get_last_visit_time(WigHistoryItem *self)
 {
-  g_return_val_if_fail(WIG_IS_HISTORY_ITEM(self), 0);
   return self->last_visit_time;
 }
 
 guint wig_history_item_get_visit_count(WigHistoryItem *self)
 {
-  g_return_val_if_fail(WIG_IS_HISTORY_ITEM(self), 0);
   return self->visit_count;
 }
 
 guint wig_history_item_get_typed_count(WigHistoryItem *self)
 {
-  g_return_val_if_fail(WIG_IS_HISTORY_ITEM(self), 0);
   return self->typed_count;
 }
