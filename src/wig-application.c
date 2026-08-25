@@ -30,6 +30,7 @@
 #include "wig-new-tab-page.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
+#include "wig-settings-memory.h"
 #include "wig-settings-page.h"
 #include "wig-settings.h"
 #include "wig-window.h"
@@ -672,6 +673,7 @@ static void wig_application_startup(GApplication *application)
 
   /* Only network sessions created after this call pick the settings up. */
   app->memory_pressure_settings = webkit_memory_pressure_settings_new();
+  wig_settings_memory_apply(app->settings, app->memory_pressure_settings);
   webkit_network_session_set_memory_pressure_settings(app->memory_pressure_settings);
 
   app->network_session = webkit_network_session_new(data_dir, cache_dir);

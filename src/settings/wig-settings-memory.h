@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include <wpe/webkit.h>
+
 #include "wig-settings-search.h"
 
 G_BEGIN_DECLS
@@ -31,5 +33,6 @@ G_DECLARE_FINAL_TYPE(WigSettingsMemory, wig_settings_memory, WIG, SETTINGS_MEMOR
 
 GtkWidget *wig_settings_memory_new(void);
 void wig_settings_memory_index(WigSettingsSearch *search, const char *pane, const char *pane_title);
+void wig_settings_memory_apply(GSettings *settings, WebKitMemoryPressureSettings *pressure);
 
 G_END_DECLS

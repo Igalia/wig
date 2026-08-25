@@ -38,6 +38,7 @@ typedef enum {
 /* The thresholds are fractions of the limit, so they share a range and only
  * differ in what crossing them costs. */
 static const struct {
+  const char *key;
   const char *title;
   const char *description;
   double min;
@@ -45,15 +46,17 @@ static const struct {
   double step;
   guint digits;
 } memory_values[N_MEMORY_VALUES] = {
-  [MEMORY_LIMIT] = { "Memory Limit", "How much memory the process may use, in MiB. Zero leaves it to the system.", 0,
-                     1024 * 1024, 16, 0 },
-  [CONSERVATIVE_THRESHOLD] = { "Conservative Threshold", "Fraction of the limit at which careful collection begins.", 0,
-                               1, 0.01, 2 },
-  [STRICT_THRESHOLD] = { "Strict Threshold", "Fraction at which collection turns aggressive and caches are dropped.", 0,
-                         1, 0.01, 2 },
-  [KILL_THRESHOLD] = { "Kill Threshold", "Fraction at which the process is ended outright. Zero never ends it.", 0, 1,
-                       0.01, 2 },
-  [POLL_INTERVAL] = { "Poll Interval", "How often memory use is looked at, in seconds.", 0.1, 600, 0.1, 1 },
+  [MEMORY_LIMIT] = { "memory-limit", "Memory Limit",
+                     "How much memory the process may use, in MiB. Zero leaves it to the system.", 0, 1024 * 1024, 16,
+                     0 },
+  [CONSERVATIVE_THRESHOLD] = { "memory-conservative-threshold", "Conservative Threshold",
+                               "Fraction of the limit at which careful collection begins.", 0, 1, 0.01, 2 },
+  [STRICT_THRESHOLD] = { "memory-strict-threshold", "Strict Threshold",
+                         "Fraction at which collection turns aggressive and caches are dropped.", 0, 1, 0.01, 2 },
+  [KILL_THRESHOLD] = { "memory-kill-threshold", "Kill Threshold",
+                       "Fraction at which the process is ended outright. Zero never ends it.", 0, 1, 0.01, 2 },
+  [POLL_INTERVAL] = { "memory-poll-interval", "Poll Interval", "How often memory use is looked at, in seconds.", 0.1,
+                      600, 0.1, 1 },
 };
 
 struct _WigSettingsMemory {
@@ -83,27 +86,61 @@ static double memory_value_get(WebKitMemoryPressureSettings *settings, MemoryVal
   }
 }
 
-static void memory_value_set(WebKitMemoryPressureSettings *settings, MemoryValue value, double amount)
+static double memory_stored_get(GSettings *settings, MemoryValue value)
 {
-  switch (value) {
-  case MEMORY_LIMIT:
-    webkit_memory_pressure_settings_set_memory_limit(settings, (guint)amount);
-    break;
-  case CONSERVATIVE_THRESHOLD:
-    webkit_memory_pressure_settings_set_conservative_threshold(settings, amount);
-    break;
-  case STRICT_THRESHOLD:
-    webkit_memory_pressure_settings_set_strict_threshold(settings, amount);
-    break;
-  case KILL_THRESHOLD:
-    webkit_memory_pressure_settings_set_kill_threshold(settings, amount);
-    break;
-  case POLL_INTERVAL:
-    webkit_memory_pressure_settings_set_poll_interval(settings, amount);
-    break;
-  default:
-    g_assert_not_reached();
+  if (value == MEMORY_LIMIT)
+    return g_settings_get_uint(settings, memory_values[value].key);
+  return g_settings_get_double(settings, memory_values[value].key);
+}
+
+static void memory_stored_set(GSettings *settings, MemoryValue value, double amount)
+{
+  if (value == MEMORY_LIMIT)
+    g_settings_set_uint(settings, memory_values[value].key, (guint)amount);
+  else
+    g_settings_set_double(settings, memory_values[value].key, amount);
+}
+
+static double memory_value_effective(GSettings *settings, WebKitMemoryPressureSettings *pressure, MemoryValue value)
+{
+  double stored = memory_stored_get(settings, value);
+
+  return stored > 0 ? stored : memory_value_get(pressure, value);
+}
+
+void wig_settings_memory_apply(GSettings *settings, WebKitMemoryPressureSettings *pressure)
+{
+  double limit = memory_stored_get(settings, MEMORY_LIMIT);
+  if (limit > 0)
+    webkit_memory_pressure_settings_set_memory_limit(pressure, (guint)limit);
+
+  double interval = memory_stored_get(settings, POLL_INTERVAL);
+  if (interval > 0)
+    webkit_memory_pressure_settings_set_poll_interval(pressure, interval);
+
+  double conservative = memory_value_effective(settings, pressure, CONSERVATIVE_THRESHOLD);
+  double strict = memory_value_effective(settings, pressure, STRICT_THRESHOLD);
+  double kill = memory_stored_get(settings, KILL_THRESHOLD);
+
+  if (conservative <= 0 || conservative >= strict || strict >= 1 || (kill != 0 && kill <= strict)) {
+    g_warning("memory: thresholds %g/%g/%g do not rise in that order, keeping the ones in effect", conservative, strict,
+              kill);
+    return;
   }
+
+  webkit_memory_pressure_settings_set_kill_threshold(pressure, 0);
+  if (strict > webkit_memory_pressure_settings_get_conservative_threshold(pressure)) {
+    webkit_memory_pressure_settings_set_strict_threshold(pressure, strict);
+    webkit_memory_pressure_settings_set_conservative_threshold(pressure, conservative);
+  } else {
+    webkit_memory_pressure_settings_set_conservative_threshold(pressure, conservative);
+    webkit_memory_pressure_settings_set_strict_threshold(pressure, strict);
+  }
+  webkit_memory_pressure_settings_set_kill_threshold(pressure, kill);
+
+  g_debug("memory: limit %u MiB, thresholds %g/%g/%g, poll every %g s",
+          webkit_memory_pressure_settings_get_memory_limit(pressure), conservative, strict, kill,
+          webkit_memory_pressure_settings_get_poll_interval(pressure));
 }
 
 /* Which value a row stands for is small enough to travel as the closure data
@@ -112,19 +149,22 @@ static void memory_row_changed(AdwSpinRow *row, GParamSpec *pspec, gpointer data
 {
   MemoryValue value = GPOINTER_TO_UINT(data);
   WigSettingsMemory *self = WIG_SETTINGS_MEMORY(gtk_widget_get_ancestor(GTK_WIDGET(row), WIG_TYPE_SETTINGS_MEMORY));
-  WebKitMemoryPressureSettings *settings = wig_application_get_memory_pressure_settings(wig_application_get());
+  WigApplication *app = wig_application_get();
+  GSettings *settings = wig_application_get_settings(app);
+  WebKitMemoryPressureSettings *pressure = wig_application_get_memory_pressure_settings(app);
 
   g_debug("memory: %s is now %g", memory_values[value].title, adw_spin_row_get_value(row));
-  memory_value_set(settings, value, adw_spin_row_get_value(row));
+  memory_stored_set(settings, value, adw_spin_row_get_value(row));
+  wig_settings_memory_apply(settings, pressure);
 
   /* This only stores the configuration WebKit hands to the next network process
    * it starts; the one already running keeps what it was given, so the way to
    * see any of this is to start again. */
-  webkit_network_session_set_memory_pressure_settings(settings);
+  webkit_network_session_set_memory_pressure_settings(pressure);
   adw_banner_set_revealed(self->banner, TRUE);
 }
 
-static GtkWidget *memory_row_new(WebKitMemoryPressureSettings *settings, MemoryValue value)
+static GtkWidget *memory_row_new(GSettings *settings, WebKitMemoryPressureSettings *pressure, MemoryValue value)
 {
   GtkWidget *row = adw_spin_row_new_with_range(memory_values[value].min, memory_values[value].max,
                                                memory_values[value].step);
@@ -132,7 +172,7 @@ static GtkWidget *memory_row_new(WebKitMemoryPressureSettings *settings, MemoryV
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), memory_values[value].title);
   adw_action_row_set_subtitle(ADW_ACTION_ROW(row), memory_values[value].description);
   adw_spin_row_set_digits(ADW_SPIN_ROW(row), memory_values[value].digits);
-  adw_spin_row_set_value(ADW_SPIN_ROW(row), memory_value_get(settings, value));
+  adw_spin_row_set_value(ADW_SPIN_ROW(row), memory_value_effective(settings, pressure, value));
   /* Connected once the row holds what the setting already is. */
   g_signal_connect(row, "notify::value", G_CALLBACK(memory_row_changed), GUINT_TO_POINTER(value));
 
@@ -167,7 +207,9 @@ static void wig_settings_memory_class_init(WigSettingsMemoryClass *klass)
 
 static void wig_settings_memory_init(WigSettingsMemory *self)
 {
-  WebKitMemoryPressureSettings *settings = wig_application_get_memory_pressure_settings(wig_application_get());
+  WigApplication *app = wig_application_get();
+  GSettings *settings = wig_application_get_settings(app);
+  WebKitMemoryPressureSettings *pressure = wig_application_get_memory_pressure_settings(app);
 
   self->page = adw_preferences_page_new();
   gtk_widget_set_parent(self->page, GTK_WIDGET(self));
@@ -185,7 +227,7 @@ static void wig_settings_memory_init(WigSettingsMemory *self)
       "require restarting the browser.");
 
   for (guint i = 0; i < N_MEMORY_VALUES; i++)
-    adw_preferences_group_add(group, memory_row_new(settings, i));
+    adw_preferences_group_add(group, memory_row_new(settings, pressure, i));
 
   adw_preferences_page_add(ADW_PREFERENCES_PAGE(self->page), group);
 }
