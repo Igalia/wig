@@ -944,7 +944,9 @@ static void wig_tab_on_page_icons_changed(WigTab *self)
   // FIXME: Maybe we could have a custom GIconLoadable that is backed by the list.
   // on loading, which is passed a size, it then chooses the best one?
   // This allows for DPI changes working automatically?
-  wig_tab_set_icon(self, wig_util_best_page_icon(webkit_web_view_get_page_icons(self->web_view), WIG_TAB_FAVICON_SIZE));
+  g_autoptr(GIcon) icon = wig_util_best_page_icon(webkit_web_view_get_page_icons(self->web_view), WIG_TAB_FAVICON_SIZE);
+
+  wig_tab_set_icon(self, icon);
 }
 
 static void discarded_favicon_loaded(GObject *source, GAsyncResult *result, gpointer user_data)

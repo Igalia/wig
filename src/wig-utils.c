@@ -22,6 +22,7 @@
 
 #include "wig-utils.h"
 
+#include <gtk/gtk.h>
 #include <libpsl.h>
 #include <wpe/webkit.h>
 
@@ -175,6 +176,38 @@ gboolean wig_util_uris_are_same_page(const char *first, const char *second)
 }
 
 #if HAVE_FAVICON_SUPPORT
+static GHashTable *page_icon_textures;
+
+static void page_icon_texture_gone(gpointer data, GObject *where_the_object_was)
+{
+  g_hash_table_remove(page_icon_textures, data);
+}
+
+static GIcon *page_icon_texture(WebKitImage *image)
+{
+  GBytes *bytes = webkit_image_as_bytes(image);
+
+  if (!bytes)
+    return NULL;
+
+  if (!page_icon_textures)
+    page_icon_textures = g_hash_table_new_full(g_icon_hash, (GEqualFunc)g_icon_equal, g_object_unref, NULL);
+
+  GdkTexture *shared = g_hash_table_lookup(page_icon_textures, image);
+  if (shared)
+    return G_ICON(g_object_ref(shared));
+
+  GdkTexture *texture = gdk_memory_texture_new(webkit_image_get_width(image), webkit_image_get_height(image),
+                                               GDK_MEMORY_B8G8R8A8_PREMULTIPLIED, bytes,
+                                               (gsize)webkit_image_get_stride(image));
+  GIcon *key = G_ICON(g_object_ref(image));
+
+  g_hash_table_insert(page_icon_textures, key, texture);
+  g_object_weak_ref(G_OBJECT(texture), page_icon_texture_gone, key);
+
+  return G_ICON(texture);
+}
+
 GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size)
 {
   if (!icons)
@@ -199,6 +232,8 @@ GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size)
     }
   }
 
-  return G_ICON(best ? best : largest);
+  WebKitImage *chosen = best ? best : largest;
+
+  return chosen ? page_icon_texture(chosen) : NULL;
 }
 #endif

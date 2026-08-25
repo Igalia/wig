@@ -49,7 +49,7 @@ static void favicon_loaded(GObject *source, GAsyncResult *result, gpointer user_
   }
 
   FaviconRequest *request = g_task_get_task_data(task);
-  GIcon *icon = wig_util_best_page_icon(images, request->size);
+  g_autoptr(GIcon) icon = wig_util_best_page_icon(images, request->size);
   g_debug("favicon: lookup of %s returned %" G_GSIZE_FORMAT " image(s), best=%s", request->page_uri,
           webkit_image_list_get_length(images), icon ? "yes" : "no");
   if (!icon) {
@@ -57,7 +57,7 @@ static void favicon_loaded(GObject *source, GAsyncResult *result, gpointer user_
     return;
   }
 
-  g_task_return_pointer(task, g_object_ref(icon), g_object_unref);
+  g_task_return_pointer(task, g_steal_pointer(&icon), g_object_unref);
 }
 
 void wig_favicon_get_async(WebKitFaviconDatabase *database, const char *page_uri, int size, GCancellable *cancellable,
