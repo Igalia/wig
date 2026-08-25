@@ -38,6 +38,11 @@
       <summary>Restore Tabs on Startup</summary>
     </key>
 
+    <key name="show-favorites" type="b">
+      <default>true</default>
+      <summary>Show Favorite Bookmarks</summary>
+    </key>
+
     <key name="show-frequently-visited" type="b">
       <default>true</default>
       <summary>Show Frequently Visited Sites</summary>

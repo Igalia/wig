@@ -120,6 +120,16 @@ static gboolean append_new_tab_items(const BuildContext *context, WebKitContextM
   g_autoptr(GMenuItem) background_item = build_uri_item(background_label, "popup.open-in-background-tab", uri);
   g_menu_append_item(section, background_item);
 
+  if (stock_action == WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK) {
+    const char *link_title = webkit_hit_test_result_get_link_title(hit_test_result);
+    const char *link_label = webkit_hit_test_result_get_link_label(hit_test_result);
+    const char *name = link_title && *link_title ? link_title : link_label;
+
+    g_autoptr(GMenuItem) bookmark_item = g_menu_item_new("Bookmark Link…", NULL);
+    g_menu_item_set_action_and_target(bookmark_item, "popup.bookmark-uri", "(ss)", uri, name ? name : "");
+    g_menu_append_item(section, bookmark_item);
+  }
+
   return TRUE;
 }
 

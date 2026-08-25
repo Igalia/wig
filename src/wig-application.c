@@ -46,6 +46,7 @@ struct _WigApplication {
   WebKitSettings *web_settings;
   WebKitMemoryPressureSettings *memory_pressure_settings;
   WigHistoryStore *history_store;
+  WigBookmarksStore *bookmarks_store;
   GHashTable *typed_navigations; /* WebKitWebView* -> char* pending URI */
   GHashTable *internal_navigations; /* WebKitWebView* -> char* pending wig: URI */
   WigDownloadsManager *downloads;
@@ -678,6 +679,10 @@ static void wig_application_startup(GApplication *application)
   app->history_store = wig_history_store_new(state_dir, &history_error);
   if (!app->history_store)
     g_warning("history: disabled: %s", history_error->message);
+  g_autoptr(GError) bookmarks_error = NULL;
+  app->bookmarks_store = wig_bookmarks_store_new(state_dir, &bookmarks_error);
+  if (!app->bookmarks_store)
+    g_warning("bookmarks: disabled: %s", bookmarks_error->message);
   g_autoptr(GError) permissions_error = NULL;
   if (!wig_permissions_manager_load(app->permissions_manager, &permissions_error))
     g_warning("persistant permissions disabled: %s", permissions_error->message);
@@ -752,6 +757,8 @@ static void wig_application_startup(GApplication *application)
     { "win.find-previous", { "<Primary><Shift>g", "<Shift>F3", NULL } },
     { "win.show-downloads", { "<Primary>j", NULL } },
     { "win.show-history", { "<Primary>h", NULL } },
+    { "win.show-bookmarks", { "<Primary><Shift>o", NULL } },
+    { "win.bookmark-page", { "<Primary>d", NULL } },
     { "win.insert-emoji", { "<Primary>period", NULL } },
     { "win.toggle-inspector", { "F12", NULL } },
 
@@ -778,6 +785,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->web_settings);
   g_clear_pointer(&app->memory_pressure_settings, webkit_memory_pressure_settings_free);
   g_clear_object(&app->history_store);
+  g_clear_object(&app->bookmarks_store);
   g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
   g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
   g_clear_object(&app->downloads);
@@ -1012,6 +1020,11 @@ WigHistoryStore *wig_application_get_history_store(WigApplication *app)
   g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
 
   return app->history_store;
+}
+
+WigBookmarksStore *wig_application_get_bookmarks_store(WigApplication *app)
+{
+  return app->bookmarks_store;
 }
 
 WigDownloadsManager *wig_application_get_downloads_manager(WigApplication *app)

@@ -1,3 +1,4 @@
+subdir('bookmarks')
 subdir('history')
 subdir('settings')
 subdir('tabs')
@@ -39,7 +40,7 @@ wig_sources = files(
     'wig-utils.c',
     'wig-window-base.c',
     'wig-window.c',
-) + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_resources + wig_icon_resources
+) + wig_bookmarks_sources + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_resources + wig_icon_resources
 
 executable(
     'wig',
@@ -53,6 +54,7 @@ executable(
     ],
     include_directories: [
         '.',
+        'bookmarks',
         'history',
         'settings',
         'tabs',

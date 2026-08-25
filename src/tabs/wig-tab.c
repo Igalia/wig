@@ -24,6 +24,7 @@
 
 #include "wig-auth-dialog.h"
 #include "wig-blank-page.h"
+#include "wig-bookmarks-page.h"
 #include "wig-crash-page.h"
 #include "wig-downloads-page.h"
 #include "wig-error-page.h"
@@ -804,6 +805,18 @@ static void wig_tab_show_history_page(WigTab *self, const char *uri)
   wig_tab_show_native_page(self, page);
 }
 
+static void wig_tab_show_bookmarks_page(WigTab *self, const char *uri)
+{
+  if (wig_tab_native_page_answers_to(self, uri)) {
+    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+    return;
+  }
+
+  GtkWidget *page = wig_bookmarks_page_new(uri);
+  g_signal_connect_object(page, "open-uri", G_CALLBACK(wig_tab_native_page_open_uri), self, G_CONNECT_SWAPPED);
+  wig_tab_show_native_page(self, page);
+}
+
 static void wig_tab_show_new_tab_page(WigTab *self, const char *uri)
 {
   GtkWidget *page = wig_new_tab_page_new(uri);
@@ -854,6 +867,11 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
 
   if (uri_is_history_page(uri)) {
     wig_tab_show_history_page(self, uri);
+    return;
+  }
+
+  if (uri_is_bookmarks_page(uri)) {
+    wig_tab_show_bookmarks_page(self, uri);
     return;
   }
 

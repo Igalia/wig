@@ -23,6 +23,7 @@
 #include "wig-new-tab-page.h"
 
 #include "wig-application.h"
+#include "wig-bookmarks-store.h"
 #include "wig-favicon.h"
 #include "wig-history-store.h"
 
@@ -46,11 +47,15 @@ struct _WigNewTabPage {
   WigNativePage parent;
 
   WigHistoryStore *store;
+  WigBookmarksStore *bookmarks;
   GSettings *settings;
 
   GtkWidget *overlay;
   GtkWidget *stack;
   GtkWidget *sites;
+  GtkWidget *sites_section;
+  GtkWidget *favorites;
+  GtkWidget *favorites_section;
 };
 
 G_DEFINE_FINAL_TYPE(WigNewTabPage, wig_new_tab_page, WIG_TYPE_NATIVE_PAGE)
@@ -116,10 +121,8 @@ static void new_tab_page_site_middle_clicked(GtkGestureClick *gesture, int n_pre
   g_signal_emit(self, signals[OPEN_URI_SIGNAL], 0, gtk_widget_get_name(button), TRUE);
 }
 
-static GtkWidget *new_tab_page_build_site(WigNewTabPage *self, WigHistoryItem *item)
+static GtkWidget *new_tab_page_build_site(WigNewTabPage *self, const char *url, const char *title)
 {
-  const char *url = wig_history_item_get_url(item);
-  const char *title = wig_history_item_get_title(item);
   g_autofree char *site = new_tab_page_site_name(url);
 
   GtkWidget *image = gtk_image_new_from_icon_name("web-browser-symbolic");
@@ -169,35 +172,101 @@ static GtkWidget *new_tab_page_build_site(WigNewTabPage *self, WigHistoryItem *i
   return button;
 }
 
+static GtkWidget *new_tab_page_build_grid(void)
+{
+  GtkWidget *grid = gtk_flow_box_new();
+
+  gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(grid), GTK_SELECTION_NONE);
+  gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(grid), TRUE);
+  gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(grid), 1);
+  gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(grid), NEW_TAB_PAGE_COLUMNS);
+  gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(grid), 18);
+  gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(grid), 18);
+
+  return grid;
+}
+
+static GtkWidget *new_tab_page_build_section(const char *title, GtkWidget *grid)
+{
+  GtkWidget *heading = gtk_label_new(title);
+  gtk_label_set_xalign(GTK_LABEL(heading), 0.0);
+  gtk_widget_add_css_class(heading, "heading");
+
+  GtkWidget *section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
+  gtk_box_append(GTK_BOX(section), heading);
+  gtk_box_append(GTK_BOX(section), grid);
+
+  return section;
+}
+
+static void new_tab_page_append_site(WigNewTabPage *self, GtkWidget *box, const char *url, const char *title)
+{
+  GtkWidget *site = new_tab_page_build_site(self, url, title);
+
+  gtk_flow_box_append(GTK_FLOW_BOX(box), site);
+  gtk_widget_set_focusable(gtk_widget_get_parent(site), FALSE);
+}
+
+/* Favourites are kept by hand, so all of them are shown rather than the handful
+ * the frequently visited list is trimmed to. */
+static guint wig_new_tab_page_load_favorites(WigNewTabPage *self)
+{
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GPtrArray) items = NULL;
+  guint shown = 0;
+
+  gtk_flow_box_remove_all(GTK_FLOW_BOX(self->favorites));
+
+  if (self->bookmarks && g_settings_get_boolean(self->settings, "show-favorites"))
+    items = wig_bookmarks_store_get_children(self->bookmarks, WIG_BOOKMARKS_ROOT_FAVORITES, &error);
+
+  if (error)
+    g_warning("new-tab: favourites query failed: %s", error->message);
+
+  for (guint i = 0; items && i < items->len; i++) {
+    WigBookmark *bookmark = g_ptr_array_index(items, i);
+    if (wig_bookmark_get_is_folder(bookmark))
+      continue;
+
+    new_tab_page_append_site(self, self->favorites, wig_bookmark_get_url(bookmark), wig_bookmark_get_title(bookmark));
+    shown++;
+  }
+
+  return shown;
+}
+
 static void wig_new_tab_page_load(WigNewTabPage *self)
 {
   g_autoptr(GError) error = NULL;
   g_autoptr(GPtrArray) items = NULL;
+  guint n_favorites = wig_new_tab_page_load_favorites(self);
+  gboolean show_sites = g_settings_get_boolean(self->settings, "show-frequently-visited");
 
-  if (!g_settings_get_boolean(self->settings, "show-frequently-visited")) {
-    g_debug("new-tab: frequently visited is turned off");
-    gtk_flow_box_remove_all(GTK_FLOW_BOX(self->sites));
-    gtk_stack_set_visible_child_name(GTK_STACK(self->stack), "off");
-    return;
-  }
+  gtk_flow_box_remove_all(GTK_FLOW_BOX(self->sites));
 
-  if (self->store)
+  if (show_sites && self->store)
     items = wig_history_store_query_most_typed(self->store, NEW_TAB_PAGE_SITE_LIMIT, &error);
 
   if (error)
     g_warning("new-tab: query failed: %s", error->message);
 
-  gtk_flow_box_remove_all(GTK_FLOW_BOX(self->sites));
-
   for (guint i = 0; items && i < items->len; i++) {
-    GtkWidget *site = new_tab_page_build_site(self, g_ptr_array_index(items, i));
-    gtk_flow_box_append(GTK_FLOW_BOX(self->sites), site);
-    gtk_widget_set_focusable(gtk_widget_get_parent(site), FALSE);
+    WigHistoryItem *item = g_ptr_array_index(items, i);
+    new_tab_page_append_site(self, self->sites, wig_history_item_get_url(item), wig_history_item_get_title(item));
   }
 
-  g_debug("new-tab: showing %u frequently visited site(s)", items ? items->len : 0);
+  guint n_sites = items ? items->len : 0;
 
-  gtk_stack_set_visible_child_name(GTK_STACK(self->stack), items && items->len > 0 ? "sites" : "empty");
+  gtk_widget_set_visible(self->favorites_section, n_favorites > 0);
+  gtk_widget_set_visible(self->sites_section, n_sites > 0);
+
+  g_debug("new-tab: showing %u favourite(s) and %u frequently visited site(s)%s", n_favorites, n_sites,
+          show_sites ? "" : ", frequently visited is turned off");
+
+  if (n_favorites > 0 || n_sites > 0)
+    gtk_stack_set_visible_child_name(GTK_STACK(self->stack), "sites");
+  else
+    gtk_stack_set_visible_child_name(GTK_STACK(self->stack), show_sites ? "empty" : "off");
 }
 
 static void wig_new_tab_page_map(GtkWidget *widget)
@@ -214,6 +283,9 @@ static void wig_new_tab_page_dispose(GObject *object)
   g_clear_pointer(&self->overlay, gtk_widget_unparent);
   self->stack = NULL;
   self->sites = NULL;
+  self->sites_section = NULL;
+  self->favorites = NULL;
+  self->favorites_section = NULL;
 
   G_OBJECT_CLASS(wig_new_tab_page_parent_class)->dispose(object);
 }
@@ -235,28 +307,26 @@ static void wig_new_tab_page_class_init(WigNewTabPageClass *klass)
 static void wig_new_tab_page_init(WigNewTabPage *self)
 {
   self->store = wig_application_get_history_store(wig_application_get());
+  self->bookmarks = wig_application_get_bookmarks_store(wig_application_get());
   self->settings = wig_application_get_settings(wig_application_get());
 
-  GtkWidget *heading = gtk_label_new("Frequently Visited");
-  gtk_label_set_xalign(GTK_LABEL(heading), 0.0);
-  gtk_widget_add_css_class(heading, "heading");
+  if (self->bookmarks)
+    g_signal_connect_object(self->bookmarks, "changed", G_CALLBACK(wig_new_tab_page_load), self, G_CONNECT_SWAPPED);
 
-  self->sites = gtk_flow_box_new();
-  gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(self->sites), GTK_SELECTION_NONE);
-  gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(self->sites), TRUE);
-  gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(self->sites), 1);
-  gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(self->sites), NEW_TAB_PAGE_COLUMNS);
-  gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(self->sites), 18);
-  gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(self->sites), 18);
+  self->favorites = new_tab_page_build_grid();
+  self->favorites_section = new_tab_page_build_section("Favorites", self->favorites);
 
-  GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
+  self->sites = new_tab_page_build_grid();
+  self->sites_section = new_tab_page_build_section("Frequently Visited", self->sites);
+
+  GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 30);
   gtk_widget_set_valign(content, GTK_ALIGN_START);
   gtk_widget_set_margin_top(content, 48);
   gtk_widget_set_margin_bottom(content, 48);
   gtk_widget_set_margin_start(content, 24);
   gtk_widget_set_margin_end(content, 24);
-  gtk_box_append(GTK_BOX(content), heading);
-  gtk_box_append(GTK_BOX(content), self->sites);
+  gtk_box_append(GTK_BOX(content), self->favorites_section);
+  gtk_box_append(GTK_BOX(content), self->sites_section);
 
   GtkWidget *clamp = adw_clamp_new();
   adw_clamp_set_child(ADW_CLAMP(clamp), content);
@@ -278,11 +348,14 @@ static void wig_new_tab_page_init(WigNewTabPage *self)
   gtk_stack_add_named(GTK_STACK(self->stack), gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), "off");
 
   g_autoptr(GSimpleActionGroup) actions = g_simple_action_group_new();
+  g_autoptr(GAction) show_favorites = g_settings_create_action(self->settings, "show-favorites");
+  g_action_map_add_action(G_ACTION_MAP(actions), show_favorites);
   g_autoptr(GAction) show_sites = g_settings_create_action(self->settings, "show-frequently-visited");
   g_action_map_add_action(G_ACTION_MAP(actions), show_sites);
   gtk_widget_insert_action_group(GTK_WIDGET(self), "new-tab", G_ACTION_GROUP(actions));
 
   g_autoptr(GMenu) menu = g_menu_new();
+  g_menu_append(menu, "Favorites", "new-tab.show-favorites");
   g_menu_append(menu, "Frequently Visited", "new-tab.show-frequently-visited");
 
   GtkWidget *gear = gtk_menu_button_new();
@@ -302,6 +375,8 @@ static void wig_new_tab_page_init(WigNewTabPage *self)
   gtk_overlay_add_overlay(GTK_OVERLAY(self->overlay), gear);
   gtk_widget_set_parent(self->overlay, GTK_WIDGET(self));
 
+  g_signal_connect_object(self->settings, "changed::show-favorites", G_CALLBACK(wig_new_tab_page_load), self,
+                          G_CONNECT_SWAPPED);
   g_signal_connect_object(self->settings, "changed::show-frequently-visited", G_CALLBACK(wig_new_tab_page_load), self,
                           G_CONNECT_SWAPPED);
 

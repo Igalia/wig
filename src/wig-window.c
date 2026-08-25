@@ -23,6 +23,7 @@
 #include "wig-window.h"
 
 #include "wig-application.h"
+#include "wig-bookmark-popover.h"
 #include "wig-context-menu.h"
 #include "wig-downloads-button.h"
 #include "wig-entry-completion-popover.h"
@@ -49,6 +50,10 @@ struct _WigWindow {
   GtkWidget *update_button;
   GtkWidget *new_tab_button;
   GtkWidget *url_entry;
+  GtkWidget *bookmark_button;
+  GtkWidget *bookmark_popover;
+  GtkWidget *link_bookmark_popover;
+  GdkRectangle context_menu_target;
   GtkWidget *entry_completion_popover;
   WigTabList *tab_list;
   GtkWidget *content_box;
@@ -411,6 +416,21 @@ static void wig_window_show_history(GSimpleAction *action, GVariant *parameter, 
   wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:history");
 }
 
+static void wig_window_bookmark_page(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+
+  if (!gtk_widget_get_sensitive(win->bookmark_button))
+    return;
+
+  gtk_menu_button_popup(GTK_MENU_BUTTON(win->bookmark_button));
+}
+
+static void wig_window_show_bookmarks(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:bookmarks");
+}
+
 static void wig_window_show_settings(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:settings");
@@ -699,6 +719,8 @@ static const GActionEntry actions[] = {
   { "find-previous", wig_window_find_previous },
   { "show-downloads", wig_window_show_downloads },
   { "show-history", wig_window_show_history },
+  { "show-bookmarks", wig_window_show_bookmarks },
+  { "bookmark-page", wig_window_bookmark_page },
   { "show-settings", wig_window_show_settings },
   { "toggle-inspector", wig_window_toggle_inspector },
   { "close-tab", wig_window_close_tab_action },
@@ -730,6 +752,33 @@ static void wig_window_open_in_background_tab(GSimpleAction *action, GVariant *p
   wig_window_open_uri_in_new_tab(WIG_WINDOW(user_data), parameter, TRUE);
 }
 
+static void wig_window_bookmark_uri(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  WigBookmarkPopover *popover = WIG_BOOKMARK_POPOVER(win->link_bookmark_popover);
+  const char *uri = NULL;
+  const char *label = NULL;
+
+  g_variant_get(parameter, "(&s&s)", &uri, &label);
+  if (!uri || !*uri)
+    return;
+
+  wig_bookmark_popover_set_page(popover, uri, label && *label ? label : uri);
+  if (!wig_bookmark_popover_get_can_bookmark(popover))
+    return;
+
+  wig_bookmark_popover_ensure_bookmarked(popover);
+
+  WPEView *wpe_view = win->current_web_view ? webkit_web_view_get_wpe_view(win->current_web_view) : NULL;
+  GtkWidget *view = wpe_view ? wpe_view_gtk_get_widget(WPE_VIEW_GTK(wpe_view)) : NULL;
+  graphene_point_t in_view = GRAPHENE_POINT_INIT((float)win->context_menu_target.x, (float)win->context_menu_target.y);
+  graphene_point_t in_window;
+  if (view && gtk_widget_compute_point(view, GTK_WIDGET(win), &in_view, &in_window))
+    gtk_popover_set_pointing_to(GTK_POPOVER(popover), &(GdkRectangle) { (int)in_window.x, (int)in_window.y, 1, 1 });
+
+  gtk_popover_popup(GTK_POPOVER(popover));
+}
+
 static void wig_window_copy_text(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -748,6 +797,7 @@ static void wig_window_copy_selection(GSimpleAction *action, GVariant *parameter
 static const GActionEntry context_menu_actions[] = {
   { "open-in-new-tab", wig_window_open_in_new_tab, "s" },
   { "open-in-background-tab", wig_window_open_in_background_tab, "s" },
+  { "bookmark-uri", wig_window_bookmark_uri, "(ss)" },
   { "copy-text", wig_window_copy_text, "s" },
   { "copy-selection", wig_window_copy_selection },
 };
@@ -802,8 +852,57 @@ static void wig_window_tab_copy_link(WigTabList *list, guint tab_id, WigWindow *
     gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(win)), uri);
 }
 
+static char *wig_window_current_page_uri(WigWindow *win)
+{
+  const char *url = win->current_web_view ? webkit_web_view_get_uri(win->current_web_view) : NULL;
+
+  g_autoptr(WigTab) tab = NULL;
+  if (win->current_web_view && (!url || !*url)) {
+    tab = wig_window_get_tab_for_web_view(win, win->current_web_view);
+    if (tab)
+      url = wig_tab_get_page_uri(tab);
+  }
+
+  if (!url || !*url || g_strcmp0(url, "about:blank") == 0 || g_strcmp0(g_uri_peek_scheme(url), "wig") == 0)
+    return NULL;
+
+  return g_strdup(url);
+}
+
+static void wig_window_bookmark_state_changed(WigWindow *win)
+{
+  gboolean bookmarked = wig_bookmark_popover_get_bookmarked(WIG_BOOKMARK_POPOVER(win->bookmark_popover));
+
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(win->bookmark_button),
+                                bookmarked ? "starred-symbolic" : "non-starred-symbolic");
+  gtk_widget_set_tooltip_text(win->bookmark_button, bookmarked ? "Edit Bookmark" : "Bookmark This Page");
+}
+
+static void wig_window_update_bookmark_button(WigWindow *win)
+{
+  if (!win->bookmark_button)
+    return;
+
+  g_autofree char *uri = wig_window_current_page_uri(win);
+  g_autoptr(WigTab) tab = win->current_web_view ? wig_window_get_tab_for_web_view(win, win->current_web_view) : NULL;
+
+  wig_bookmark_popover_set_page(WIG_BOOKMARK_POPOVER(win->bookmark_popover), uri, tab ? wig_tab_get_title(tab) : NULL);
+  gtk_widget_set_sensitive(win->bookmark_button,
+                           wig_bookmark_popover_get_can_bookmark(WIG_BOOKMARK_POPOVER(win->bookmark_popover)));
+  wig_window_bookmark_state_changed(win);
+}
+
+static void wig_window_prepare_bookmark_popover(GtkMenuButton *button, gpointer user_data)
+{
+  WigWindow *win = user_data;
+
+  wig_bookmark_popover_ensure_bookmarked(WIG_BOOKMARK_POPOVER(win->bookmark_popover));
+}
+
 static void wig_window_update_url(WigWindow *win)
 {
+  wig_window_update_bookmark_button(win);
+
   /* Half-typed input is worth more than the address of the page it is being
    * typed over: a load finishing, or a page changing its own address, must not
    * take it away. */
@@ -1285,6 +1384,10 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
   GdkRectangle target = { 0, 0, 1, 1 };
   gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
 
+  /* Anything the menu goes on to offer is about what was under the pointer, so
+   * a popover it opens belongs there rather than wherever the window last was. */
+  win->context_menu_target = target;
+
   if (webkit_hit_test_result_context_is_selection(hit_test_result)) {
     WigContextMenuRequest *request = g_new0(WigContextMenuRequest, 1);
     request->win = g_object_ref(win);
@@ -1677,6 +1780,22 @@ static void wig_window_constructed(GObject *object)
   gtk_box_append(GTK_BOX(entry_box), wig_window_base_get_permissions_button(WIG_WINDOW_BASE(win)));
   gtk_box_append(GTK_BOX(entry_box), win->url_entry);
 
+  win->link_bookmark_popover = wig_bookmark_popover_new();
+  gtk_widget_set_parent(win->link_bookmark_popover, GTK_WIDGET(win));
+
+  win->bookmark_popover = g_object_ref_sink(wig_bookmark_popover_new());
+  g_signal_connect_object(win->bookmark_popover, "notify::bookmarked", G_CALLBACK(wig_window_bookmark_state_changed),
+                          win, G_CONNECT_SWAPPED);
+
+  win->bookmark_button = gtk_menu_button_new();
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(win->bookmark_button), "non-starred-symbolic");
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(win->bookmark_button), win->bookmark_popover);
+  gtk_menu_button_set_create_popup_func(GTK_MENU_BUTTON(win->bookmark_button), wig_window_prepare_bookmark_popover, win,
+                                        NULL);
+  gtk_widget_set_tooltip_text(win->bookmark_button, "Bookmark This Page");
+  gtk_widget_set_focusable(win->bookmark_button, FALSE);
+  gtk_box_append(GTK_BOX(entry_box), win->bookmark_button);
+
   GtkWidget *clamp = adw_clamp_new();
   gtk_widget_set_hexpand(clamp, TRUE);
   adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 860);
@@ -1687,6 +1806,7 @@ static void wig_window_constructed(GObject *object)
   g_autoptr(GMenu) menu = g_menu_new();
 
   g_autoptr(GMenu) pages_section = g_menu_new();
+  g_menu_append(pages_section, "Bookmarks", "win.show-bookmarks");
   g_menu_append(pages_section, "Downloads", "win.show-downloads");
   g_menu_append(pages_section, "History", "win.show-history");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(pages_section));
@@ -1791,6 +1911,8 @@ static void wig_window_dispose(GObject *object)
 
   g_clear_pointer(&win->tab_view_context_menu, gtk_widget_unparent);
   g_clear_pointer(&win->entry_completion_popover, gtk_widget_unparent);
+  g_clear_object(&win->bookmark_popover);
+  g_clear_pointer(&win->link_bookmark_popover, gtk_widget_unparent);
   if (win->active_web_view_signals)
     g_signal_group_set_target(win->active_web_view_signals, NULL);
   if (win->active_tab_signals)
@@ -1824,6 +1946,8 @@ static void wig_window_init(WigWindow *win)
                                  G_CALLBACK(wig_window_on_mouse_target_changed), win);
   win->active_tab_signals = g_signal_group_new(WIG_TYPE_TAB);
   g_signal_group_connect_swapped(win->active_tab_signals, "notify::page-uri", G_CALLBACK(wig_window_update_url), win);
+  g_signal_group_connect_swapped(win->active_tab_signals, "notify::title",
+                                 G_CALLBACK(wig_window_update_bookmark_button), win);
   g_signal_connect(win, "notify::loading", G_CALLBACK(wig_window_loading_changed), NULL);
 
   win->web_view_signal_groups = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
