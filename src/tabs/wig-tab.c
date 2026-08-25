@@ -65,6 +65,7 @@ struct _WigTab {
   gboolean restoring_icon;
   gboolean has_committed;
   gboolean page_is_stand_in;
+  gboolean page_is_early;
   gboolean pinned;
   gboolean closing;
   gboolean close_pending;
@@ -705,6 +706,7 @@ static void wig_tab_clear_native_page(WigTab *self)
   gtk_overlay_remove_overlay(GTK_OVERLAY(self->view_overlay), self->native_page);
   self->native_page = NULL;
   self->page_is_stand_in = FALSE;
+  self->page_is_early = FALSE;
   gtk_widget_set_visible(self->web_view_widget, TRUE);
 
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PAGE_URI]);
@@ -819,9 +821,61 @@ static void wig_tab_show_bookmarks_page(WigTab *self, const char *uri)
 
 static void wig_tab_show_new_tab_page(WigTab *self, const char *uri)
 {
+  if (wig_tab_native_page_answers_to(self, uri)) {
+    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+    return;
+  }
+
   GtkWidget *page = wig_new_tab_page_new(uri);
   g_signal_connect_object(page, "open-uri", G_CALLBACK(wig_tab_native_page_open_uri), self, G_CONNECT_SWAPPED);
   wig_tab_show_native_page(self, page);
+}
+
+static void wig_tab_show_downloads_page(WigTab *self, const char *uri)
+{
+  if (wig_tab_native_page_answers_to(self, uri))
+    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+  else
+    wig_tab_show_native_page(self, wig_downloads_page_new(uri));
+}
+
+static gboolean wig_tab_show_internal_page(WigTab *self, const char *uri)
+{
+  if (uri_is_settings_page(uri))
+    wig_tab_show_settings_page(self, uri);
+  else if (uri_is_history_page(uri))
+    wig_tab_show_history_page(self, uri);
+  else if (uri_is_bookmarks_page(uri))
+    wig_tab_show_bookmarks_page(self, uri);
+  else if (uri_is_new_tab_page(uri))
+    wig_tab_show_new_tab_page(self, uri);
+  else if (uri_is_downloads_page(uri))
+    wig_tab_show_downloads_page(self, uri);
+  else
+    return FALSE;
+
+  return TRUE;
+}
+
+static void wig_tab_on_uri_changed(WigTab *self)
+{
+  const char *uri = webkit_web_view_get_uri(self->web_view);
+
+  if (wig_tab_native_page_answers_to(self, uri)) {
+    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+    return;
+  }
+
+  if (wig_tab_show_internal_page(self, uri)) {
+    g_debug("tab %u: showing %s ahead of its load", self->id, uri);
+    self->page_is_early = TRUE;
+    return;
+  }
+
+  if (self->page_is_early) {
+    g_debug("tab %u: the load for the page shown ahead of time never happened, taking it down", self->id);
+    wig_tab_clear_native_page(self);
+  }
 }
 
 /* Once a load commits, an empty title means the page genuinely has none, so fall
@@ -860,31 +914,9 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
   self->has_committed = TRUE;
 
   const char *uri = webkit_web_view_get_uri(self->web_view);
-  if (uri_is_settings_page(uri)) {
-    wig_tab_show_settings_page(self, uri);
-    return;
-  }
 
-  if (uri_is_history_page(uri)) {
-    wig_tab_show_history_page(self, uri);
-    return;
-  }
-
-  if (uri_is_bookmarks_page(uri)) {
-    wig_tab_show_bookmarks_page(self, uri);
-    return;
-  }
-
-  if (uri_is_new_tab_page(uri)) {
-    wig_tab_show_new_tab_page(self, uri);
-    return;
-  }
-
-  if (uri_is_downloads_page(uri)) {
-    if (wig_tab_native_page_answers_to(self, uri))
-      wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
-    else
-      wig_tab_show_native_page(self, wig_downloads_page_new(uri));
+  if (wig_tab_show_internal_page(self, uri)) {
+    self->page_is_early = FALSE;
     return;
   }
 
@@ -1014,6 +1046,7 @@ static void wig_tab_bind_web_view(WigTab *self, WebKitWebView *web_view)
   g_signal_connect_object(web_view, "notify::page-icons", G_CALLBACK(wig_tab_on_page_icons_changed), self,
                           G_CONNECT_SWAPPED);
 #endif
+  g_signal_connect_object(web_view, "notify::uri", G_CALLBACK(wig_tab_on_uri_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "load-changed", G_CALLBACK(wig_tab_on_load_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "script-dialog", G_CALLBACK(wig_tab_on_script_dialog), self, G_CONNECT_SWAPPED);
   g_signal_connect_object(web_view, "authenticate", G_CALLBACK(wig_tab_on_authenticate), self, G_CONNECT_SWAPPED);
@@ -1038,6 +1071,8 @@ static void wig_tab_bind_web_view(WigTab *self, WebKitWebView *web_view)
   g_object_bind_property(G_OBJECT(web_view), "is-playing-audio", self, "playing-audio", G_BINDING_SYNC_CREATE);
   g_object_bind_property(G_OBJECT(web_view), "is-muted", self, "muted",
                          G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
+
+  wig_tab_on_uri_changed(self);
 }
 
 /* Everything a tab has of its own, before any view is put in it. */
