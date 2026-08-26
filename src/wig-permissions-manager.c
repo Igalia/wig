@@ -43,9 +43,9 @@ typedef struct {
   WigPermissions *permissions;
   gboolean has_autoplay;
   WebKitAutoplayPolicy autoplay;
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   gboolean has_https_navigation;
-  WebKitHTTPSNavigationPolicy https_navigation;
+  WebKitUpgradeToHTTPSPolicy https_navigation;
 #endif
   char *user_agent;
   gint64 last_visited;
@@ -106,7 +106,7 @@ static gboolean permission_origin_has_decisions(WigPermissionOrigin *record)
 
 static gboolean permission_origin_has_policies(WigPermissionOrigin *record)
 {
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   if (record->has_https_navigation)
     return TRUE;
 #endif
@@ -201,31 +201,31 @@ static gboolean autoplay_from_string(const char *autoplay, WebKitAutoplayPolicy 
   return TRUE;
 }
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
 /* Named as the setting's own values are, so a site overriding it reads the same
  * way in the file as the setting it is overriding. */
-static const char *https_navigation_to_string(WebKitHTTPSNavigationPolicy https_navigation)
+static const char *https_navigation_to_string(WebKitUpgradeToHTTPSPolicy https_navigation)
 {
   switch (https_navigation) {
-  case WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_FIRST:
+  case WEBKIT_UPGRADE_TO_HTTPS_POLICY_AUTOMATIC_FALLBACK_TO_HTTP:
     return "https-first";
-  case WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_ONLY:
+  case WEBKIT_UPGRADE_TO_HTTPS_POLICY_ERROR_ON_FAILURE:
     return "https-only";
-  case WEBKIT_HTTPS_NAVIGATION_POLICY_KEEP_AS_REQUESTED:
+  case WEBKIT_UPGRADE_TO_HTTPS_POLICY_KEEP_AS_REQUESTED:
     break;
   }
 
   return "keep-as-requested";
 }
 
-static gboolean https_navigation_from_string(const char *https_navigation, WebKitHTTPSNavigationPolicy *result)
+static gboolean https_navigation_from_string(const char *https_navigation, WebKitUpgradeToHTTPSPolicy *result)
 {
   if (g_strcmp0(https_navigation, "keep-as-requested") == 0)
-    *result = WEBKIT_HTTPS_NAVIGATION_POLICY_KEEP_AS_REQUESTED;
+    *result = WEBKIT_UPGRADE_TO_HTTPS_POLICY_KEEP_AS_REQUESTED;
   else if (g_strcmp0(https_navigation, "https-first") == 0)
-    *result = WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_FIRST;
+    *result = WEBKIT_UPGRADE_TO_HTTPS_POLICY_AUTOMATIC_FALLBACK_TO_HTTP;
   else if (g_strcmp0(https_navigation, "https-only") == 0)
-    *result = WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_ONLY;
+    *result = WEBKIT_UPGRADE_TO_HTTPS_POLICY_ERROR_ON_FAILURE;
   else
     return FALSE;
 
@@ -375,7 +375,7 @@ gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **erro
         g_warning("permissions: ignoring invalid %s.autoplay value '%s'", groups[i], autoplay);
     }
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
     g_autofree char *https_navigation = g_key_file_get_string(key_file, groups[i], "https-navigation", NULL);
     if (https_navigation) {
       record->has_https_navigation = https_navigation_from_string(https_navigation, &record->https_navigation);
@@ -445,7 +445,7 @@ void wig_permissions_manager_save(WigPermissionsManager *self)
 
     if (record->has_autoplay)
       g_key_file_set_string(key_file, group, "autoplay", autoplay_to_string(record->autoplay));
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
     if (record->has_https_navigation)
       g_key_file_set_string(key_file, group, "https-navigation", https_navigation_to_string(record->https_navigation));
 #endif
@@ -622,9 +622,9 @@ void wig_permissions_manager_clear_autoplay(WigPermissionsManager *self, const c
   wig_permissions_manager_policy_changed(self, origin);
 }
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
 gboolean wig_permissions_manager_get_https_navigation(WigPermissionsManager *self, const char *origin,
-                                                      WebKitHTTPSNavigationPolicy *https_navigation)
+                                                      WebKitUpgradeToHTTPSPolicy *https_navigation)
 {
   WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
   if (!record || !record->has_https_navigation)
@@ -636,7 +636,7 @@ gboolean wig_permissions_manager_get_https_navigation(WigPermissionsManager *sel
 }
 
 void wig_permissions_manager_set_https_navigation(WigPermissionsManager *self, const char *origin,
-                                                  WebKitHTTPSNavigationPolicy https_navigation)
+                                                  WebKitUpgradeToHTTPSPolicy https_navigation)
 {
   g_assert(origin != NULL);
 
@@ -664,7 +664,7 @@ void wig_permissions_manager_clear_https_navigation(WigPermissionsManager *self,
 }
 
 GList *wig_permissions_manager_list_https_navigation_sites(WigPermissionsManager *self,
-                                                           WebKitHTTPSNavigationPolicy https_navigation)
+                                                           WebKitUpgradeToHTTPSPolicy https_navigation)
 {
   GList *sites = NULL;
 

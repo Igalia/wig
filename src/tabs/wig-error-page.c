@@ -71,7 +71,7 @@ static const char *error_title(const GError *error)
       return "This address cannot be opened";
     case WEBKIT_NETWORK_ERROR_FILE_DOES_NOT_EXIST:
       return "This file does not exist";
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
     case WEBKIT_NETWORK_ERROR_HTTPS_UPGRADE_REDIRECT_LOOP:
       return "This site keeps redirecting";
     case WEBKIT_NETWORK_ERROR_HTTP_NAVIGATION_WITH_HTTPS_ONLY:
@@ -104,7 +104,7 @@ static const char *error_description(const GError *error)
     return "No server answers to that name. Check the address for typos, and check that you are online.";
   if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CONNECTION_REFUSED))
     return "The server is reachable but turned the connection away, so nothing is listening on that port.";
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   if (g_error_matches(error, WEBKIT_NETWORK_ERROR, WEBKIT_NETWORK_ERROR_HTTP_NAVIGATION_WITH_HTTPS_ONLY))
     return "wig is set to use HTTPS only, and this site offered an unencrypted connection instead.";
 #endif

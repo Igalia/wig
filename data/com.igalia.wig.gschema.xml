@@ -70,7 +70,7 @@
 
     <key name="https-navigation-policy" enum="com.igalia.wig.HTTPSNavigationPolicy">
       <default>'keep-as-requested'</default>
-      <summary>HTTPS Navigation</summary>
+      <summary>Upgrade to HTTPS</summary>
     </key>
 
     <key name="cookie-accept-policy" enum="com.igalia.wig.CookieAcceptPolicy">

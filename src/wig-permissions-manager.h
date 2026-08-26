@@ -45,14 +45,14 @@ void wig_permissions_manager_set_autoplay(WigPermissionsManager *self, const cha
 void wig_permissions_manager_clear_autoplay(WigPermissionsManager *self, const char *origin);
 GList *wig_permissions_manager_list_autoplay_sites(WigPermissionsManager *self, WebKitAutoplayPolicy autoplay);
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
 gboolean wig_permissions_manager_get_https_navigation(WigPermissionsManager *self, const char *origin,
-                                                      WebKitHTTPSNavigationPolicy *https_navigation);
+                                                      WebKitUpgradeToHTTPSPolicy *https_navigation);
 void wig_permissions_manager_set_https_navigation(WigPermissionsManager *self, const char *origin,
-                                                  WebKitHTTPSNavigationPolicy https_navigation);
+                                                  WebKitUpgradeToHTTPSPolicy https_navigation);
 void wig_permissions_manager_clear_https_navigation(WigPermissionsManager *self, const char *origin);
 GList *wig_permissions_manager_list_https_navigation_sites(WigPermissionsManager *self,
-                                                           WebKitHTTPSNavigationPolicy https_navigation);
+                                                           WebKitUpgradeToHTTPSPolicy https_navigation);
 #endif
 
 const char *wig_permissions_manager_get_user_agent(WigPermissionsManager *self, const char *origin);

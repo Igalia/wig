@@ -192,15 +192,16 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
           "Reduce memory usage by unloading tabs. Ignores active and pinned tabs or ones with audio, microphone, etc.",
           unload_nicks, unload_labels));
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   static const char *https_nicks[] = { "keep-as-requested", "https-first", "https-only", NULL };
-  static const char *const https_labels[] = { "Off", "HTTPS-First", "HTTPS-Only", NULL };
+  static const char *const https_labels[] = { "Keep as Requested", "Automatic Fallback to HTTP", "Error on Failure",
+                                              NULL };
 
   pane_add(&pane,
-           wig_settings_combo_row_new(settings, "https-navigation-policy", "HTTPS Navigation",
-                                      "Upgrade addresses typed as http to https. HTTPS-First quietly falls "
-                                      "back to http when the secure load fails; HTTPS-Only shows an error "
-                                      "instead.",
+           wig_settings_combo_row_new(settings, "https-navigation-policy", "Upgrade to HTTPS",
+                                      "Upgrade addresses typed as http to https. Automatic Fallback to HTTP "
+                                      "quietly loads the http address when the secure load fails; Error on "
+                                      "Failure shows an error instead.",
                                       https_nicks, https_labels));
 #endif
 

@@ -118,9 +118,9 @@ config_h.set10(
     ),
 )
 config_h.set10(
-    'HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT',
+    'HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT',
     cc.has_function(
-        'webkit_website_policies_get_https_navigation_policy',
+        'webkit_website_policies_get_upgrade_to_https_policy',
         dependencies: wpe_webkit_dep,
     ),
 )

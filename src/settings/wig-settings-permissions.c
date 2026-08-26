@@ -92,7 +92,7 @@ struct _WigSettingsPermissions {
   char *filter;
   KindRow kinds[WIG_PERMISSION_N_KINDS];
   PolicyRow autoplay;
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   PolicyRow https_navigation;
 #endif
   PolicyRow user_agent;
@@ -339,7 +339,7 @@ static void wig_settings_permissions_sync(WigSettingsPermissions *self)
     kind_row_sync(&self->kinds[i]);
 
   choice_row_sync(&self->autoplay);
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   choice_row_sync(&self->https_navigation);
 #endif
   user_agent_row_sync(self);
@@ -427,14 +427,15 @@ static const ChoicePolicy autoplay_policy = {
   autoplay_labels, autoplay_get, autoplay_set, wig_permissions_manager_clear_autoplay, autoplay_list,
 };
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
 /* Named as the setting in Browsing names them, since a rule here is that setting
  * answered differently for one site. */
-static const char *const https_navigation_labels[] = { "Off", "HTTPS-First", "HTTPS-Only", NULL };
+static const char *const https_navigation_labels[] = { "Keep as Requested", "Automatic Fallback to HTTP",
+                                                       "Error on Failure", NULL };
 
 static gboolean https_navigation_get(WigPermissionsManager *manager, const char *site, guint *choice)
 {
-  WebKitHTTPSNavigationPolicy https_navigation = WEBKIT_HTTPS_NAVIGATION_POLICY_KEEP_AS_REQUESTED;
+  WebKitUpgradeToHTTPSPolicy https_navigation = WEBKIT_UPGRADE_TO_HTTPS_POLICY_KEEP_AS_REQUESTED;
 
   if (!wig_permissions_manager_get_https_navigation(manager, site, &https_navigation))
     return FALSE;
@@ -445,12 +446,12 @@ static gboolean https_navigation_get(WigPermissionsManager *manager, const char 
 
 static void https_navigation_set(WigPermissionsManager *manager, const char *site, guint choice)
 {
-  wig_permissions_manager_set_https_navigation(manager, site, (WebKitHTTPSNavigationPolicy)choice);
+  wig_permissions_manager_set_https_navigation(manager, site, (WebKitUpgradeToHTTPSPolicy)choice);
 }
 
 static GList *https_navigation_list(WigPermissionsManager *manager, guint choice)
 {
-  return wig_permissions_manager_list_https_navigation_sites(manager, (WebKitHTTPSNavigationPolicy)choice);
+  return wig_permissions_manager_list_https_navigation_sites(manager, (WebKitUpgradeToHTTPSPolicy)choice);
 }
 
 static const ChoicePolicy https_navigation_policy = {
@@ -682,7 +683,7 @@ static void wig_settings_permissions_search_changed(WigSettingsPermissions *self
 
   PolicyRow *policies[] = {
     &self->autoplay,
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
     &self->https_navigation,
 #endif
     &self->user_agent,
@@ -848,7 +849,7 @@ static void wig_settings_permissions_dispose(GObject *object)
     g_clear_pointer(&self->kinds[i].rules, g_ptr_array_unref);
 
   g_clear_pointer(&self->autoplay.rules, g_ptr_array_unref);
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   g_clear_pointer(&self->https_navigation.rules, g_ptr_array_unref);
 #endif
   g_clear_pointer(&self->user_agent.rules, g_ptr_array_unref);
@@ -891,10 +892,10 @@ static void wig_settings_permissions_init(WigSettingsPermissions *self)
 
   wig_settings_permissions_build_choice_row(self, &self->autoplay, &autoplay_policy, policies, "Autoplay",
                                             "media-playback-start-symbolic", (guint)WEBKIT_AUTOPLAY_DENY);
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   wig_settings_permissions_build_choice_row(self, &self->https_navigation, &https_navigation_policy, policies,
-                                            "HTTPS Navigation", "channel-secure-symbolic",
-                                            (guint)WEBKIT_HTTPS_NAVIGATION_POLICY_HTTPS_ONLY);
+                                            "Upgrade to HTTPS", "channel-secure-symbolic",
+                                            (guint)WEBKIT_UPGRADE_TO_HTTPS_POLICY_ERROR_ON_FAILURE);
 #endif
   wig_settings_permissions_build_user_agent_row(self, policies);
 

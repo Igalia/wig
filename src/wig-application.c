@@ -513,15 +513,15 @@ WebKitWebsitePolicies *wig_application_create_website_policies(WigApplication *a
     g_debug("policies: %s plays %s and is told '%s'", site, autoplay_policy_name(autoplay),
             user_agent ? user_agent : "the usual");
 
-#if HAVE_HTTPS_NAVIGATION_POLICY_SUPPORT
+#if HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT
   /* The setting says what to do with sites in general, and a site with a rule of
    * its own says what to do with that one. */
-  WebKitHTTPSNavigationPolicy https_navigation = (WebKitHTTPSNavigationPolicy)g_settings_get_enum(
+  WebKitUpgradeToHTTPSPolicy https_navigation = (WebKitUpgradeToHTTPSPolicy)g_settings_get_enum(
       app->settings, "https-navigation-policy");
   wig_permissions_manager_get_https_navigation(app->permissions_manager, site, &https_navigation);
 
   return webkit_website_policies_new_with_policies("autoplay", autoplay, "custom-user-agent", user_agent,
-                                                   "https-navigation-policy", https_navigation, NULL);
+                                                   "upgrade-to-https-policy", https_navigation, NULL);
 #else
   return webkit_website_policies_new_with_policies("autoplay", autoplay, "custom-user-agent", user_agent, NULL);
 #endif
