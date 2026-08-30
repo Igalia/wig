@@ -123,4 +123,4 @@ modules:
     sources:
       - type: git
         url: https://github.com/WebKit/WebKit.git
-        commit: b2678ccf7efb04a68ae229eff8edfc8c98ed402e
+        commit: bfd4410656a44ed520899a1628980fe7275d3d61
