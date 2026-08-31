@@ -104,6 +104,13 @@ config_h.set10(
     ),
 )
 config_h.set10(
+    'HAVE_COLOR_CHOOSER_ALPHA_SUPPORT',
+    cc.has_function(
+        'webkit_color_chooser_request_get_supports_alpha',
+        dependencies: wpe_webkit_dep,
+    ),
+)
+config_h.set10(
     'HAVE_CLIPBOARD_PERMISSION_SUPPORT',
     cc.has_function(
         'webkit_clipboard_permission_request_get_type',

@@ -679,9 +679,11 @@ static gboolean wig_window_base_on_run_color_chooser(WigWindowBase *self, WebKit
 {
   g_autoptr(GtkColorDialog) dialog = gtk_color_dialog_new();
   gtk_color_dialog_set_title(dialog, "Select Color");
-  /* WPE has no API to report whether the element accepts alpha, and it never does today, so any
-   * alpha the user picked would be silently discarded. */
+#if HAVE_COLOR_CHOOSER_ALPHA_SUPPORT
+  gtk_color_dialog_set_with_alpha(dialog, webkit_color_chooser_request_get_supports_alpha(request));
+#else
   gtk_color_dialog_set_with_alpha(dialog, FALSE);
+#endif
 
   WebKitColor color;
   webkit_color_chooser_request_get_color(request, &color);
