@@ -9,7 +9,7 @@ sdk-extensions:
 build-options:
   append-path: /usr/lib/sdk/llvm22/bin
   prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
-  strip: true
+  strip: false
   no-debuginfo: true
 command: /app/libexec/wpe-webkit-2.0/MiniBrowser
 
@@ -94,7 +94,9 @@ modules:
   - name: webkitwpe
     buildsystem: cmake-ninja
     config-opts:
-      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG
+      - -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG
       - -DCMAKE_C_COMPILER=clang
       - -DCMAKE_CXX_COMPILER=clang++
       - -DCMAKE_LINKER_TYPE=LLD

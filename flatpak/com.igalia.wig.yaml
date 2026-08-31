@@ -32,7 +32,7 @@ modules:
       - /include
       - /lib/pkgconfig
     config-opts:
-      - --buildtype=release
+      - --buildtype=debugoptimized
     sources:
       - type: git
         url: https://github.com/Igalia/wpe-platform-gtk.git
@@ -41,7 +41,7 @@ modules:
   - name: wig
     buildsystem: meson
     config-opts:
-      - --buildtype=release
+      - --buildtype=debugoptimized
     sources:
       - type: dir
         path: ..
