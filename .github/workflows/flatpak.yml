@@ -63,7 +63,7 @@ jobs:
 
       - name: Build WPE
         run: |
-          flatpak-builder --user --force-clean --repo=_flatpak-repo \
+          flatpak-builder --user --force-clean --disable-rofiles-fuse --repo=_flatpak-repo \
             _flatpak-build flatpak/com.igalia.wig.WPE.yaml
 
       - name: Create WPE bundle
