@@ -57,6 +57,7 @@ WigTab *wig_tab_list_get_by_id(WigTabList *self, guint id);
 
 WigTab *wig_tab_list_get_active(WigTabList *self);
 void wig_tab_list_set_active(WigTabList *self, WigTab *tab);
+void wig_tab_switch_active(WigTabList *self, gint offset);
 
 GSimpleActionGroup *wig_tab_list_get_action_group(WigTabList *self);
 

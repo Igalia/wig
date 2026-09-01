@@ -399,6 +399,18 @@ void wig_tab_list_set_active(WigTabList *self, WigTab *tab)
   g_object_notify_by_pspec(G_OBJECT(self), props[PROP_ACTIVE_TAB]);
 }
 
+void wig_tab_switch_active(WigTabList *self, gint offset)
+{
+  WigTab *tab = wig_tab_list_get_active(self);
+  guint idx = wig_tab_list_index_of(self, tab);
+  if (idx == GTK_INVALID_LIST_POSITION)
+    return;
+  guint n_tabs = wig_tab_list_get_n_tabs(self);
+  idx = (idx + n_tabs + (guint)offset) % n_tabs;
+  tab = wig_tab_list_get_nth(self, idx);
+  wig_tab_list_set_active(self, tab);
+}
+
 /* Returns: (transfer full): the selected tabs in list order.  They are reffed so
  * that callers can move or detach them while walking the result. */
 GPtrArray *wig_tab_list_get_selected(WigTabList *self)

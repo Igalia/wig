@@ -362,6 +362,18 @@ static void wig_window_new_tab(GSimpleAction *action, GVariant *parameter, gpoin
   gtk_widget_grab_focus(win->url_entry);
 }
 
+static void wig_window_next_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  wig_tab_switch_active(win->tab_list, 1);
+}
+
+static void wig_window_prev_tab(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  wig_tab_switch_active(win->tab_list, -1);
+}
+
 static void wig_window_focus_entry(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -731,6 +743,8 @@ static void wig_window_duplicate_active_tab(GSimpleAction *action, GVariant *par
 
 static const GActionEntry actions[] = {
   { "new-tab", wig_window_new_tab },
+  { "next-tab", wig_window_next_tab },
+  { "prev-tab", wig_window_prev_tab },
   { "focus-entry", wig_window_focus_entry },
   { "find", wig_window_find },
   { "find-next", wig_window_find_next },
