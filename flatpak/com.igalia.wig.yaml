@@ -36,7 +36,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/Igalia/wpe-platform-gtk.git
-        commit: c0cf49a9b7114c5389f0c6052adca7d2d5fe9604
+        commit: 427606b962d5051afcd3780457b1ca554ebbb4f2
 
   - name: wig
     buildsystem: meson
