@@ -743,6 +743,8 @@ static void wig_application_startup(GApplication *application)
     { "app.new-window", { "<Primary>n", NULL } },
     { "app.quit", { "<Primary>q", NULL } },
     { "win.close-tab", { "<Primary>w", NULL } },
+    { "win.next-tab", { "<Primary>Page_Down", NULL } },
+    { "win.prev-tab", { "<Primary>Page_Up", NULL } },
     { "win.reload", { "<Primary>r", "F5", NULL } },
     { "win.reload-bypass-cache", { "<Primary><Shift>r", "<Primary>F5", NULL } },
     { "win.toggle-fullscreen", { "F11", NULL } },
