@@ -39,8 +39,8 @@ jobs:
         include:
           - arch: x86_64
             runner: [self-hosted, x64]
-          - arch: aarch64
-            runner: [self-hosted, arch-arm64]
+          # - arch: aarch64
+          #   runner: [self-hosted, arch-arm64]
     runs-on: ${{ matrix.runner }}
     needs: check-wpe-inputs
     # Never run a fork's pull request on the self-hosted runner. Skipping this
