@@ -1289,18 +1289,54 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
     return TRUE;
   }
 
-  gboolean middle_click = nav_type == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
-      && webkit_navigation_action_get_mouse_button(action) == WPE_BUTTON_MIDDLE;
-
-  /* Middle-clicking a link opens it in a background tab. A link aimed at another
-   * frame (target="_blank") opens a foreground tab; letting the decision through
+  /* Ctrl + primary-clicking and middle-clicking a link opens it in a
+   * background tab. Ctrl + Shift + Primary-clicking and a link aimed at
+   * another frame (target="_blank") opens a foreground tab. Shift +
+   * Primary-clicking a link opens a new window; letting the decision through
    * would make WebKit ask for a whole new window instead. */
-  if (middle_click || decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
+  enum {
+    TARGET_BG_TAB,
+    TARGET_FG_TAB,
+    TARGET_NEW_WINDOW,
+    TARGET_THIS_WINDOW,
+  } target = decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION ? TARGET_FG_TAB : TARGET_THIS_WINDOW;
+
+  if (nav_type == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED) {
+    switch (webkit_navigation_action_get_mouse_button(action)) {
+    case WPE_BUTTON_PRIMARY:
+      switch (webkit_navigation_action_get_modifiers(action)) {
+      case WPE_MODIFIER_KEYBOARD_CONTROL:
+        target = TARGET_BG_TAB;
+        break;
+      case WPE_MODIFIER_KEYBOARD_SHIFT:
+        target = TARGET_NEW_WINDOW;
+        break;
+      case WPE_MODIFIER_KEYBOARD_CONTROL | WPE_MODIFIER_KEYBOARD_SHIFT:
+        target = TARGET_FG_TAB;
+        break;
+      }
+      break;
+    case WPE_BUTTON_MIDDLE:
+      if (webkit_navigation_action_get_modifiers(action) & WPE_MODIFIER_KEYBOARD_SHIFT)
+        target = TARGET_FG_TAB;
+      else
+        target = TARGET_BG_TAB;
+      break;
+    }
+  }
+  
+  if (target != TARGET_THIS_WINDOW) {
     g_autoptr(WebKitWebView) new_view = wig_application_create_web_view(wig_application_get());
-    WigTab *tab = wig_window_add_tab_for_view(win, new_view);
     webkit_web_view_load_request(new_view, request);
-    if (!middle_click)
-      wig_tab_list_set_active(win->tab_list, tab);
+    if (target == TARGET_NEW_WINDOW) {
+      WigWindow *new_win = wig_window_new(wig_application_get());
+      gtk_window_present(GTK_WINDOW(new_win));
+      wig_window_add_web_view(new_win, new_view);
+    } else {
+      WigTab *tab = wig_window_add_tab_for_view(win, new_view);
+      if (target == TARGET_FG_TAB)
+        wig_tab_list_set_active(win->tab_list, tab);
+    }
     webkit_policy_decision_ignore(decision);
     return TRUE;
   }
