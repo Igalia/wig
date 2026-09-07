@@ -1,0 +1,44 @@
+id: com.igalia.wig
+branch: '2.54'
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+base: com.igalia.wig.WPE
+base-version: '2.54'
+command: wig
+
+finish-args:
+  - --device=dri
+  - --filesystem=xdg-config/openxr:ro
+  - --filesystem=xdg-download
+  - --filesystem=xdg-run/monado_comp_ipc
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --socket=wayland
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+
+inherit-extensions:
+  - com.igalia.SparkleCDM.Module
+
+modules:
+  - modules/wpe-platform-gtk.yaml
+
+  - name: wig
+    buildsystem: meson
+    config-opts:
+      - --buildtype=debugoptimized
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - subprojects/wpe-platform-gtk
+          - .flatpak-builder
+          - .git
+          - .ruff_cache
+          - .cache
+          - _build

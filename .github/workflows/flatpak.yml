@@ -12,17 +12,28 @@ jobs:
     outputs:
       oci-repository: ${{ steps.repository.outputs.oci-repository }}
       pages-url: ${{ steps.repository.outputs.pages-url }}
-      wpe: ${{ steps.filter.outputs.wpe }}
+      wpe-master: ${{ steps.filter.outputs.wpe-master }}
+      wpe-2.54: ${{ steps.filter.outputs['wpe-2.54'] }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            wpe:
-              - 'flatpak/com.igalia.wig.WPE.yaml'
+            wpe-shared: &wpe-shared
+              - 'flatpak/modules/unifdef.yaml'
+              - 'flatpak/modules/libevent.yaml'
+              - 'flatpak/modules/sparkle-cdm.yaml'
+              - 'flatpak/modules/libsoup.yaml'
+              - 'flatpak/modules/openxr.yaml'
               - 'flatpak/webkit-empty-linked-into.patch'
               - 'flatpak/com.igalia.SparkleCDM.Module.clearkey.yaml'
+            wpe-master:
+              - *wpe-shared
+              - 'flatpak/com.igalia.wig.WPE.yaml'
+            wpe-2.54:
+              - *wpe-shared
+              - 'flatpak/com.igalia.wig.WPE-2.54.yaml'
 
       - name: Resolve repository names
         id: repository
@@ -35,11 +46,24 @@ jobs:
 
   build-wpe-flatpak:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - arch: x86_64
+          - branch: master
+            manifest: flatpak/com.igalia.wig.WPE.yaml
+            arch: x86_64
             runner: [self-hosted, x64]
-          # - arch: aarch64
+          - branch: '2.54'
+            manifest: flatpak/com.igalia.wig.WPE-2.54.yaml
+            arch: x86_64
+            runner: [self-hosted, x64]
+          # - branch: master
+          #   manifest: flatpak/com.igalia.wig.WPE.yaml
+          #   arch: aarch64
+          #   runner: [self-hosted, arch-arm64]
+          # - branch: '2.54'
+          #   manifest: flatpak/com.igalia.wig.WPE-2.54.yaml
+          #   arch: aarch64
           #   runner: [self-hosted, arch-arm64]
     runs-on: ${{ matrix.runner }}
     needs: check-wpe-inputs
@@ -47,7 +71,8 @@ jobs:
     # is handled by build-wig-flatpak, which then builds against the published
     # base app instead of one built here.
     if: >-
-      needs.check-wpe-inputs.outputs.wpe == 'true' &&
+      (needs.check-wpe-inputs.outputs.wpe-master == 'true' ||
+       needs.check-wpe-inputs.outputs['wpe-2.54'] == 'true') &&
       (github.event_name == 'push' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
@@ -55,35 +80,58 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # A job-level `if` cannot see the matrix context, so each branch decides
+      # here whether its own inputs changed and gates the steps below on it.
+      - name: Check whether the inputs for this branch changed
+        id: inputs
+        env:
+          CHANGED: ${{ needs.check-wpe-inputs.outputs[format('wpe-{0}', matrix.branch)] }}
+        run: echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
       - name: Install build dependencies
+        if: steps.inputs.outputs.changed == 'true'
+        env:
+          MANIFEST: ${{ matrix.manifest }}
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak-builder --user --install-deps-from=flathub --install-deps-only \
-            _flatpak-build flatpak/com.igalia.wig.WPE.yaml
+            _flatpak-build "$MANIFEST"
 
       - name: Build WPE
+        if: steps.inputs.outputs.changed == 'true'
+        env:
+          MANIFEST: ${{ matrix.manifest }}
         run: |
           flatpak-builder --user --force-clean --disable-rofiles-fuse --repo=_flatpak-repo \
-            _flatpak-build flatpak/com.igalia.wig.WPE.yaml
+            _flatpak-build "$MANIFEST"
 
       - name: Create WPE bundle
+        if: steps.inputs.outputs.changed == 'true'
+        env:
+          ARCH: ${{ matrix.arch }}
+          BRANCH: ${{ matrix.branch }}
+          BUNDLE: wpe-base-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
         run: |
-          flatpak build-bundle _flatpak-repo wpe-base-${{ matrix.arch }}.flatpak \
-            --arch=${{ matrix.arch }} \
+          flatpak build-bundle _flatpak-repo "$BUNDLE" \
+            --arch="$ARCH" \
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
-            com.igalia.wig.WPE master
+            com.igalia.wig.WPE "$BRANCH"
 
       - name: Upload WPE bundle
+        if: steps.inputs.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: wpe-base-${{ matrix.arch }}.flatpak
-          path: wpe-base-${{ matrix.arch }}.flatpak
+          name: wpe-base-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
+          path: wpe-base-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
           if-no-files-found: error
 
       - name: Install WPE base app
+        if: steps.inputs.outputs.changed == 'true'
+        env:
+          BUNDLE: wpe-base-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
         run: |
           flatpak install --user --noninteractive --assumeyes --reinstall \
-            --bundle wpe-base-${{ matrix.arch }}.flatpak
+            --bundle "$BUNDLE"
 
       # - name: Build Clear Key module
       #   uses: flatpak/flatpak-github-actions/flatpak-builder@v6
@@ -94,12 +142,27 @@ jobs:
 
   build-wig-flatpak:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - arch: x86_64
+          - branch: master
+            manifest: flatpak/com.igalia.wig.yaml
+            arch: x86_64
             runner: ubuntu-latest
-          - arch: aarch64
+          - branch: master
+            manifest: flatpak/com.igalia.wig.yaml
+            arch: aarch64
             runner: ubuntu-24.04-arm
+          - branch: '2.54'
+            manifest: flatpak/com.igalia.wig-2.54.yaml
+            arch: x86_64
+            runner: ubuntu-latest
+          # aarch64 needs a published WPE base app to build against, which
+          # only master has. Uncomment once WPE builds on arm again.
+          # - branch: '2.54'
+          #   manifest: flatpak/com.igalia.wig-2.54.yaml
+          #   arch: aarch64
+          #   runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
@@ -119,31 +182,47 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Resolve the WPE base app to build against
+        env:
+          BUNDLE: wpe-base-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
+          CHANGED: ${{ needs.check-wpe-inputs.outputs[format('wpe-{0}', matrix.branch)] }}
+          WPE_RESULT: ${{ needs.build-wpe-flatpak.result }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          # WPE is only built for x86_64, so every other architecture builds
+          # against the published base app.
+          if [ "$WPE_RESULT" = 'success' ] && [ "$CHANGED" = 'true' ] && [ "$ARCH" = 'x86_64' ]; then
+            echo "WPE_BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+          fi
+
       - name: Download WPE bundle
-        if: needs.build-wpe-flatpak.result == 'success'
+        if: env.WPE_BUNDLE != ''
         uses: actions/download-artifact@v4
         with:
-          name: wpe-base-${{ matrix.arch }}.flatpak
+          name: wpe-base-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
 
       - name: Install WPE base app
-        if: needs.build-wpe-flatpak.result == 'success'
+        if: env.WPE_BUNDLE != ''
         run: |
           flatpak install --system --noninteractive --assumeyes \
-            --bundle wpe-base-${{ matrix.arch }}.flatpak
+            --bundle "$WPE_BUNDLE"
 
       - name: Install published WPE base app
-        if: needs.build-wpe-flatpak.result == 'skipped'
+        if: env.WPE_BUNDLE == ''
         env:
           PAGES_URL: ${{ needs.check-wpe-inputs.outputs.pages-url }}
+          BRANCH: ${{ matrix.branch }}
         run: |
           flatpak remote-add --system --if-not-exists --from wig "$PAGES_URL/wig.flatpakrepo"
-          dbus-run-session flatpak install --system --noninteractive --assumeyes wig com.igalia.wig.WPE
+          dbus-run-session flatpak install --system --noninteractive --assumeyes \
+            wig "com.igalia.wig.WPE//$BRANCH"
 
       - name: Build Wig
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          manifest-path: flatpak/com.igalia.wig.yaml
-          bundle: wig-${{ matrix.arch }}.flatpak
+          manifest-path: ${{ matrix.manifest }}
+          bundle: wig-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
+          branch: ${{ matrix.branch }}
           arch: ${{ matrix.arch }}
           cache: false
           upload-artifact: false
@@ -151,8 +230,8 @@ jobs:
       - name: Upload Wig bundle
         uses: actions/upload-artifact@v4
         with:
-          name: wig-${{ matrix.arch }}.flatpak
-          path: wig-${{ matrix.arch }}.flatpak
+          name: wig-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
+          path: wig-${{ matrix.branch }}-${{ matrix.arch }}.flatpak
           if-no-files-found: error
 
   publish-flatpaks:
