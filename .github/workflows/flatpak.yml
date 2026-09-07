@@ -271,7 +271,7 @@ jobs:
       # relative paths, which a composite action can only resolve inside its own
       # checkout, so call publish-oci and publish-site directly instead.
       - name: Push Flatpaks to the OCI registry
-        uses: aetherpak/actions/publish-oci@v3.11.2
+        uses: TingPing/actions/publish-oci@ec21cd14abb92f3f392f38b5a221692ffe2e0a52
         with:
           bundle-path: bundles/*.flatpak
           oci-repository: ${{ needs.check-wpe-inputs.outputs.oci-repository }}
@@ -281,7 +281,7 @@ jobs:
           gpg-private-key-passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
 
       - name: Build the Flatpak repository site
-        uses: aetherpak/actions/publish-site@v3.11.2
+        uses: TingPing/actions/publish-site@ec21cd14abb92f3f392f38b5a221692ffe2e0a52
         with:
           records-dir: _records
           oci-repository: ${{ needs.check-wpe-inputs.outputs.oci-repository }}
