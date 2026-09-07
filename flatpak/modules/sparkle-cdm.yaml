@@ -1,0 +1,12 @@
+name: sparkle-cdm
+buildsystem: meson
+config-opts:
+  - --buildtype=release
+  - -Dsample-player=disabled
+  - -Dclearkey-module=disabled
+post-install:
+  - mkdir -p ${FLATPAK_DEST}/lib/sparkle-cdm
+sources:
+  - type: git
+    url: https://github.com/Sparkle-CDM/sparkle-cdm.git
+    commit: cd42026a420554e311d191c9560e09c9a7119162

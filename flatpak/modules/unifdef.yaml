@@ -1,0 +1,11 @@
+name: unifdef
+no-autogen: true
+build-options:
+  cflags: -std=gnu17
+make-install-args: [prefix=/app]
+cleanup:
+  - '*'
+sources:
+  - type: archive
+    url: https://dotat.at/prog/unifdef/unifdef-2.12.tar.gz
+    sha256: fba564a24db7b97ebe9329713ac970627b902e5e9e8b14e19e024eb6e278d10b
