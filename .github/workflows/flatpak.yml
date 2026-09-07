@@ -174,7 +174,7 @@ jobs:
       - check-wpe-inputs
       - build-wpe-flatpak
     if: >-
-      always() &&
+      !cancelled() &&
       needs.check-wpe-inputs.result == 'success' &&
       (needs.build-wpe-flatpak.result == 'success' || needs.build-wpe-flatpak.result == 'skipped')
     permissions:
@@ -240,7 +240,7 @@ jobs:
       - check-wpe-inputs
       - build-wig-flatpak
     if: >-
-      always() &&
+      !cancelled() &&
       github.event_name == 'push' &&
       needs.build-wig-flatpak.result == 'success'
     permissions:
