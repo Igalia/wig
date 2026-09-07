@@ -22,74 +22,11 @@ add-extensions:
     autodelete: true
 
 modules:
-  - name: unifdef
-    no-autogen: true
-    build-options:
-      cflags: -std=gnu17
-    make-install-args: [prefix=/app]
-    cleanup:
-      - '*'
-    sources:
-      - type: archive
-        url: https://dotat.at/prog/unifdef/unifdef-2.12.tar.gz
-        sha256: fba564a24db7b97ebe9329713ac970627b902e5e9e8b14e19e024eb6e278d10b
-
-  - name: libevent
-    config-opts:
-      - --disable-static
-    cleanup:
-      - /bin
-      - /lib/pkgconfig
-      - /lib/*.la
-      - /include
-    sources:
-      - type: archive
-        url: https://github.com/libevent/libevent/releases/download/release-2.1.13-stable/libevent-2.1.13-stable.tar.gz
-        sha256: f7e9383b8c0baa81b687e5b5eecc01beefaf1b19b64151d95ed61647fe7a315c
-
-  - name: sparkle-cdm
-    buildsystem: meson
-    config-opts:
-      - --buildtype=release
-      - -Dsample-player=disabled
-      - -Dclearkey-module=disabled
-    post-install:
-      - mkdir -p ${FLATPAK_DEST}/lib/sparkle-cdm
-    sources:
-      - type: git
-        url: https://github.com/Sparkle-CDM/sparkle-cdm.git
-        commit: cd42026a420554e311d191c9560e09c9a7119162
-
-  - name: libsoup
-    buildsystem: meson
-    config-opts:
-      - --buildtype=release
-      - -Dintrospection=disabled
-      - -Dvapi=disabled
-      - -Ddocs=disabled
-      - -Dtests=false
-      - -Dsysprof=disabled
-    sources:
-      - type: git
-        url: https://gitlab.gnome.org/GNOME/libsoup.git
-        commit: f2af6b499cf23075ad73e065370cbb2e4eaceb6a
-
-  - name: openxr
-    buildsystem: cmake-ninja
-    config-opts:
-      - -DCMAKE_BUILD_TYPE=Release
-      - -DDYNAMIC_LOADER=ON
-      - -DBUILD_TESTS=OFF
-      - -DBUILD_API_LAYERS=OFF
-    cleanup:
-      - /include
-      - /lib/cmake
-      - /lib/pkgconfig
-    sources:
-      - type: git
-        url: https://github.com/KhronosGroup/OpenXR-SDK.git
-        tag: release-1.1.62
-        commit: 00678df64b49ad878a8e882af933c28518cafd1c
+  - modules/unifdef.yaml
+  - modules/libevent.yaml
+  - modules/sparkle-cdm.yaml
+  - modules/libsoup.yaml
+  - modules/openxr.yaml
 
   - name: webkitwpe
     buildsystem: cmake-ninja

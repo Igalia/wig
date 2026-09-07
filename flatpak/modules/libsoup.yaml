@@ -1,0 +1,13 @@
+name: libsoup
+buildsystem: meson
+config-opts:
+  - --buildtype=release
+  - -Dintrospection=disabled
+  - -Dvapi=disabled
+  - -Ddocs=disabled
+  - -Dtests=false
+  - -Dsysprof=disabled
+sources:
+  - type: git
+    url: https://gitlab.gnome.org/GNOME/libsoup.git
+    commit: f2af6b499cf23075ad73e065370cbb2e4eaceb6a

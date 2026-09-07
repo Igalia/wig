@@ -26,17 +26,7 @@ inherit-extensions:
   - com.igalia.SparkleCDM.Module
 
 modules:
-  - name: wpe-platform-gtk
-    buildsystem: meson
-    cleanup:
-      - /include
-      - /lib/pkgconfig
-    config-opts:
-      - --buildtype=debugoptimized
-    sources:
-      - type: git
-        url: https://github.com/Igalia/wpe-platform-gtk.git
-        commit: 427606b962d5051afcd3780457b1ca554ebbb4f2
+  - modules/wpe-platform-gtk.yaml
 
   - name: wig
     buildsystem: meson
@@ -52,4 +42,3 @@ modules:
           - .ruff_cache
           - .cache
           - _build
-
