@@ -62,4 +62,5 @@ modules:
     sources:
       - type: git
         url: https://github.com/WebKit/WebKit.git
+        branch: webkitglib/2.54
         commit: 130cbb0bb5dcfd8bdd80fb0b7b865829cae97b7d
