@@ -51,5 +51,4 @@ modules:
     sources:
       - type: git
         url: https://github.com/WebKit/WebKit.git
-        branch: webkitglib/2.54
-        commit: 130cbb0bb5dcfd8bdd80fb0b7b865829cae97b7d
+        commit: 93656e85b73070b5153aed02e2e8ecb245f4a0a7
