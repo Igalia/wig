@@ -13,18 +13,9 @@ build-options:
   no-debuginfo: true
 command: /app/libexec/wpe-webkit-2.0/MiniBrowser
 
-add-extensions:
-  com.igalia.SparkleCDM.Module:
-    version: master
-    subdirectories: true
-    merge-dirs: '.'
-    directory: lib/sparkle-cdm
-    autodelete: true
-
 modules:
   - modules/unifdef.yaml
   - modules/libevent.yaml
-  - modules/sparkle-cdm.yaml
   - modules/libsoup.yaml
   - modules/openxr.yaml
 
@@ -47,8 +38,6 @@ modules:
       # These are marked experimental but we want to test them.
       - -DENABLE_WEB_RTC=ON
       - -DENABLE_WK_WEB_EXTENSIONS=ON
-      - -DENABLE_ENCRYPTED_MEDIA=ON
-      - -DENABLE_THUNDER=ON
       - -DENABLE_WEBXR=ON
       - -DENABLE_WEBXR_LAYERS=ON
 

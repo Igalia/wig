@@ -22,9 +22,6 @@ cleanup:
   - /include
   - /lib/pkgconfig
 
-inherit-extensions:
-  - com.igalia.SparkleCDM.Module
-
 modules:
   - modules/wpe-platform-gtk.yaml
 
