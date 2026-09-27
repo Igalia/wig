@@ -9,13 +9,18 @@ project(
 
 gnome = import('gnome')
 
+glib_dep = dependency('glib-2.0')
+gobject_dep = dependency('gobject-2.0')
+gio_dep = dependency('gio-2.0')
 libwpeplatformgtk_dep = dependency('wpe-platform-gtk-1.0')
 wpe_webkit_dep = dependency('wpe-webkit-2.0', version: '>= 2.51.3')
 adw_dep = dependency('libadwaita-1', version: '>= 1.6')
 libpsl_dep = dependency('libpsl')
 sqlite_dep = dependency('sqlite3')
+json_glib_dep = dependency('json-glib-1.0')
 
 cc = meson.get_compiler('c')
+m_dep = cc.find_library('m')
 global_cflags = []
 if get_option('optimization') not in ['0', 'g']
     global_cflags += '-D_FORTIFY_SOURCE=3'
@@ -149,5 +154,6 @@ add_project_arguments(
 wig_gschema = files('data/com.igalia.wig.gschema.xml')
 
 subdir('icons')
+subdir('mcp-glib')
 subdir('src')
 subdir('data')
