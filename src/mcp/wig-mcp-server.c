@@ -32,7 +32,8 @@ static void watch_existing_views(WigMcpServer *self)
     WigTabList *tab_list = wig_window_get_tab_list(WIG_WINDOW(l->data));
     for (guint i = 0; i < wig_tab_list_get_n_tabs(tab_list); i++) {
       WebKitWebView *web_view = wig_tab_get_web_view(wig_tab_list_get_nth(tab_list, i));
-      wig_mcp_server_watch_view(self, web_view);
+      if (web_view)
+        wig_mcp_server_watch_view(self, web_view);
     }
   }
 }
