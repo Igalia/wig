@@ -30,6 +30,7 @@
 #include "wig-error-page.h"
 #include "wig-favicon.h"
 #include "wig-history-page.h"
+#include "wig-mcp-server.h"
 #include "wig-new-tab-page.h"
 #include "wig-option-menu.h"
 #include "wig-script-dialog.h"
@@ -199,6 +200,10 @@ static void wig_tab_close_question_answered(WigTab *self)
 
 static gboolean wig_tab_on_script_dialog(WigTab *self, WebKitScriptDialog *dialog)
 {
+  WigMcpServer *mcp_server = wig_application_get_mcp_server(wig_application_get());
+  if (mcp_server && wig_mcp_server_handles_dialogs(mcp_server))
+    return FALSE;
+
   WebKitScriptDialogType type = webkit_script_dialog_get_dialog_type(dialog);
   g_debug("tab %u: script dialog type %d", self->id, type);
 

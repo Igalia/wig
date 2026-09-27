@@ -24,6 +24,7 @@
 
 #include <errno.h>
 
+#include "mcp/wig-mcp-server.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
 #include "wig-history-page.h"
@@ -38,6 +39,12 @@
 
 #define WIG_APPLICATION_UNLOAD_INTERVAL_SECONDS 60
 
+typedef struct {
+  gboolean pending;
+  gboolean loading;
+  gboolean current_document;
+} HistorySuppression;
+
 struct _WigApplication {
   AdwApplication parent;
 
@@ -50,6 +57,7 @@ struct _WigApplication {
   WigBookmarksStore *bookmarks_store;
   GHashTable *typed_navigations; /* WebKitWebView* -> char* pending URI */
   GHashTable *internal_navigations; /* WebKitWebView* -> char* pending wig: URI */
+  GHashTable *history_suppressions; /* WebKitWebView* -> HistorySuppression* */
   WigDownloadsManager *downloads;
   WebKitUserContentManager *user_content_manager;
   GPtrArray *user_scripts;
@@ -65,6 +73,7 @@ struct _WigApplication {
   WigUpdateMonitor *update_monitor;
   WigNetworkMonitor *network_monitor;
   guint unload_unused_tabs_id;
+  WigMcpServer *mcp_server;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -187,6 +196,7 @@ static void history_web_view_finalized(gpointer data, GObject *web_view)
   WigApplication *app = WIG_APPLICATION(data);
   g_hash_table_remove(app->typed_navigations, web_view);
   g_hash_table_remove(app->internal_navigations, web_view);
+  g_hash_table_remove(app->history_suppressions, web_view);
 }
 
 static void record_history_visit(WigApplication *app, WebKitWebView *web_view, gboolean typed)
@@ -225,12 +235,39 @@ static void on_web_view_load_changed(WebKitWebView *web_view, WebKitLoadEvent lo
 {
   g_debug("[load-changed] web_view=%p event=%s (%d) uri=%s", (void *)web_view, wig_load_event_name(load_event),
           load_event, webkit_web_view_get_uri(web_view) ? webkit_web_view_get_uri(web_view) : "(null)");
+  HistorySuppression *suppression = g_hash_table_lookup(app->history_suppressions, web_view);
+  if (load_event == WEBKIT_LOAD_STARTED) {
+    if (suppression) {
+      suppression->loading = suppression->pending;
+      suppression->pending = FALSE;
+    }
+    return;
+  }
+
+  if (load_event == WEBKIT_LOAD_FINISHED) {
+    if (suppression) {
+      suppression->loading = FALSE;
+      if (!suppression->pending && !suppression->current_document)
+        g_hash_table_remove(app->history_suppressions, web_view);
+    }
+    return;
+  }
 
   if (load_event != WEBKIT_LOAD_COMMITTED)
     return;
 
   gboolean typed = g_hash_table_remove(app->typed_navigations, web_view);
-  record_history_visit(app, web_view, typed);
+  gboolean suppressed = FALSE;
+  if (suppression) {
+    suppression->current_document = suppression->loading;
+    suppressed = suppression->current_document;
+    if (!suppressed && !suppression->pending)
+      g_hash_table_remove(app->history_suppressions, web_view);
+  }
+  if (suppressed)
+    g_debug("history: suppressing MCP visit '%s'", webkit_web_view_get_uri(web_view));
+  else
+    record_history_visit(app, web_view, typed);
 
   const char *uri = webkit_web_view_get_uri(web_view);
   if (uri) {
@@ -268,6 +305,10 @@ static gboolean on_load_failed(WebKitWebView *web_view, WebKitLoadEvent load_eve
 static void on_history_title_changed(WebKitWebView *web_view, GParamSpec *pspec, WigApplication *app)
 {
   if (!app->history_store)
+    return;
+
+  HistorySuppression *suppression = g_hash_table_lookup(app->history_suppressions, web_view);
+  if (suppression && suppression->current_document)
     return;
 
   const char *uri = webkit_web_view_get_uri(web_view);
@@ -384,6 +425,7 @@ static void wig_application_init(WigApplication *app)
 
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
+  app->history_suppressions = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
   app->notifications = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
@@ -623,6 +665,26 @@ static const char *const web_settings_keys[] = {
   "user-agent",
 };
 
+/* Running straight out of the build tree has to work without installing
+ * anything or setting a variable, so a copy sitting beside the executable wins
+ * over the installed one. */
+static char *wig_web_process_extensions_dir(void)
+{
+  const char *override = g_getenv("WIG_WEB_PROCESS_EXTENSIONS_DIR");
+  if (override && *override)
+    return g_strdup(override);
+
+  g_autofree char *executable = g_file_read_link("/proc/self/exe", NULL);
+  if (executable) {
+    g_autofree char *directory = g_path_get_dirname(executable);
+    g_autofree char *built = g_build_filename(directory, "web-process-extension", NULL);
+    if (g_file_test(built, G_FILE_TEST_IS_DIR))
+      return g_steal_pointer(&built);
+  }
+
+  return g_strdup(WIG_WEB_PROCESS_EXTENSIONS_DIR);
+}
+
 static void wig_application_startup(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
@@ -716,6 +778,8 @@ static void wig_application_startup(GApplication *application)
   app->content_filter_store = webkit_user_content_filter_store_new(filters_dir);
   wig_content_filters_load_saved(app->user_content_manager, app->content_filter_store);
   app->web_context = webkit_web_context_new();
+  g_autofree char *extensions_dir = wig_web_process_extensions_dir();
+  webkit_web_context_set_web_process_extensions_directory(app->web_context, extensions_dir);
   g_signal_connect_swapped(app->web_context, "initialize-notification-permissions",
                            G_CALLBACK(wig_application_initialize_notification_permissions), app);
   webkit_security_manager_register_uri_scheme_as_empty_document(
@@ -733,6 +797,8 @@ static void wig_application_startup(GApplication *application)
     webkit_web_context_add_path_to_sandbox(app->web_context, widevine_path, TRUE);
   else
     g_warning("widevine: could not create '%s': %s", widevine_path, g_strerror(errno));
+
+  app->mcp_server = wig_mcp_server_new(app, app->user_content_manager);
 
   static const struct {
     const char *action;
@@ -772,6 +838,10 @@ static void wig_application_shutdown(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
 
+  if (app->mcp_server)
+    wig_mcp_server_stop(app->mcp_server);
+  g_clear_pointer(&app->mcp_server, wig_mcp_server_unref);
+
   /* Quitting while windows are still up (app.quit, a signal) reaches here with
    * everything to save still in place. */
   wig_session_save(app->session);
@@ -788,6 +858,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->bookmarks_store);
   g_clear_pointer(&app->typed_navigations, g_hash_table_unref);
   g_clear_pointer(&app->internal_navigations, g_hash_table_unref);
+  g_clear_pointer(&app->history_suppressions, g_hash_table_unref);
   g_clear_object(&app->downloads);
   g_clear_object(&app->settings);
   g_clear_object(&app->user_content_manager);
@@ -925,12 +996,41 @@ static void wig_application_open(GApplication *application, GFile **files, gint 
   g_action_group_activate_action(G_ACTION_GROUP(win), "focus-entry", NULL);
 }
 
+static int wig_application_command_line(GApplication *application, GApplicationCommandLine *command_line)
+{
+  WigApplication *app = WIG_APPLICATION(application);
+  GVariantDict *options = g_application_command_line_get_options_dict(command_line);
+  if (g_variant_dict_contains(options, "mcp-stdio")) {
+    g_autoptr(GError) error = NULL;
+    if (!app->mcp_server || !wig_mcp_server_start_stdio(app->mcp_server, command_line, &error)) {
+      g_application_command_line_printerr(command_line, "Failed to start MCP stdio: %s\n",
+                                          error ? error->message : "MCP server is unavailable");
+      return 1;
+    }
+    return 0;
+  }
+
+  int argc = 0;
+  g_auto(GStrv) argv = g_application_command_line_get_arguments(command_line, &argc);
+  if (argc <= 1) {
+    g_application_activate(application);
+    return 0;
+  }
+
+  g_autoptr(GPtrArray) files = g_ptr_array_new_with_free_func(g_object_unref);
+  for (int i = 1; i < argc; i++)
+    g_ptr_array_add(files, g_application_command_line_create_file_for_arg(command_line, argv[i]));
+  g_application_open(application, (GFile **)files->pdata, (int)files->len, "");
+  return 0;
+}
+
 static void wig_application_class_init(WigApplicationClass *klass)
 {
   GApplicationClass *gapplication_class = G_APPLICATION_CLASS(klass);
   gapplication_class->startup = wig_application_startup;
   gapplication_class->activate = wig_application_activate;
   gapplication_class->open = wig_application_open;
+  gapplication_class->command_line = wig_application_command_line;
   gapplication_class->shutdown = wig_application_shutdown;
 
   GtkApplicationClass *gtkapplication_class = GTK_APPLICATION_CLASS(klass);
@@ -939,8 +1039,12 @@ static void wig_application_class_init(WigApplicationClass *klass)
 
 WigApplication *wig_application_new(void)
 {
-  return WIG_APPLICATION(g_object_new(WIG_TYPE_APPLICATION, "application-id", "com.igalia.wig", "flags",
-                                      G_APPLICATION_HANDLES_OPEN, NULL));
+  WigApplication *app = WIG_APPLICATION(g_object_new(WIG_TYPE_APPLICATION, "application-id", "com.igalia.wig", "flags",
+                                                     G_APPLICATION_HANDLES_OPEN | G_APPLICATION_HANDLES_COMMAND_LINE,
+                                                     NULL));
+  g_application_add_main_option(G_APPLICATION(app), "mcp-stdio", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE,
+                                "Expose MCP over stdin and stdout", NULL);
+  return app;
 }
 
 WigApplication *wig_application_get(void)
@@ -1043,6 +1147,11 @@ gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWeb
   return TRUE;
 }
 
+WigMcpServer *wig_application_get_mcp_server(WigApplication *app)
+{
+  return app->mcp_server;
+}
+
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri)
 {
   g_debug("[mark-typed-navigation] web_view=%p uri=%s recordable=%d", (void *)web_view, uri ? uri : "(null)",
@@ -1052,6 +1161,27 @@ void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *w
     return;
 
   g_hash_table_insert(app->typed_navigations, web_view, GINT_TO_POINTER(1));
+}
+
+void wig_application_suppress_next_history_navigation(WigApplication *app, WebKitWebView *web_view)
+{
+  HistorySuppression *suppression = g_hash_table_lookup(app->history_suppressions, web_view);
+  if (!suppression) {
+    suppression = g_new0(HistorySuppression, 1);
+    g_hash_table_insert(app->history_suppressions, web_view, suppression);
+  }
+  suppression->pending = TRUE;
+}
+
+void wig_application_cancel_history_navigation_suppression(WigApplication *app, WebKitWebView *web_view)
+{
+  HistorySuppression *suppression = g_hash_table_lookup(app->history_suppressions, web_view);
+  if (!suppression)
+    return;
+
+  suppression->pending = FALSE;
+  if (!suppression->loading && !suppression->current_document)
+    g_hash_table_remove(app->history_suppressions, web_view);
 }
 
 GSettings *wig_application_get_settings(WigApplication *app)

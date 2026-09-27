@@ -5,6 +5,8 @@ subdir('tabs')
 subdir('entry')
 subdir('downloads')
 subdir('flatpak')
+subdir('mcp')
+subdir('web-process-extension')
 
 wig_compiled_schemas = custom_target(
     'gschemas.compiled',
@@ -40,9 +42,9 @@ wig_sources = files(
     'wig-utils.c',
     'wig-window-base.c',
     'wig-window.c',
-) + wig_bookmarks_sources + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_resources + wig_icon_resources
+) + wig_bookmarks_sources + wig_history_sources + wig_settings_sources + wig_tab_sources + wig_entry_sources + wig_download_sources + wig_flatpak_sources + wig_mcp_sources + wig_resources + wig_icon_resources
 
-executable(
+wig_exe = executable(
     'wig',
     sources: wig_sources,
     dependencies: [
@@ -51,6 +53,11 @@ executable(
         adw_dep,
         libpsl_dep,
         sqlite_dep,
+        libsoup_dep,
+        json_glib_dep,
+        cairo_dep,
+        m_dep,
+        mcp_glib_dep,
     ],
     include_directories: [
         '.',
@@ -61,8 +68,13 @@ executable(
         'entry',
         'downloads',
         'flatpak',
+        'mcp',
+        'web-process-extension',
     ],
-    c_args: ['-DG_LOG_DOMAIN="wig"'],
+    c_args: [
+        '-DG_LOG_DOMAIN="wig"',
+        '-DWIG_WEB_PROCESS_EXTENSIONS_DIR="' + wig_web_process_extensions_dir + '"',
+    ],
     link_depends: wig_compiled_schemas,
     install: true,
 )
@@ -75,3 +87,5 @@ executable(
     install: true,
     install_dir: wig_libexecdir,
 )
+
+subdir('mcp/tests')

@@ -14,13 +14,21 @@ gobject_dep = dependency('gobject-2.0')
 gio_dep = dependency('gio-2.0')
 libwpeplatformgtk_dep = dependency('wpe-platform-gtk-1.0')
 wpe_webkit_dep = dependency('wpe-webkit-2.0', version: '>= 2.51.3')
+wpe_web_process_extension_dep = dependency(
+    'wpe-web-process-extension-2.0',
+    version: '>= 2.51.3',
+)
 adw_dep = dependency('libadwaita-1', version: '>= 1.6')
 libpsl_dep = dependency('libpsl')
 sqlite_dep = dependency('sqlite3')
+libsoup_dep = dependency('libsoup-3.0')
 json_glib_dep = dependency('json-glib-1.0')
+cairo_dep = dependency('cairo')
 
 cc = meson.get_compiler('c')
 m_dep = cc.find_library('m')
+wig_web_process_extensions_dir = get_option('prefix') / get_option('libdir') / 'wig' / 'web-process-extensions'
+
 global_cflags = []
 if get_option('optimization') not in ['0', 'g']
     global_cflags += '-D_FORTIFY_SOURCE=3'
