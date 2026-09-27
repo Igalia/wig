@@ -25,9 +25,12 @@
 #include "wig-application.h"
 #include "wig-flatpak.h"
 #include "wig-mcp-server.h"
+#include "wig-settings-rows.h"
 
 #include <adwaita.h>
 
+#define ENABLE_TITLE "MCP Server"
+#define ENABLE_DESCRIPTION "Let local MCP clients connect and drive this browser. Turning this off disconnects them."
 #define CLIENT_TITLE "MCP Client"
 #define CLIENT_DESCRIPTION "The program that will connect to wig, which decides the command to run."
 
@@ -181,6 +184,7 @@ static void mcp_copy_command(WigSettingsMcp *self)
 
 void wig_settings_mcp_index(WigSettingsSearch *search, const char *pane, const char *pane_title)
 {
+  wig_settings_search_add(search, ENABLE_TITLE, ENABLE_DESCRIPTION, pane, pane_title);
   wig_settings_search_add(search, CLIENT_TITLE, CLIENT_DESCRIPTION, pane, pane_title);
   wig_settings_search_add(search, "Sessions", "The MCP clients connected to this browser.", pane, pane_title);
 }
@@ -217,7 +221,9 @@ static void wig_settings_mcp_class_init(WigSettingsMcpClass *klass)
 
 static void wig_settings_mcp_init(WigSettingsMcp *self)
 {
-  WigMcpServer *server = wig_application_get_mcp_server(wig_application_get());
+  WigApplication *app = wig_application_get();
+  GSettings *settings = wig_application_get_settings(app);
+  WigMcpServer *server = wig_application_get_mcp_server(app);
 
   self->wig_command = mcp_wig_command();
 
@@ -226,6 +232,11 @@ static void wig_settings_mcp_init(WigSettingsMcp *self)
                                        "Control the Model Context Protocol server that exposes this browser for "
                                        "automation.");
   gtk_widget_set_parent(self->page, GTK_WIDGET(self));
+
+  AdwPreferencesGroup *enable = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  adw_preferences_group_add(enable,
+                            wig_settings_switch_row_new(settings, "enable-mcp", ENABLE_TITLE, ENABLE_DESCRIPTION));
+  adw_preferences_page_add(ADW_PREFERENCES_PAGE(self->page), enable);
 
   AdwPreferencesGroup *connecting = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   self->connecting = connecting;
@@ -273,6 +284,9 @@ static void wig_settings_mcp_init(WigSettingsMcp *self)
   adw_preferences_group_set_title(sessions, "Sessions");
   adw_preferences_group_add(sessions, list);
   adw_preferences_page_add(ADW_PREFERENCES_PAGE(self->page), sessions);
+
+  g_settings_bind(settings, "enable-mcp", connecting, "visible", G_SETTINGS_BIND_GET);
+  g_settings_bind(settings, "enable-mcp", sessions, "visible", G_SETTINGS_BIND_GET);
 }
 
 GtkWidget *wig_settings_mcp_new(void)

@@ -41,15 +41,28 @@ def test(name):
     return register
 
 
+def profile_env(profile, enable_mcp):
+    """Point every XDG directory into the profile, with MCP turned on or off."""
+    env = dict(os.environ)
+    env["XDG_DATA_HOME"] = os.path.join(profile, "data")
+    env["XDG_CACHE_HOME"] = os.path.join(profile, "cache")
+    env["XDG_CONFIG_HOME"] = os.path.join(profile, "config")
+    env["XDG_STATE_HOME"] = os.path.join(profile, "state")
+
+    settings_dir = os.path.join(env["XDG_CONFIG_HOME"], "com.igalia.wig")
+    os.makedirs(settings_dir, exist_ok=True)
+    with open(os.path.join(settings_dir, "settings.ini"), "w") as handle:
+        handle.write(f"[Settings]\nenable-mcp={'true' if enable_mcp else 'false'}\n")
+
+    return env
+
+
 class Client:
     """A minimal MCP client speaking newline-delimited JSON-RPC over stdio."""
 
     def __init__(self, wig, profile):
-        env = dict(os.environ)
-        env["XDG_DATA_HOME"] = os.path.join(profile, "data")
-        env["XDG_CACHE_HOME"] = os.path.join(profile, "cache")
-        env["XDG_CONFIG_HOME"] = os.path.join(profile, "config")
-        env["XDG_STATE_HOME"] = os.path.join(profile, "state")
+        self.wig = wig
+        env = profile_env(profile, enable_mcp=True)
 
         # A private session bus keeps the suite off any wig the developer is
         # already running, and guarantees the browser under test is cold.
@@ -592,6 +605,25 @@ def test_unknown_arguments(client, base):
 
     blocks, is_error = client.call("list_tabs", bogus=1)
     assert is_error, "a schema with no properties accepted an argument"
+
+
+@test("--mcp-stdio is refused while MCP is disabled in settings")
+def test_disabled(client, base):
+    profile = tempfile.mkdtemp(prefix="wig-mcp-e2e-disabled-")
+    try:
+        result = subprocess.run(
+            ["dbus-run-session", "--", client.wig, "--mcp-stdio"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=BOOT_TIMEOUT,
+            env=profile_env(profile, enable_mcp=False),
+        )
+    finally:
+        shutil.rmtree(profile, ignore_errors=True)
+
+    assert result.returncode != 0, "a disabled MCP server still started"
+    assert "MCP is disabled" in result.stderr, f"unhelpful message: {result.stderr!r}"
 
 
 def main():

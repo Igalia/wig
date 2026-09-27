@@ -685,6 +685,15 @@ static char *wig_web_process_extensions_dir(void)
   return g_strdup(WIG_WEB_PROCESS_EXTENSIONS_DIR);
 }
 
+static void wig_application_mcp_enabled_changed(WigApplication *app)
+{
+  gboolean enabled = g_settings_get_boolean(app->settings, "enable-mcp");
+
+  g_debug("mcp: %s", enabled ? "enabled" : "disabled");
+  if (!enabled && app->mcp_server)
+    wig_mcp_server_disconnect_all(app->mcp_server);
+}
+
 static void wig_application_startup(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
@@ -799,6 +808,8 @@ static void wig_application_startup(GApplication *application)
     g_warning("widevine: could not create '%s': %s", widevine_path, g_strerror(errno));
 
   app->mcp_server = wig_mcp_server_new(app, app->user_content_manager);
+  g_signal_connect_object(app->settings, "changed::enable-mcp", G_CALLBACK(wig_application_mcp_enabled_changed), app,
+                          G_CONNECT_SWAPPED);
 
   static const struct {
     const char *action;
@@ -1001,6 +1012,12 @@ static int wig_application_command_line(GApplication *application, GApplicationC
   WigApplication *app = WIG_APPLICATION(application);
   GVariantDict *options = g_application_command_line_get_options_dict(command_line);
   if (g_variant_dict_contains(options, "mcp-stdio")) {
+    if (!g_settings_get_boolean(app->settings, "enable-mcp")) {
+      g_application_command_line_printerr(command_line,
+                                          "MCP is disabled. Turn on MCP Server in wig:settings/mcp to use it.\n");
+      return 1;
+    }
+
     g_autoptr(GError) error = NULL;
     if (!app->mcp_server || !wig_mcp_server_start_stdio(app->mcp_server, command_line, &error)) {
       g_application_command_line_printerr(command_line, "Failed to start MCP stdio: %s\n",

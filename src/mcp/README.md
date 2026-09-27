@@ -11,6 +11,10 @@ GApplication forwards the invoking process's stdin and stdout to the primary
 Wig instance, so the tools act on the browser windows that are already open. If
 Wig is not running yet, the command starts it.
 
+MCP is off by default. It is turned on with the MCP Server switch in
+`wig:settings/mcp` (the `enable-mcp` setting); until then `--mcp-stdio` exits
+with an error, and turning it off again disconnects every session.
+
 While a client is connected:
 
 - script dialogs (`alert`, `confirm`, `prompt`, `beforeunload`) are held for the

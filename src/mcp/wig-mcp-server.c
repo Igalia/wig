@@ -138,6 +138,15 @@ GListModel *wig_mcp_server_get_sessions(WigMcpServer *self)
   return G_LIST_MODEL(self->sessions);
 }
 
+void wig_mcp_server_disconnect_all(WigMcpServer *self)
+{
+  g_autoptr(GPtrArray) sessions = mcp_server_dup_sessions(self->protocol_server);
+
+  g_debug("mcp: disconnecting all %u sessions", sessions->len);
+  for (guint i = 0; i < sessions->len; i++)
+    mcp_session_close(g_ptr_array_index(sessions, i));
+}
+
 static void on_protocol_server_event(McpServer *server, McpServerEvent event, McpSession *session, gpointer user_data)
 {
   WigMcpServer *self = user_data;

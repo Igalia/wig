@@ -127,6 +127,7 @@ void wig_mcp_server_update_instrumentation(WigMcpServer *self);
 gboolean wig_mcp_server_handles_dialogs(WigMcpServer *self);
 
 GListModel *wig_mcp_server_get_sessions(WigMcpServer *self);
+void wig_mcp_server_disconnect_all(WigMcpServer *self);
 
 void wig_mcp_server_pending_dialog_free(PendingDialog *pending);
 
