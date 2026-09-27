@@ -19,7 +19,10 @@ While a client is connected:
 - console and network instrumentation is installed in every tab, and removed
   again once no session is active.
 
-Internal `wig:` pages cannot be loaded or inspected by a client.
+Connected sessions are listed/managed in the MCP Server pane of the settings
+page, `wig:settings/mcp`.
+Internal `wig:` pages themselves cannot be loaded or inspected
+by a client.
 
 Protocol parsing, lifecycle enforcement, sessions, and stdio framing are
 provided by the top-level `mcp-glib` static library. This directory supplies the

@@ -22,11 +22,14 @@
 
 #pragma once
 
-#include <glib.h>
+#include "wig-settings-search.h"
 
 G_BEGIN_DECLS
 
-gboolean wig_in_flatpak(void);
-char *wig_flatpak_dup_id(void);
+#define WIG_TYPE_SETTINGS_MCP (wig_settings_mcp_get_type())
+G_DECLARE_FINAL_TYPE(WigSettingsMcp, wig_settings_mcp, WIG, SETTINGS_MCP, GtkWidget)
+
+GtkWidget *wig_settings_mcp_new(void);
+void wig_settings_mcp_index(WigSettingsSearch *search, const char *pane, const char *pane_title);
 
 G_END_DECLS

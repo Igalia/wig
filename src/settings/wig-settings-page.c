@@ -25,6 +25,7 @@
 #include "wig-application.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
+#include "wig-settings-mcp.h"
 #include "wig-settings-memory.h"
 #include "wig-settings-permissions.h"
 #include "wig-settings-proxies.h"
@@ -98,6 +99,7 @@ char *wig_settings_page_moved_uri(const char *uri)
     { "wig:website-data", WIG_SETTINGS_PAGE_URI "/website-data" },
     { "wig:user-scripts", WIG_SETTINGS_PAGE_URI "/user-scripts" },
     { "wig:user-styles", WIG_SETTINGS_PAGE_URI "/user-styles" },
+    { "wig:mcp", WIG_SETTINGS_PAGE_URI "/mcp" },
   };
 
   if (!uri)
@@ -321,6 +323,13 @@ static void wig_settings_page_add_website_data_pane(WigSettingsPage *self)
   wig_settings_website_data_index(WIG_SETTINGS_SEARCH(self->search), "website-data", "Website Data");
 }
 
+static void wig_settings_page_add_mcp_pane(WigSettingsPage *self)
+{
+  adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_mcp_new(), "mcp", "MCP Server",
+                                      "network-transmit-receive-symbolic");
+  wig_settings_mcp_index(WIG_SETTINGS_SEARCH(self->search), "mcp", "MCP Server");
+}
+
 static char *wig_settings_page_first_pane(WigSettingsPage *self)
 {
   g_autoptr(GtkSelectionModel) pages = adw_view_stack_get_pages(ADW_VIEW_STACK(self->stack));
@@ -483,6 +492,7 @@ static void wig_settings_page_init(WigSettingsPage *self)
   wig_settings_page_add_proxies_pane(self);
   wig_settings_page_add_website_data_pane(self);
   wig_settings_page_add_memory_pane(self);
+  wig_settings_page_add_mcp_pane(self);
   g_signal_connect_object(stack, "notify::visible-child-name", G_CALLBACK(wig_settings_page_visible_pane_changed), self,
                           G_CONNECT_SWAPPED);
 
