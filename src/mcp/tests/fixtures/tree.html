@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tree Probe</title>
+<style>
+  #hidden-display { display: none; }
+  #hidden-visibility { visibility: hidden; }
+  #hidden-opacity { opacity: 0; }
+  .spacer { height: 1800px; }
+</style>
+</head>
+<body>
+  <h1>Probe Page</h1>
+  <h2><a href="/sub/">Heading With A Link</a></h2>
+
+  <p>The quick brown <strong>brown fox</strong> jumps <em>over</em> the lazy dog while
+     seventeen distinct tools are enumerated and forty two additional words pad this
+     paragraph out well past any plausible truncation threshold so that the word limit
+     can actually be observed in the emitted output.</p>
+
+  <p id="hidden-display">HIDDEN_BY_DISPLAY</p>
+  <p id="hidden-visibility">HIDDEN_BY_VISIBILITY</p>
+  <p id="hidden-opacity">HIDDEN_BY_OPACITY</p>
+
+  <script>
+    const marker = 'SCRIPT_SOURCE_LEAKED';
+  </script>
+
+  <div style="display: contents"><p>CONTENTS_WRAPPER_CHILD</p></div>
+
+  <form id="probe-form" action="/submit">
+    <label for="name">Name</label>
+    <input id="name" type="text" value="preset" placeholder="your name">
+    <input id="agree" type="checkbox" checked>
+    <select id="pick">
+      <option value="a">alpha</option>
+      <option value="b" selected>beta</option>
+      <option value="c">gamma</option>
+    </select>
+    <button type="submit">Send It</button>
+  </form>
+
+  <button disabled>Disabled Button</button>
+  <button aria-label="Close dialog">&#215;</button>
+  <a href="https://example.com/other">External Link</a>
+  <img src="/pic.png" alt="A described picture">
+  <div tabindex="0" role="button">Div As Button</div>
+
+  <div class="spacer"></div>
+  <p>DEEP_MARKER_BELOW_FOLD</p>
+  <button id="deep">Deep Button</button>
+</body>
+</html>

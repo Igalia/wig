@@ -36,6 +36,8 @@
 
 G_BEGIN_DECLS
 
+typedef struct _WigMcpServer WigMcpServer;
+
 #define WIG_TYPE_APPLICATION (wig_application_get_type())
 G_DECLARE_FINAL_TYPE(WigApplication, wig_application, WIG, APPLICATION, AdwApplication)
 
@@ -68,6 +70,8 @@ gboolean wig_application_focus_internal_page(WigApplication *app, const char *ur
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 gboolean wig_application_take_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
+void wig_application_suppress_next_history_navigation(WigApplication *app, WebKitWebView *web_view);
+void wig_application_cancel_history_navigation_suppression(WigApplication *app, WebKitWebView *web_view);
 
 GSettings *wig_application_get_settings(WigApplication *app);
 WebKitSettings *wig_application_get_web_settings(WigApplication *app);
@@ -86,5 +90,6 @@ void wig_application_untrack_notification(WigApplication *app, const char *id);
 WigPermissionsManager *wig_application_get_permissions_manager(WigApplication *app);
 WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app);
 WigNetworkMonitor *wig_application_get_network_monitor(WigApplication *app);
+WigMcpServer *wig_application_get_mcp_server(WigApplication *app);
 
 G_END_DECLS

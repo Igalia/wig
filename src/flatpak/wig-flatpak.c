@@ -34,3 +34,19 @@ gboolean wig_in_flatpak(void)
 
   return in_flatpak;
 }
+
+char *wig_flatpak_dup_id(void)
+{
+  g_autoptr(GKeyFile) info = g_key_file_new();
+  g_autoptr(GError) error = NULL;
+
+  if (!g_key_file_load_from_file(info, "/.flatpak-info", G_KEY_FILE_NONE, &error)) {
+    g_warning("flatpak: could not read /.flatpak-info: %s", error->message);
+    return NULL;
+  }
+
+  char *flatpak_id = g_key_file_get_string(info, "Application", "name", &error);
+  if (!flatpak_id)
+    g_warning("flatpak: /.flatpak-info has no flatpak id: %s", error->message);
+  return flatpak_id;
+}

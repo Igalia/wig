@@ -197,6 +197,11 @@
       <default>''</default>
       <summary>User Agent</summary>
     </key>
+
+    <key name="enable-mcp" type="b">
+      <default>false</default>
+      <summary>MCP Server</summary>
+    </key>
   </schema>
 
 </schemalist>

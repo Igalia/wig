@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Net Probe</title></head>
+<body>
+<h1>Net Probe</h1>
+<script>
+window.__requests = (async () => {
+  await fetch('/data.json').catch(() => {});
+  await fetch('/missing-thing.json').catch(() => {});
+  await fetch('/data.json', { method: 'POST', body: 'x' }).catch(() => {});
+  return 'done';
+})();
+</script>
+</body>
+</html>

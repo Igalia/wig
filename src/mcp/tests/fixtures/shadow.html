@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shadow Probe</title>
+</head>
+<body>
+  <h1>Shadow Probe</h1>
+
+  <div id="open-host"></div>
+  <div id="closed-host"></div>
+
+  <div id="slot-host">
+    <span>SLOTTED_LIGHT_TEXT</span>
+    <button id="slotted-button">Slotted Button</button>
+  </div>
+
+  <div id="nested-host"></div>
+
+  <script>
+    const open = document.getElementById('open-host').attachShadow({ mode: 'open' });
+    open.innerHTML = '<p>INSIDE_OPEN_SHADOW</p>'
+      + '<input id="shadow-input" placeholder="shadow field">'
+      + '<button id="shadow-button">Shadow Button</button>';
+    open.getElementById('shadow-button').addEventListener('click', event => {
+      event.target.textContent = 'SHADOW_BUTTON_CLICKED';
+    });
+
+    // Unreachable from page script by design; the extractor must not claim it.
+    const closed = document.getElementById('closed-host').attachShadow({ mode: 'closed' });
+    closed.innerHTML = '<p>INSIDE_CLOSED_SHADOW</p><button>Closed Button</button>';
+
+    const slotted = document.getElementById('slot-host').attachShadow({ mode: 'open' });
+    slotted.innerHTML = '<p>BEFORE_SLOT</p><slot></slot><p>AFTER_SLOT</p>';
+
+    const outer = document.getElementById('nested-host').attachShadow({ mode: 'open' });
+    outer.innerHTML = '<div id="inner-host"></div>';
+    const inner = outer.getElementById('inner-host').attachShadow({ mode: 'open' });
+    inner.innerHTML = '<button>Nested Shadow Button</button>';
+  </script>
+</body>
+</html>

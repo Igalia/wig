@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/com/igalia/wig/mcp">
+    <file alias="console.js">js/console.js</file>
+    <file alias="console-uninstall.js">js/console-uninstall.js</file>
+    <file alias="console-read.js">js/console-read.js</file>
+    <file alias="interaction.js">js/interaction.js</file>
+    <file alias="content-text.js">js/content-text.js</file>
+    <file alias="content-html.js">js/content-html.js</file>
+    <file alias="content-json.js">js/content-json.js</file>
+    <file alias="content-markdown.js">js/content-markdown.js</file>
+    <file alias="node-registry.js">js/node-registry.js</file>
+    <file alias="tree-walk.js">js/tree-walk.js</file>
+    <file alias="tree-text.js">js/tree-text.js</file>
+  </gresource>
+</gresources>

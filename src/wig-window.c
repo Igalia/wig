@@ -22,6 +22,7 @@
 
 #include "wig-window.h"
 
+#include "mcp/wig-mcp-server.h"
 #include "wig-application.h"
 #include "wig-bookmark-popover.h"
 #include "wig-context-menu.h"
@@ -311,6 +312,10 @@ static void wig_window_attach_web_view(WigWindow *win, WebKitWebView *web_view)
 
   if (g_hash_table_contains(win->web_view_signal_groups, web_view))
     return;
+
+  WigMcpServer *mcp_server = wig_application_get_mcp_server(wig_application_get());
+  if (mcp_server)
+    wig_mcp_server_watch_view(mcp_server, web_view);
 
   g_autoptr(GObject) signals_object = G_OBJECT(g_signal_group_new(WEBKIT_TYPE_WEB_VIEW));
   GSignalGroup *signals = G_SIGNAL_GROUP(signals_object);

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Console Probe</title></head>
+<body>
+<h1>Console Probe</h1>
+<script>
+console.debug('dbg line');
+console.log('log line', 42);
+console.info('info line');
+console.warn('warn line');
+console.error('error line');
+setTimeout(() => { throw new TypeError('uncaught boom'); }, 0);
+Promise.reject(new Error('unhandled rejection here'));
+</script>
+</body>
+</html>

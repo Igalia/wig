@@ -27,5 +27,6 @@
 G_BEGIN_DECLS
 
 gboolean wig_in_flatpak(void);
+char *wig_flatpak_dup_id(void);
 
 G_END_DECLS
