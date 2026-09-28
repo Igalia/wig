@@ -46,11 +46,6 @@ gboolean wig_mcp_server_start_stdio(WigMcpServer *self, GApplicationCommandLine 
     return FALSE;
   }
 
-  if (mcp_server_has_transport(self->protocol_server, MCP_TRANSPORT_STDIO)) {
-    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_BUSY, "An MCP stdio client is already connected");
-    return FALSE;
-  }
-
   g_autoptr(GInputStream) input = g_application_command_line_get_stdin(command_line);
   if (!input) {
     g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, "The invoking process did not provide stdin");
