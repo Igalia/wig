@@ -144,13 +144,34 @@ static void test_lifecycle(void)
   g_auto(TestTransport) response = { 0 };
   send_message(server, invalid_session, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}", &response);
   assert_error_code(response.response, -32002);
-  g_assert_cmpint(mcp_session_get_state(invalid_session), ==, MCP_SESSION_CLOSED);
+  g_assert_cmpint(mcp_session_get_state(invalid_session), ==, MCP_SESSION_NEW);
 
+  /* A rejected request before initialization leaves the session new, so a
+   * client that probed first can still initialize. */
   g_clear_pointer(&response.response, json_node_unref);
+  initialize_session(server, invalid_session);
+
   g_autoptr(McpSession) session = mcp_session_new(MCP_TRANSPORT_STDIO, NULL);
   initialize_session(server, session);
   g_assert_cmpstr(mcp_session_get_client_name(session), ==, "test");
   g_assert_cmpstr(mcp_session_get_client_version(session), ==, "1");
+}
+
+static void test_pre_initialize_probe(void)
+{
+  g_autoptr(JsonObject) capabilities = new_capabilities();
+  g_autoptr(McpServer) server = mcp_server_new("test-server", "1", capabilities);
+  g_autoptr(McpSession) session = mcp_session_new(MCP_TRANSPORT_STDIO, NULL);
+
+  /* A client negotiating a newer protocol revision probes with an unknown
+   * method before falling back to initialization. */
+  g_auto(TestTransport) probe = { 0 };
+  send_message(server, session, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"server/discover\"}", &probe);
+  assert_error_code(probe.response, -32002);
+  g_assert_cmpint(mcp_session_get_state(session), ==, MCP_SESSION_NEW);
+
+  initialize_session(server, session);
+  g_assert_cmpint(mcp_session_get_state(session), ==, MCP_SESSION_ACTIVE);
 }
 
 typedef struct {
@@ -199,7 +220,7 @@ static void test_batch_rejected(void)
   g_autoptr(JsonObject) capabilities = new_capabilities();
   g_autoptr(McpServer) server = mcp_server_new("test-server", "1", capabilities);
 
-  /* A batch arriving before initialize also closes the session. */
+  /* A batch arriving before initialize also leaves the session new. */
   g_autoptr(McpSession) new_session = mcp_session_new(MCP_TRANSPORT_STDIO, NULL);
   g_auto(TestTransport) new_response = { 0 };
   send_message(server, new_session,
@@ -209,7 +230,7 @@ static void test_batch_rejected(void)
                &new_response);
   assert_error_code(new_response.response, -32600);
   g_assert_cmpint(new_response.outcome, ==, MCP_TRANSPORT_OUTCOME_INVALID_INPUT);
-  g_assert_cmpint(mcp_session_get_state(new_session), ==, MCP_SESSION_CLOSED);
+  g_assert_cmpint(mcp_session_get_state(new_session), ==, MCP_SESSION_NEW);
 
   /* An established session rejects the batch but stays usable. */
   g_autoptr(McpSession) session = mcp_session_new(MCP_TRANSPORT_STDIO, NULL);
@@ -252,7 +273,7 @@ static void test_invalid_initialize(void)
 
   send_message(server, session, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}", &response);
   assert_error_code(response.response, -32602);
-  g_assert_cmpint(mcp_session_get_state(session), ==, MCP_SESSION_CLOSED);
+  g_assert_cmpint(mcp_session_get_state(session), ==, MCP_SESSION_NEW);
 }
 
 static McpMethodDisposition handle_pending(McpCall *call, gpointer user_data)
@@ -470,7 +491,7 @@ static void test_invalid_capabilities(void)
 
     send_message(server, session, message, &response);
     assert_error_code(response.response, -32602);
-    g_assert_cmpint(mcp_session_get_state(session), ==, MCP_SESSION_CLOSED);
+    g_assert_cmpint(mcp_session_get_state(session), ==, MCP_SESSION_NEW);
   }
 }
 
@@ -616,6 +637,7 @@ int main(int argc, char **argv)
   g_test_init(&argc, &argv, NULL);
 
   g_test_add_func("/mcp/lifecycle", test_lifecycle);
+  g_test_add_func("/mcp/pre-initialize-probe", test_pre_initialize_probe);
   g_test_add_func("/mcp/session-properties", test_session_properties);
   g_test_add_func("/mcp/batch-rejected", test_batch_rejected);
   g_test_add_func("/mcp/ping", test_ping);

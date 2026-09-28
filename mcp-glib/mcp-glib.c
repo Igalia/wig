@@ -380,8 +380,6 @@ static void dispatch_request(McpServer *server, McpSession *session, McpDispatch
 
   if (!validate_request_metadata(message->params)) {
     dispatch_error(dispatch, message->id, -32602, "Invalid request metadata");
-    if (session->state == MCP_SESSION_NEW)
-      session_set_state(session, MCP_SESSION_CLOSED);
     return;
   }
 
@@ -390,8 +388,6 @@ static void dispatch_request(McpServer *server, McpSession *session, McpDispatch
   if (g_str_equal(message->method, "initialize")) {
     if (session->state != MCP_SESSION_NEW) {
       dispatch_error(dispatch, message->id, -32600, "Initialize must be the first request");
-      if (session->state == MCP_SESSION_NEW)
-        session_set_state(session, MCP_SESSION_CLOSED);
       return;
     }
 
@@ -401,7 +397,6 @@ static void dispatch_request(McpServer *server, McpSession *session, McpDispatch
     JsonObject *capabilities = NULL;
     if (!validate_initialize(message, &protocol_version, &capabilities, &client_name, &client_version)) {
       dispatch_error(dispatch, message->id, -32602, "Invalid initialize parameters");
-      session_set_state(session, MCP_SESSION_CLOSED);
       return;
     }
 
@@ -436,9 +431,11 @@ static void dispatch_request(McpServer *server, McpSession *session, McpDispatch
     return;
   }
 
+  /* Rejecting a request sent before initialization must not close the session:
+   * clients that probe for a newer protocol revision (for example
+   * `server/discover`) fall back to `initialize` on the same connection. */
   if (session->state == MCP_SESSION_NEW) {
     dispatch_error(dispatch, message->id, -32002, "Initialize must be the first interaction");
-    session_set_state(session, MCP_SESSION_CLOSED);
     return;
   }
 
@@ -470,10 +467,8 @@ static void dispatch_request(McpServer *server, McpSession *session, McpDispatch
 
 static void dispatch_notification(McpSession *session, McpJsonrpcMessage *message)
 {
-  if (session->state == MCP_SESSION_NEW) {
-    session_set_state(session, MCP_SESSION_CLOSED);
+  if (session->state == MCP_SESSION_NEW)
     return;
-  }
 
   if (!validate_metadata_object(message->params))
     return;
@@ -492,8 +487,6 @@ static void dispatch_message(McpServer *server, McpSession *session, McpDispatch
   McpJsonrpcMessage message;
   if (!mcp_jsonrpc_parse_message(node, &message)) {
     dispatch_error(dispatch, message.id, -32600, "Invalid Request");
-    if (session->state == MCP_SESSION_NEW)
-      session_set_state(session, MCP_SESSION_CLOSED);
     return;
   }
 
@@ -506,8 +499,6 @@ static void dispatch_message(McpServer *server, McpSession *session, McpDispatch
     break;
   case MCP_JSONRPC_RESPONSE:
     /* Server-originated requests are not exposed yet; valid unsolicited responses are ignored. */
-    if (session->state == MCP_SESSION_NEW)
-      session_set_state(session, MCP_SESSION_CLOSED);
     break;
   case MCP_JSONRPC_INVALID:
     g_assert_not_reached();
@@ -650,8 +641,6 @@ void mcp_server_handle_message(McpServer *server, McpSession *session, McpTransp
   g_autoptr(JsonNode) root = mcp_jsonrpc_parse(data, length);
   if (!root) {
     g_autoptr(JsonNode) response = mcp_jsonrpc_new_error(NULL, -32700, "Parse error", NULL);
-    if (session->state == MCP_SESSION_NEW)
-      session_set_state(session, MCP_SESSION_CLOSED);
     transport_complete(transport, MCP_TRANSPORT_OUTCOME_RESPONSE, response);
     return;
   }
@@ -661,8 +650,6 @@ void mcp_server_handle_message(McpServer *server, McpSession *session, McpTransp
    * is lost by refusing the grouped form. */
   if (JSON_NODE_HOLDS_ARRAY(root)) {
     g_autoptr(JsonNode) response = mcp_jsonrpc_new_error(NULL, -32600, "JSON-RPC batches are not supported", NULL);
-    if (session->state == MCP_SESSION_NEW)
-      session_set_state(session, MCP_SESSION_CLOSED);
     transport_complete(transport, MCP_TRANSPORT_OUTCOME_INVALID_INPUT, response);
     return;
   }
