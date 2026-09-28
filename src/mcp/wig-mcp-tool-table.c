@@ -29,14 +29,14 @@ static const ToolDefinition tools[] = {
              "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
              "level_filter": { "type": "array",
                                "items": { "enum": ["debug", "log", "info", "warn", "error"] } } },
-             "additionalProperties": false }) },
+             "required": ["tab_handle"], "additionalProperties": false }) },
   { "browser_dialogs", "List or respond to pending JavaScript dialogs.",
     SCHEMA({ "type": "object", "properties": {
              "tab_handle": { "type": "integer", "minimum": 1 },
              "dialog_id": { "type": "integer", "minimum": 1 },
              "action": { "enum": ["accept", "dismiss"] },
              "text": { "type": "string" } },
-             "additionalProperties": false }) },
+             "required": ["tab_handle"], "additionalProperties": false }) },
   { "close_tab", "Close a browser tab.",
     SCHEMA({ "type": "object", "properties": { "tab_handle": { "type": "integer", "minimum": 1 } },
              "required": ["tab_handle"], "additionalProperties": false }) },
@@ -47,12 +47,12 @@ static const ToolDefinition tools[] = {
     SCHEMA({ "type": "object", "properties": {
              "tab_handle": { "type": "integer", "minimum": 1 },
              "script": { "type": "string" } },
-             "required": ["script"], "additionalProperties": false }) },
+             "required": ["tab_handle", "script"], "additionalProperties": false }) },
   { "get_network_request", "Get full captured network request details and response body.",
     SCHEMA({ "type": "object", "properties": {
              "tab_handle": { "type": "integer", "minimum": 1 },
              "request_id": { "type": "integer", "minimum": 1 } },
-             "required": ["request_id"], "additionalProperties": false }) },
+             "required": ["tab_handle", "request_id"], "additionalProperties": false }) },
   { "get_page_content", "Extract page content. The textTree format is an indented outline of the rendered page "
                         "in which every interactive element carries a uid that page_interactions can target; the "
                         "uid stays valid until the element leaves the document, so a page need not be re-extracted "
@@ -65,7 +65,7 @@ static const ToolDefinition tools[] = {
              "max_nodes": { "type": "integer", "minimum": 1, "maximum": 20000, "default": 1500 },
              "max_words_per_paragraph": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 30 },
              "include_containers": { "type": "boolean", "default": false } },
-             "additionalProperties": false }) },
+             "required": ["tab_handle"], "additionalProperties": false }) },
   { "list_network_requests", "List recent network request summaries for a tab, newest last. The buffer survives "
                              "navigations, and each summary carries the navigation that issued it. since and the "
                              "start field share units. clear discards only the requests actually returned, so a "
@@ -81,7 +81,7 @@ static const ToolDefinition tools[] = {
                "status_min": { "type": "integer", "minimum": 0 },
                "status_max": { "type": "integer", "minimum": 0 } },
                "additionalProperties": false } },
-             "additionalProperties": false }) },
+             "required": ["tab_handle"], "additionalProperties": false }) },
   { "list_tabs", "List all browser tabs. Each carries the window_handle of the window holding it, and active marks "
                  "the selected tab within that window, so one tab per window is active.",
     SCHEMA({ "type": "object", "additionalProperties": false }) },
@@ -90,10 +90,10 @@ static const ToolDefinition tools[] = {
              "tab_handle": { "type": "integer", "minimum": 1 },
              "url": { "type": "string" },
              "timeout": { "type": "number", "minimum": 0.1, "maximum": 30 } },
-             "required": ["url"], "additionalProperties": false }) },
+             "required": ["tab_handle", "url"], "additionalProperties": false }) },
   { "page_info", "Return URL, title, loading state, progress, and tab handle.",
     SCHEMA({ "type": "object", "properties": { "tab_handle": { "type": "integer", "minimum": 1 } },
-             "additionalProperties": false }) },
+             "required": ["tab_handle"], "additionalProperties": false }) },
   { "page_interactions", "Run sequential click, type, focus, scroll, hover, keyPress, and selectOption actions, "
                          "stopping at the first failure. Target an element with node (a uid from get_page_content's "
                          "textTree format, which is preferred because it reports precisely why it failed), selector "
@@ -118,18 +118,18 @@ static const ToolDefinition tools[] = {
                  "x": { "type": "number" },
                  "y": { "type": "number" } },
                "required": ["type"] } } },
-             "required": ["actions"], "additionalProperties": false }) },
+             "required": ["tab_handle", "actions"], "additionalProperties": false }) },
   { "screenshot", "Capture the visible viewport or full document as PNG.",
     SCHEMA({ "type": "object", "properties": {
              "tab_handle": { "type": "integer", "minimum": 1 },
              "full_document": { "type": "boolean", "default": false } },
-             "additionalProperties": false }) },
+             "required": ["tab_handle"], "additionalProperties": false }) },
   { "set_viewport_size", "Resize the owning toplevel to approximate a requested CSS viewport.",
     SCHEMA({ "type": "object", "properties": {
              "tab_handle": { "type": "integer", "minimum": 1 },
              "width": { "type": "integer", "minimum": 1, "maximum": 16384 },
              "height": { "type": "integer", "minimum": 1, "maximum": 16384 } },
-             "required": ["width", "height"], "additionalProperties": false }) },
+             "required": ["tab_handle", "width", "height"], "additionalProperties": false }) },
   { "switch_tab", "Select a browser tab.",
     SCHEMA({ "type": "object", "properties": { "tab_handle": { "type": "integer", "minimum": 1 } },
              "required": ["tab_handle"], "additionalProperties": false }) },
@@ -137,7 +137,7 @@ static const ToolDefinition tools[] = {
     SCHEMA({ "type": "object", "properties": {
              "tab_handle": { "type": "integer", "minimum": 1 },
              "timeout": { "type": "number", "minimum": 0.1, "maximum": 30 } },
-             "additionalProperties": false }) },
+             "required": ["tab_handle"], "additionalProperties": false }) },
 };
 // clang-format on
 

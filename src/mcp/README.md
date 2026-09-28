@@ -36,8 +36,8 @@ stdio connections and the WebKit tools.
 
 **Tabs.** Tabs are identified by an integer `tab_handle` and windows by a
 `window_handle`, both stable for the life of the process. Every tool that acts
-on a tab takes an optional `tab_handle`; without one it uses the selected tab of
-the active window, opening a window or a blank tab first if there is none.
+on a tab requires a `tab_handle`, taken from `create_tab` or `list_tabs`, so
+several clients sharing the browser never act on each other's tabs.
 
 **Results.** Unless a tool says otherwise, a successful call returns a single
 text block holding JSON. A failed call returns a text block with the error
@@ -117,7 +117,7 @@ Reports the state of a tab.
 
 | Argument     | Type    | Default    | Description |
 | ------------ | ------- | ---------- | ----------- |
-| `tab_handle` | integer | active tab | The tab.    |
+| `tab_handle` | integer | required   | The tab.    |
 
 Returns the tab's page info.
 
@@ -130,7 +130,7 @@ Loads a URL and waits for the navigation to finish.
 | Argument     | Type    | Default    | Description                            |
 | ------------ | ------- | ---------- | -------------------------------------- |
 | `url`        | string  | required   | The URL to load.                       |
-| `tab_handle` | integer | active tab | The tab.                               |
+| `tab_handle` | integer | required   | The tab.                               |
 | `timeout`    | number  | 30         | Seconds to wait, from 0.1 through 30. |
 
 Returns the page info with an extra `text` field holding the page's rendered
@@ -145,7 +145,7 @@ nothing is loading.
 
 | Argument     | Type    | Default    | Description                            |
 | ------------ | ------- | ---------- | -------------------------------------- |
-| `tab_handle` | integer | active tab | The tab.                               |
+| `tab_handle` | integer | required   | The tab.                               |
 | `timeout`    | number  | 30         | Seconds to wait, from 0.1 through 30. |
 
 Returns the tab's page info.
@@ -158,7 +158,7 @@ Extracts the content of the page.
 
 | Argument                  | Type    | Default    | Description                                                    |
 | ------------------------- | ------- | ---------- | -------------------------------------------------------------- |
-| `tab_handle`              | integer | active tab | The tab.                                                       |
+| `tab_handle`              | integer | required   | The tab.                                                       |
 | `format`                  | string  | `text`     | One of `textTree`, `text`, `html`, `markdown`, or `json`.      |
 | `region`                  | string  | `viewport` | `textTree` only: `viewport` or `document`.                     |
 | `max_nodes`               | integer | 1500       | `textTree` only: node limit, from 1 through 20000.             |
@@ -210,7 +210,7 @@ Evaluates a script in the page.
 | Argument     | Type    | Default    | Description             |
 | ------------ | ------- | ---------- | ----------------------- |
 | `script`     | string  | required   | The script to evaluate. |
-| `tab_handle` | integer | active tab | The tab.                |
+| `tab_handle` | integer | required   | The tab.                |
 
 Returns the script's completion value serialized as JSON. A thrown exception is
 reported as an error, and so is a result over 256 kB. A navigation the script
@@ -225,7 +225,7 @@ Runs a sequence of actions in the page, stopping at the first one that fails.
 | Argument         | Type    | Default    | Description                                                   |
 | ---------------- | ------- | ---------- | ------------------------------------------------------------- |
 | `actions`        | array   | required   | The actions to run, described below.                          |
-| `tab_handle`     | integer | active tab | The tab.                                                      |
+| `tab_handle`     | integer | required   | The tab.                                                      |
 | `return_content` | string  | `textTree` | `textTree` to return the resulting page, or `none`.           |
 | `region`         | string  | `viewport` | Region of the returned page: `viewport` or `document`.        |
 
@@ -271,7 +271,7 @@ Captures the page as a PNG.
 
 | Argument        | Type    | Default    | Description                                         |
 | --------------- | ------- | ---------- | --------------------------------------------------- |
-| `tab_handle`    | integer | active tab | The tab.                                            |
+| `tab_handle`    | integer | required   | The tab.                                            |
 | `full_document` | boolean | false      | Capture the whole document instead of the viewport. |
 
 Returns an image block with `mimeType` `image/png`. A capture over 4 MiB is
@@ -286,7 +286,7 @@ size.
 | ------------ | ------- | ---------- | ---------------------------------- |
 | `width`      | integer | required   | Width in pixels, 1 through 16384.  |
 | `height`     | integer | required   | Height in pixels, 1 through 16384. |
-| `tab_handle` | integer | active tab | The tab.                           |
+| `tab_handle` | integer | required   | The tab.                           |
 
 Returns:
 
@@ -305,7 +305,7 @@ Returns buffered console messages for a tab, oldest first.
 
 | Argument       | Type    | Default    | Description                                                        |
 | -------------- | ------- | ---------- | ------------------------------------------------------------------ |
-| `tab_handle`   | integer | active tab | The tab.                                                           |
+| `tab_handle`   | integer | required   | The tab.                                                           |
 | `level_filter` | array   | all levels | Levels to include: `debug`, `log`, `info`, `warn`, `error`.        |
 | `limit`        | integer | 100        | The most recent matching messages to return, 1 through 1000.       |
 | `clear`        | boolean | false      | Remove the returned messages from the buffer.                      |
@@ -347,7 +347,7 @@ Lists summaries of a tab's network requests, newest last.
 
 | Argument     | Type    | Default    | Description                                                     |
 | ------------ | ------- | ---------- | --------------------------------------------------------------- |
-| `tab_handle` | integer | active tab | The tab.                                                        |
+| `tab_handle` | integer | required   | The tab.                                                        |
 | `filter`     | object  | none       | Filters, described below.                                       |
 | `since`      | number  | none       | Only requests that started at or after this `start` value.      |
 | `limit`      | integer | 500        | The most recent matching requests to return, 1 through 500.     |
@@ -390,7 +390,7 @@ Returns the full details of one captured request, including its response body.
 | Argument     | Type    | Default    | Description                                          |
 | ------------ | ------- | ---------- | ---------------------------------------------------- |
 | `request_id` | integer | required   | A `request_id` from `list_network_requests`.         |
-| `tab_handle` | integer | active tab | The tab the request belongs to.                      |
+| `tab_handle` | integer | required   | The tab the request belongs to.                      |
 
 Returns:
 
@@ -415,7 +415,7 @@ Lists the script dialogs waiting on a tab, or answers one.
 
 | Argument     | Type    | Default    | Description                                     |
 | ------------ | ------- | ---------- | ----------------------------------------------- |
-| `tab_handle` | integer | active tab | The tab.                                        |
+| `tab_handle` | integer | required   | The tab.                                        |
 | `dialog_id`  | integer | none       | The dialog to answer.                           |
 | `action`     | string  | none       | `accept` or `dismiss`.                          |
 | `text`       | string  | none       | The reply to a `prompt` when accepting it.      |

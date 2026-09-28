@@ -100,6 +100,11 @@ class Client:
             raise RuntimeError(f"server negotiated {negotiated}, expected {PROTOCOL_VERSION}")
         self.notify("notifications/initialized")
 
+        tools = self.request("tools/list")["result"]["tools"]
+        self.tab_tools = {tool["name"] for tool in tools
+                          if "tab_handle" in tool["inputSchema"].get("required", [])}
+        self.tab = None
+
     def _read(self):
         for line in self.proc.stdout:
             line = line.strip()
@@ -135,7 +140,12 @@ class Client:
         self.proc.stdin.flush()
 
     def call(self, name, **arguments):
-        """Invoke a tool. Returns (blocks, is_error) with blocks as text."""
+        """Invoke a tool. Returns (blocks, is_error) with blocks as text.
+
+        A tool that requires a tab_handle is sent the client's own tab unless
+        the caller names one."""
+        if name in self.tab_tools and "tab_handle" not in arguments and self.tab is not None:
+            arguments["tab_handle"] = self.tab
         reply = self.request("tools/call", {"name": name, "arguments": arguments})
         if "error" in reply:
             raise AssertionError(f"{name} returned a protocol error: {reply['error']}")
@@ -222,9 +232,11 @@ def uid_of(tree, needle):
 
 
 # Must run first: the cold-start path exists only until a window and tab have
-# been created, and no later test can reach it.
-@test("navigate_to_url waits for the page when it must create the tab")
+# been created, and no later test can reach it. Every later test runs in the
+# tab it creates.
+@test("navigate_to_url waits for the page in the first tab of a new window")
 def test_cold_start_navigation(client, base):
+    client.tab = json.loads(client.ok("create_tab"))["tab_handle"]
     result = json.loads(client.ok("navigate_to_url", url=f"{base}/tree.html"))
     assert result["url"] == f"{base}/tree.html", f"returned {result['url']}"
     assert result["loading"] is False, "still loading"
@@ -605,6 +617,21 @@ def test_unknown_arguments(client, base):
 
     blocks, is_error = client.call("list_tabs", bogus=1)
     assert is_error, "a schema with no properties accepted an argument"
+
+
+@test("every tool that acts on a tab requires tab_handle")
+def test_tab_handle_required(client, base):
+    for tool in client.request("tools/list")["result"]["tools"]:
+        if "tab_handle" in tool["inputSchema"].get("properties", {}):
+            assert "tab_handle" in tool["inputSchema"].get("required", []), f"{tool['name']} defaults the tab"
+
+    result = client.request("tools/call", {"name": "page_info", "arguments": {}})["result"]
+    assert result.get("isError"), "page_info ran without a tab_handle"
+    assert "tab_handle" in result["content"][0]["text"], result["content"][0]["text"]
+
+    blocks, is_error = client.call("page_info", tab_handle="1")
+    assert is_error, "a string tab_handle was accepted"
+    assert "Invalid tab_handle" in blocks[0], blocks[0]
 
 
 @test("--mcp-stdio is refused while MCP is disabled in settings")

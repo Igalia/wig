@@ -52,24 +52,12 @@ static WigTab *create_tab(WigMcpServer *self, WigWindow *window, const char *uri
 static WigTab *find_tab(WigMcpServer *self, JsonObject *params, WigWindow **out_window, char **error)
 {
   guint64 requested = 0;
-  gboolean has_requested = wig_mcp_json_get_uint_member(params, "tab_handle", &requested);
-  GList *windows = gtk_application_get_windows(GTK_APPLICATION(self->application));
-
-  if (!has_requested) {
-    WigWindow *window = ensure_window(self);
-    WigTab *tab = wig_tab_list_get_active(wig_window_get_tab_list(window));
-    if (!tab)
-      tab = create_tab(self, window, "about:blank");
-    if (out_window)
-      *out_window = window;
-    return tab;
-  }
-
-  if (requested == 0 || requested > G_MAXUINT) {
+  if (!wig_mcp_json_get_uint_member(params, "tab_handle", &requested) || requested == 0 || requested > G_MAXUINT) {
     *error = g_strdup("Invalid tab_handle");
     return NULL;
   }
-  for (GList *l = windows; l; l = l->next) {
+
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(self->application)); l; l = l->next) {
     WigWindow *window = WIG_WINDOW(l->data);
     WigTab *tab = wig_tab_list_get_by_id(wig_window_get_tab_list(window), (guint)requested);
     if (tab) {
