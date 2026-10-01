@@ -2,7 +2,7 @@ id: com.igalia.SparkleCDM.Module.clearkey
 branch: master
 runtime: com.igalia.wig.WPE
 runtime-version: master
-sdk: org.gnome.Sdk//50
+sdk: org.gnome.Sdk//51
 build-extension: true
 appstream-compose: false
 separate-locales: false

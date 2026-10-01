@@ -10,4 +10,4 @@ config-opts:
 sources:
   - type: git
     url: https://gitlab.gnome.org/GNOME/libsoup.git
-    commit: 51216512b2afcd2fca0e2467a31a32d0c19d8b81
+    commit: 7d43af25f17bc1c77802e37309b76bc60780cd72
