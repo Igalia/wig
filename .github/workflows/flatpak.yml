@@ -149,10 +149,10 @@ jobs:
             manifest: flatpak/com.igalia.wig.yaml
             arch: x86_64
             runner: ubuntu-latest
-          - branch: master
-            manifest: flatpak/com.igalia.wig.yaml
-            arch: aarch64
-            runner: ubuntu-24.04-arm
+          # - branch: master
+          #   manifest: flatpak/com.igalia.wig.yaml
+          #   arch: aarch64
+          #   runner: ubuntu-24.04-arm
           - branch: '2.54'
             manifest: flatpak/com.igalia.wig-2.54.yaml
             arch: x86_64
