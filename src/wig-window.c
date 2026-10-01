@@ -2274,6 +2274,8 @@ static void wig_window_constructed(GObject *object)
   gtk_box_append(GTK_BOX(entry_box), win->pwa_button);
   g_signal_connect_object(wig_application_get_pwa_manager(wig_application_get()), "changed",
                           G_CALLBACK(wig_window_pwa_manager_changed), win, G_CONNECT_SWAPPED);
+  g_signal_connect_object(wig_application_get_pwa_manager(wig_application_get()), "removed",
+                          G_CALLBACK(wig_window_pwa_manager_changed), win, G_CONNECT_SWAPPED);
 #endif
 
   win->link_bookmark_popover = wig_bookmark_popover_new();

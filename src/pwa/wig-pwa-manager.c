@@ -77,7 +77,6 @@ typedef struct {
   gboolean metadata_changed;
   gboolean needs_desktop_update;
   gboolean needs_icon_update;
-  gboolean needs_scope_update;
   gboolean background_refresh;
   gboolean open_primary_scope_in_browser;
 } InstallData;
@@ -86,8 +85,7 @@ struct _WigPwaManager {
   GObject parent;
 
   char *path;
-  GVariantDict entries;
-  gboolean entries_initialized;
+  GVariant *entries;
   WebKitNetworkSession *network_session;
   WigAppInstaller *app_installer;
   GHashTable *refresh_attempts; /* char* id -> gint64* seconds */
@@ -97,6 +95,7 @@ G_DEFINE_FINAL_TYPE(WigPwaManager, wig_pwa_manager, G_TYPE_OBJECT)
 
 enum {
   SIGNAL_CHANGED,
+  SIGNAL_REMOVED,
   N_SIGNALS,
 };
 
@@ -238,7 +237,7 @@ static GVariant *entry_from_key_file(GKeyFile *key_file, const char *group, GErr
 
 static gboolean ensure_entries_loaded(WigPwaManager *self, GError **error)
 {
-  if (self->entries_initialized)
+  if (self->entries)
     return TRUE;
 
   g_autoptr(GKeyFile) key_file = g_key_file_new();
@@ -249,9 +248,8 @@ static gboolean ensure_entries_loaded(WigPwaManager *self, GError **error)
     return FALSE;
   }
 
-  g_variant_dict_init(&self->entries, NULL);
-  self->entries_initialized = TRUE;
-
+  GVariantDict entries;
+  g_variant_dict_init(&entries, NULL);
   gsize n_groups = 0;
   g_auto(GStrv) groups = g_key_file_get_groups(key_file, &n_groups);
   for (gsize i = 0; i < n_groups; i++) {
@@ -267,8 +265,9 @@ static gboolean ensure_entries_loaded(WigPwaManager *self, GError **error)
       g_warning("pwa: ignoring invalid web app '%s': %s", id, entry_error->message);
       continue;
     }
-    g_variant_dict_insert_value(&self->entries, id, entry);
+    g_variant_dict_insert_value(&entries, id, entry);
   }
+  self->entries = g_variant_ref_sink(g_variant_dict_end(&entries));
   return TRUE;
 }
 
@@ -277,25 +276,12 @@ static GVariant *lookup_entry(WigPwaManager *self, const char *id, GError **erro
   if (!ensure_entries_loaded(self, error))
     return NULL;
 
-  GVariant *entry = g_variant_dict_lookup_value(&self->entries, id, G_VARIANT_TYPE_VARDICT);
+  GVariant *entry = g_variant_lookup_value(self->entries, id, G_VARIANT_TYPE_VARDICT);
   if (!entry) {
     g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Web app '%s' is not installed", id);
     return NULL;
   }
   return entry;
-}
-
-static GVariant *snapshot_entries(WigPwaManager *self)
-{
-  GVariant *entries = g_variant_ref_sink(g_variant_dict_end(&self->entries));
-  g_variant_dict_init(&self->entries, entries);
-  return entries;
-}
-
-static void replace_entries(WigPwaManager *self, GVariant *entries)
-{
-  g_variant_dict_clear(&self->entries);
-  g_variant_dict_init(&self->entries, entries);
 }
 
 static void install_data_free(InstallData *data)
@@ -324,23 +310,21 @@ static void install_data_free(InstallData *data)
   g_free(data);
 }
 
-static GVariant *build_manifest_entry(const char *manifest_url, const char *start_url, const char *scope,
-                                      GVariant *manifest, const char *background_color, GVariant *shortcuts,
-                                      GPtrArray *extension_scopes, const char *desktop_file, const char *icon_file)
+static GVariant *build_manifest_entry(InstallData *data, const char *desktop_file, const char *icon_file)
 {
   GVariantBuilder entry_builder;
   g_variant_builder_init(&entry_builder, G_VARIANT_TYPE_VARDICT);
-  g_variant_builder_add(&entry_builder, "{sv}", "manifest", manifest);
-  g_variant_builder_add(&entry_builder, "{sv}", "manifest_url", g_variant_new_string(manifest_url));
-  g_variant_builder_add(&entry_builder, "{sv}", "start_url", g_variant_new_string(start_url));
-  g_variant_builder_add(&entry_builder, "{sv}", "scope", g_variant_new_string(scope));
-  if (background_color)
-    g_variant_builder_add(&entry_builder, "{sv}", "background_color", g_variant_new_string(background_color));
-  g_variant_builder_add(&entry_builder, "{sv}", "shortcuts", shortcuts);
+  g_variant_builder_add(&entry_builder, "{sv}", "manifest", data->manifest);
+  g_variant_builder_add(&entry_builder, "{sv}", "manifest_url", g_variant_new_string(data->manifest_url));
+  g_variant_builder_add(&entry_builder, "{sv}", "start_url", g_variant_new_string(data->start_url));
+  g_variant_builder_add(&entry_builder, "{sv}", "scope", g_variant_new_string(data->scope));
+  if (data->background_color)
+    g_variant_builder_add(&entry_builder, "{sv}", "background_color", g_variant_new_string(data->background_color));
+  g_variant_builder_add(&entry_builder, "{sv}", "shortcuts", data->shortcuts);
   GVariantBuilder extensions_builder;
   g_variant_builder_init(&extensions_builder, G_VARIANT_TYPE_STRING_ARRAY);
-  for (guint i = 0; extension_scopes && i < extension_scopes->len; i++)
-    g_variant_builder_add(&extensions_builder, "s", (const char *)g_ptr_array_index(extension_scopes, i));
+  for (guint i = 0; data->extension_scopes && i < data->extension_scopes->len; i++)
+    g_variant_builder_add(&extensions_builder, "s", (const char *)g_ptr_array_index(data->extension_scopes, i));
   g_variant_builder_add(&entry_builder, "{sv}", "scope_extensions", g_variant_builder_end(&extensions_builder));
   g_variant_builder_add(&entry_builder, "{sv}", "last_updated",
                         g_variant_new_int64(g_get_real_time() / G_USEC_PER_SEC));
@@ -508,77 +492,63 @@ static gboolean write_entries(WigPwaManager *self, GVariant *entries, GError **e
   return wig_key_file_save(key_file, self->path, error);
 }
 
-static gboolean update_entry(WigPwaManager *self, const char *id, GVariant *entry, GError **error)
+static gboolean commit_entry(WigPwaManager *self, const char *id, GVariant *entry, GError **error)
 {
-  g_autoptr(GVariant) current_entries = snapshot_entries(self);
   GVariantDict updated_entries;
-  g_variant_dict_init(&updated_entries, current_entries);
-  g_variant_dict_insert_value(&updated_entries, id, entry);
+  g_variant_dict_init(&updated_entries, self->entries);
+  if (entry)
+    g_variant_dict_insert_value(&updated_entries, id, entry);
+  else
+    g_variant_dict_remove(&updated_entries, id);
   g_autoptr(GVariant) entries = g_variant_ref_sink(g_variant_dict_end(&updated_entries));
   if (!write_entries(self, entries, error))
     return FALSE;
 
-  replace_entries(self, entries);
+  g_clear_pointer(&self->entries, g_variant_unref);
+  self->entries = g_steal_pointer(&entries);
+  return TRUE;
+}
+
+static gboolean update_entry(WigPwaManager *self, const char *id, GVariant *entry, GError **error)
+{
+  if (!commit_entry(self, id, entry, error))
+    return FALSE;
   g_signal_emit(self, signals[SIGNAL_CHANGED], 0, id);
   return TRUE;
 }
 
 static gboolean remove_entry(WigPwaManager *self, const char *id, GError **error)
 {
-  g_autoptr(GVariant) current_entries = snapshot_entries(self);
-  GVariantDict updated_entries;
-  g_variant_dict_init(&updated_entries, current_entries);
-  g_variant_dict_remove(&updated_entries, id);
-  g_autoptr(GVariant) entries = g_variant_ref_sink(g_variant_dict_end(&updated_entries));
-  if (!write_entries(self, entries, error))
+  if (!commit_entry(self, id, NULL, error))
     return FALSE;
-
-  replace_entries(self, entries);
-  g_signal_emit(self, signals[SIGNAL_CHANGED], 0, id);
+  g_signal_emit(self, signals[SIGNAL_REMOVED], 0, id);
   return TRUE;
 }
 
-static gboolean store_manifest(WigPwaManager *self, const char *id, const char *manifest_url, const char *start_url,
-                               const char *scope, GVariant *manifest, const char *background_color, GVariant *shortcuts,
-                               GPtrArray *extension_scopes, const char *desktop_file, const char *icon_file,
-                               gboolean open_primary_scope_in_browser, GError **error)
+static gboolean store_manifest(WigPwaManager *self, InstallData *data, const char *desktop_file, const char *icon_file,
+                               GError **error)
 {
   if (!ensure_entries_loaded(self, error))
     return FALSE;
 
-  g_autoptr(GVariant) previous_entry = g_variant_dict_lookup_value(&self->entries, id, G_VARIANT_TYPE_VARDICT);
-  g_autoptr(GVariant) entry = build_manifest_entry(manifest_url, start_url, scope, manifest, background_color,
-                                                   shortcuts, extension_scopes, desktop_file, icon_file);
-  if (!previous_entry && open_primary_scope_in_browser) {
-    GVariantDict new_entry;
-    g_variant_dict_init(&new_entry, entry);
-    g_variant_dict_insert(&new_entry, "open_primary_scope_in_browser", "b", TRUE);
-    g_clear_pointer(&entry, g_variant_unref);
-    entry = g_variant_ref_sink(g_variant_dict_end(&new_entry));
-  } else if (previous_entry) {
-    GVariantDict updated_entry;
-    g_variant_dict_init(&updated_entry, entry);
+  g_autoptr(GVariant) previous_entry = g_variant_lookup_value(self->entries, data->id, G_VARIANT_TYPE_VARDICT);
+  g_autoptr(GVariant) built_entry = build_manifest_entry(data, desktop_file, icon_file);
+  GVariantDict entry;
+  g_variant_dict_init(&entry, built_entry);
+  if (!previous_entry) {
+    if (data->open_primary_scope_in_browser)
+      g_variant_dict_insert(&entry, "open_primary_scope_in_browser", "b", TRUE);
+  } else {
     const char *client_mode = wig_pwa_variant_lookup_string(previous_entry, "launch_client_mode");
     if (client_mode)
-      g_variant_dict_insert(&updated_entry, "launch_client_mode", "s", client_mode);
-    g_autoptr(GVariant) open_in_browser = g_variant_lookup_value(previous_entry, "open_primary_scope_in_browser",
-                                                                 G_VARIANT_TYPE_BOOLEAN);
-    if (open_in_browser)
-      g_variant_dict_insert_value(&updated_entry, "open_primary_scope_in_browser", open_in_browser);
-    g_clear_pointer(&entry, g_variant_unref);
-    entry = g_variant_ref_sink(g_variant_dict_end(&updated_entry));
+      g_variant_dict_insert(&entry, "launch_client_mode", "s", client_mode);
+    gboolean open_in_browser;
+    if (g_variant_lookup(previous_entry, "open_primary_scope_in_browser", "b", &open_in_browser))
+      g_variant_dict_insert(&entry, "open_primary_scope_in_browser", "b", open_in_browser);
   }
 
-  g_autoptr(GVariant) current_entries = snapshot_entries(self);
-  GVariantDict updated_entries;
-  g_variant_dict_init(&updated_entries, current_entries);
-  g_variant_dict_insert_value(&updated_entries, id, entry);
-  g_autoptr(GVariant) entries = g_variant_ref_sink(g_variant_dict_end(&updated_entries));
-  if (!write_entries(self, entries, error))
-    return FALSE;
-
-  replace_entries(self, entries);
-  return TRUE;
+  g_autoptr(GVariant) stored_entry = g_variant_ref_sink(g_variant_dict_end(&entry));
+  return commit_entry(self, data->id, stored_entry, error);
 }
 
 static gboolean variant_values_equal(GVariant *first, GVariant *second)
@@ -607,12 +577,12 @@ static gboolean install_data_prepare(WigPwaManager *self, InstallData *data, GEr
   if (!ensure_entries_loaded(self, error))
     return FALSE;
 
-  g_autoptr(GVariant) previous = g_variant_dict_lookup_value(&self->entries, data->id, G_VARIANT_TYPE_VARDICT);
+  g_autoptr(GVariant) previous = g_variant_lookup_value(self->entries, data->id, G_VARIANT_TYPE_VARDICT);
+  gboolean needs_scope_update = TRUE;
   if (!previous) {
     data->metadata_changed = TRUE;
     data->needs_desktop_update = TRUE;
     data->needs_icon_update = TRUE;
-    data->needs_scope_update = TRUE;
   } else {
     g_autoptr(GVariant) previous_manifest = g_variant_lookup_value(previous, "manifest", G_VARIANT_TYPE_VARDICT);
     data->metadata_changed = !entry_variant_equal(previous, "manifest", data->manifest)
@@ -626,14 +596,14 @@ static gboolean install_data_prepare(WigPwaManager *self, InstallData *data, GEr
         || !manifest_member_equal(previous_manifest, data->manifest, "short_name")
         || !manifest_member_equal(previous_manifest, data->manifest, "description")
         || !manifest_member_equal(previous_manifest, data->manifest, "protocol_handlers");
-    data->needs_scope_update = !manifest_member_equal(previous_manifest, data->manifest, "scope_extensions");
+    needs_scope_update = !manifest_member_equal(previous_manifest, data->manifest, "scope_extensions");
   }
 
   if (!data->metadata_changed)
     return TRUE;
 
   data->extension_scopes = g_ptr_array_new_with_free_func(g_free);
-  if (data->needs_scope_update) {
+  if (needs_scope_update) {
     data->extension_origins = manifest_scope_extension_origins(data->manifest);
     return TRUE;
   }
@@ -687,9 +657,7 @@ static void store_finished_install(GTask *task)
   const char *icon_file = data->installer_artifacts ? data->installer_artifacts->icon_file : data->old_icon_file;
   g_assert(desktop_file != NULL);
 
-  if (!store_manifest(self, data->id, data->manifest_url, data->start_url, data->scope, data->manifest,
-                      data->background_color, data->shortcuts, data->extension_scopes, desktop_file, icon_file,
-                      data->open_primary_scope_in_browser, &error)) {
+  if (!store_manifest(self, data, desktop_file, icon_file, &error)) {
     g_autoptr(GError) rollback_error = NULL;
     if (data->installer_artifacts && !data->old_desktop_file) {
       if (!wig_app_installer_uninstall(self->app_installer, data->id, data->installer_artifacts->desktop_file,
@@ -741,7 +709,7 @@ static void finish_install(GTask *task)
     g_task_return_error(task, g_steal_pointer(&error));
     return;
   }
-  g_autoptr(GVariant) old_entry = g_variant_dict_lookup_value(&self->entries, data->id, G_VARIANT_TYPE_VARDICT);
+  g_autoptr(GVariant) old_entry = g_variant_lookup_value(self->entries, data->id, G_VARIANT_TYPE_VARDICT);
   if (old_entry) {
     data->old_desktop_file = g_strdup(wig_pwa_variant_lookup_string(old_entry, "desktop_file"));
     data->old_icon_file = g_strdup(wig_pwa_variant_lookup_string(old_entry, "icon_file"));
@@ -962,10 +930,7 @@ static void wig_pwa_manager_dispose(GObject *object)
 {
   WigPwaManager *self = WIG_PWA_MANAGER(object);
 
-  if (self->entries_initialized) {
-    g_variant_dict_clear(&self->entries);
-    self->entries_initialized = FALSE;
-  }
+  g_clear_pointer(&self->entries, g_variant_unref);
   g_clear_object(&self->network_session);
   g_clear_object(&self->app_installer);
 
@@ -989,6 +954,8 @@ static void wig_pwa_manager_class_init(WigPwaManagerClass *klass)
   object_class->finalize = wig_pwa_manager_finalize;
 
   signals[SIGNAL_CHANGED] = g_signal_new("changed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
+                                         G_TYPE_NONE, 1, G_TYPE_STRING);
+  signals[SIGNAL_REMOVED] = g_signal_new("removed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
                                          G_TYPE_NONE, 1, G_TYPE_STRING);
 }
 
@@ -1160,7 +1127,7 @@ static gboolean refresh_is_due(WigPwaManager *self, const char *id)
   g_autoptr(GError) error = NULL;
   if (!id || !ensure_entries_loaded(self, &error))
     return FALSE;
-  g_autoptr(GVariant) entry = g_variant_dict_lookup_value(&self->entries, id, G_VARIANT_TYPE_VARDICT);
+  g_autoptr(GVariant) entry = g_variant_lookup_value(self->entries, id, G_VARIANT_TYPE_VARDICT);
   if (!entry)
     return FALSE;
 
@@ -1207,7 +1174,10 @@ gboolean wig_pwa_manager_is_installed(WigPwaManager *self, const char *id, GErro
   g_return_val_if_fail(id != NULL, FALSE);
   g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
 
-  return ensure_entries_loaded(self, error) && g_variant_dict_contains(&self->entries, id);
+  if (!ensure_entries_loaded(self, error))
+    return FALSE;
+  g_autoptr(GVariant) entry = g_variant_lookup_value(self->entries, id, NULL);
+  return entry != NULL;
 }
 
 GVariant *wig_pwa_manager_list(WigPwaManager *self, GError **error)
@@ -1222,9 +1192,8 @@ GVariant *wig_pwa_manager_list(WigPwaManager *self, GError **error)
     return NULL;
   }
 
-  g_autoptr(GVariant) entries = snapshot_entries(self);
   GVariantIter iterator;
-  g_variant_iter_init(&iterator, entries);
+  g_variant_iter_init(&iterator, self->entries);
   while (TRUE) {
     g_autoptr(GVariant) dictionary_entry = g_variant_iter_next_value(&iterator);
     if (!dictionary_entry)
@@ -1391,9 +1360,8 @@ char *wig_pwa_manager_find_for_primary_scope(WigPwaManager *self, const char *ur
 
   g_autofree char *best_id = NULL;
   gsize best_scope_length = 0;
-  g_autoptr(GVariant) entries = snapshot_entries(self);
   GVariantIter iterator;
-  g_variant_iter_init(&iterator, entries);
+  g_variant_iter_init(&iterator, self->entries);
   while (TRUE) {
     g_autoptr(GVariant) dictionary_entry = g_variant_iter_next_value(&iterator);
     if (!dictionary_entry)

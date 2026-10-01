@@ -447,6 +447,7 @@ static void wig_settings_web_apps_init(WigSettingsWebApps *self)
   adw_preferences_page_add(ADW_PREFERENCES_PAGE(self->page), self->group);
 
   g_signal_connect_object(self->manager, "changed", G_CALLBACK(web_apps_changed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(self->manager, "removed", G_CALLBACK(web_apps_changed), self, G_CONNECT_SWAPPED);
 }
 
 GtkWidget *wig_settings_web_apps_new(void)

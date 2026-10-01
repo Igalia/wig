@@ -708,6 +708,47 @@ static void wig_application_mcp_enabled_changed(WigApplication *app)
     wig_mcp_server_disconnect_all(app->mcp_server);
 }
 
+static void wig_application_record_history(WigApplication *app, WebKitWebView *web_view)
+{
+  g_signal_connect(web_view, "load-changed", G_CALLBACK(on_web_view_load_changed), app);
+  g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
+  g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
+}
+
+static void wig_application_release_web_app_window(WigApplication *app, WigPwaWindow *pwa_window)
+{
+  g_autoptr(WigTab) tab = wig_pwa_window_take_tab(pwa_window);
+  wig_application_record_history(app, wig_tab_get_web_view(tab));
+
+  WigWindow *window = wig_window_new(app);
+  int width, height;
+  gtk_window_get_default_size(GTK_WINDOW(pwa_window), &width, &height);
+  gtk_window_set_default_size(GTK_WINDOW(window), width, height);
+  if (gtk_window_is_maximized(GTK_WINDOW(pwa_window)))
+    gtk_window_maximize(GTK_WINDOW(window));
+  wig_tab_list_attach(wig_window_get_tab_list(window), tab);
+  wig_tab_list_set_active(wig_window_get_tab_list(window), tab);
+  gtk_window_present(GTK_WINDOW(window));
+
+  /* Destroyed only once the browser window exists, so the app window is never
+   * the last one and taking it away does not end the session. */
+  gtk_window_destroy(GTK_WINDOW(pwa_window));
+  g_debug("Released tab %u of uninstalled web app into a browser window", wig_tab_get_id(tab));
+}
+
+static void wig_application_web_app_removed(WigPwaManager *manager, const char *id, WigApplication *app)
+{
+  g_autoptr(GPtrArray) pwa_windows = g_ptr_array_new_with_free_func(g_object_unref);
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (WIG_IS_PWA_WINDOW(l->data) && g_str_equal(wig_pwa_window_get_id(WIG_PWA_WINDOW(l->data)), id))
+      g_ptr_array_add(pwa_windows, g_object_ref(l->data));
+  }
+
+  g_debug("Web app %s was uninstalled, releasing %u windows", id, pwa_windows->len);
+  for (guint i = 0; i < pwa_windows->len; i++)
+    wig_application_release_web_app_window(app, g_ptr_array_index(pwa_windows, i));
+}
+
 static void wig_application_startup(GApplication *application)
 {
   WigApplication *app = WIG_APPLICATION(application);
@@ -760,6 +801,7 @@ static void wig_application_startup(GApplication *application)
 
   app->network_session = webkit_network_session_new(data_dir, cache_dir);
   app->pwa_manager = wig_pwa_manager_new(config_dir, data_dir, app->network_session);
+  g_signal_connect(app->pwa_manager, "removed", G_CALLBACK(wig_application_web_app_removed), app);
   g_autoptr(GError) history_error = NULL;
   app->history_store = wig_history_store_new(state_dir, &history_error);
   if (!app->history_store)
@@ -1166,11 +1208,8 @@ static WebKitWebView *wig_application_create_web_view_internal(WigApplication *a
       app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
   g_signal_connect(web_view, "decide-policy", G_CALLBACK(on_web_view_decide_policy), app);
   g_signal_connect(web_view, "load-failed", G_CALLBACK(on_load_failed), app);
-  if (record_history) {
-    g_signal_connect(web_view, "load-changed", G_CALLBACK(on_web_view_load_changed), app);
-    g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
-    g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
-  }
+  if (record_history)
+    wig_application_record_history(app, web_view);
 
   return web_view;
 }

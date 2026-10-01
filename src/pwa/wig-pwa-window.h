@@ -36,6 +36,7 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
                                  const char *background_color, WigTab *tab);
 const char *wig_pwa_window_get_id(WigPwaWindow *self);
 WebKitWebView *wig_pwa_window_get_web_view(WigPwaWindow *self);
+WigTab *wig_pwa_window_take_tab(WigPwaWindow *self);
 gboolean wig_pwa_window_is_current_uri_in_scope(WigPwaWindow *self);
 
 G_END_DECLS

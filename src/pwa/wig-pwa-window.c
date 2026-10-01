@@ -85,9 +85,10 @@ static void wig_pwa_window_pwa_manager_changed(WigPwaWindow *self, const char *i
   if (g_strcmp0(id, self->id) != 0)
     return;
 
+  WigPwaManager *manager = wig_application_get_pwa_manager(wig_application_get());
   g_autoptr(GError) error = NULL;
-  g_autoptr(WigPwaNavigationPolicy) navigation_policy = wig_pwa_manager_get_navigation_policy(
-      wig_application_get_pwa_manager(wig_application_get()), self->id, &error);
+  g_autoptr(WigPwaNavigationPolicy) navigation_policy = wig_pwa_manager_get_navigation_policy(manager, self->id,
+                                                                                              &error);
   if (!navigation_policy) {
     g_warning("Failed to update web app navigation policy: %s", error->message);
     return;
@@ -515,6 +516,17 @@ WebKitWebView *wig_pwa_window_get_web_view(WigPwaWindow *self)
 {
   g_return_val_if_fail(WIG_IS_PWA_WINDOW(self), NULL);
   return wig_tab_get_web_view(self->tab);
+}
+
+WigTab *wig_pwa_window_take_tab(WigPwaWindow *self)
+{
+  g_assert(self->tab != NULL);
+
+  g_signal_group_set_target(self->web_view_signals, NULL);
+  wig_window_base_set_active_web_view(WIG_WINDOW_BASE(self), NULL);
+  wig_window_base_detach_web_view(WIG_WINDOW_BASE(self), wig_tab_get_web_view(self->tab));
+  gtk_window_set_child(GTK_WINDOW(self), NULL);
+  return g_steal_pointer(&self->tab);
 }
 
 gboolean wig_pwa_window_is_current_uri_in_scope(WigPwaWindow *self)
