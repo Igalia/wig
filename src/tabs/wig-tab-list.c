@@ -424,6 +424,30 @@ GPtrArray *wig_tab_list_get_selected(WigTabList *self)
   return selected;
 }
 
+static int wig_tab_list_compare_last_active(gconstpointer a, gconstpointer b)
+{
+  WigTab *tab_a = *(WigTab *const *)a;
+  WigTab *tab_b = *(WigTab *const *)b;
+
+  if (wig_tab_get_active(tab_a) != wig_tab_get_active(tab_b))
+    return wig_tab_get_active(tab_a) ? -1 : 1;
+
+  gint64 last_a = wig_tab_get_last_active(tab_a);
+  gint64 last_b = wig_tab_get_last_active(tab_b);
+  if (last_a == last_b)
+    return 0;
+  return last_a > last_b ? -1 : 1;
+}
+
+GPtrArray *wig_tab_list_get_by_last_active(WigTabList *self)
+{
+  GPtrArray *tabs = g_ptr_array_new_full(self->tabs->len, g_object_unref);
+  for (guint i = 0; i < self->tabs->len; i++)
+    g_ptr_array_add(tabs, g_object_ref(g_ptr_array_index(self->tabs, i)));
+  g_ptr_array_sort(tabs, wig_tab_list_compare_last_active);
+  return tabs;
+}
+
 static void on_action_reload(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigTabList *self = WIG_TAB_LIST(user_data);

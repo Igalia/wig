@@ -46,6 +46,7 @@ WigTab *wig_tab_list_detach(WigTabList *self, WigTab *tab);
 void wig_tab_list_attach(WigTabList *self, WigTab *tab);
 
 GPtrArray *wig_tab_list_get_selected(WigTabList *self);
+GPtrArray *wig_tab_list_get_by_last_active(WigTabList *self);
 
 void wig_tab_list_set_pinned(WigTabList *self, WigTab *tab, gboolean pinned);
 

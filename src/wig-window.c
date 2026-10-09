@@ -34,6 +34,7 @@
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
 #include "wig-tab-sidebar.h"
+#include "wig-tab-switcher.h"
 #include "wig-tab.h"
 #include "wig-utils.h"
 #include "wpe-toplevel-gtk.h"
@@ -57,6 +58,7 @@ struct _WigWindow {
   GdkRectangle context_menu_target;
   GtkWidget *entry_completion_popover;
   WigTabList *tab_list;
+  WigTabSwitcher *tab_switcher;
   GtkWidget *content_box;
   GtkWidget *paned;
   GtkWidget *tab_bar;
@@ -692,6 +694,7 @@ static void wig_window_show_tab_sidebar(WigWindow *win)
   g_clear_pointer(&win->tab_separator, gtk_widget_unparent);
 
   win->tab_sidebar = wig_tab_sidebar_new(win->tab_list);
+  wig_tab_switcher_set_view(win->tab_switcher, WIG_TAB_LIST_VIEW(win->tab_sidebar));
   wig_window_add_tab_view_context_menu(win, win->tab_sidebar);
   gtk_paned_set_start_child(GTK_PANED(win->paned), win->tab_sidebar);
   gtk_widget_set_visible(win->tab_sidebar, !gtk_window_is_fullscreen(GTK_WINDOW(win)));
@@ -706,6 +709,7 @@ static void wig_window_show_tab_bar(WigWindow *win)
   win->tab_sidebar = NULL;
 
   win->tab_bar = wig_tab_bar_new(win->tab_list);
+  wig_tab_switcher_set_view(win->tab_switcher, WIG_TAB_LIST_VIEW(win->tab_bar));
   wig_window_add_tab_view_context_menu(win, win->tab_bar);
   gtk_box_insert_child_after(GTK_BOX(win->content_box), win->tab_bar, NULL);
 
@@ -1940,6 +1944,8 @@ static void wig_window_constructed(GObject *object)
   g_signal_connect_object(win->tab_list, "detach-tab", G_CALLBACK(wig_window_tab_detach_requested), win,
                           G_CONNECT_DEFAULT);
 
+  win->tab_switcher = wig_tab_switcher_new(GTK_WINDOW(win), win->tab_list);
+
   win->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *content_box = win->content_box;
 
@@ -1986,6 +1992,8 @@ static void wig_window_dispose(GObject *object)
   /* Tearing down the tabs below emits signals that would otherwise reach the bar
    * while the window is already going away. */
   win->search_bar = NULL;
+
+  g_clear_object(&win->tab_switcher);
 
   if (win->tab_list) {
     WigApplication *app = wig_application_get();

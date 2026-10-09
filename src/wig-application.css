@@ -342,6 +342,11 @@ wig-tab.selected {
   border-radius: 6px;
 }
 
+wig-tab.highlighted {
+  outline: 2px solid alpha(@accent_color, 0.5);
+  outline-offset: -2px;
+}
+
 
 /* How far along a WebKit feature is, tinted with the colour the status class
  * gives the label. */

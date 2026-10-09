@@ -43,6 +43,7 @@ struct _WigTabWidget {
   GtkWidget *snapshot_popover;
   GCancellable *snapshot_cancellable;
   guint snapshot_timeout_id;
+  gboolean preview_held;
 };
 
 G_DEFINE_FINAL_TYPE(WigTabWidget, wig_tab_widget, GTK_TYPE_WIDGET)
@@ -347,11 +348,8 @@ static void wig_tab_widget_snapshot_ready(GObject *source_object, GAsyncResult *
   gtk_popover_popup(GTK_POPOVER(self->snapshot_popover));
 }
 
-static void wig_tab_widget_snapshot_timeout(gpointer user_data)
+static void wig_tab_widget_take_snapshot(WigTabWidget *self)
 {
-  WigTabWidget *self = WIG_TAB_WIDGET(user_data);
-  self->snapshot_timeout_id = 0;
-
   WebKitWebView *web_view = wig_tab_get_web_view(self->tab);
   if (!web_view)
     return;
@@ -377,6 +375,26 @@ static void wig_tab_widget_snapshot_timeout(gpointer user_data)
                                self->snapshot_cancellable, wig_tab_widget_snapshot_ready, g_object_ref(self));
 }
 
+static void wig_tab_widget_snapshot_timeout(gpointer user_data)
+{
+  WigTabWidget *self = WIG_TAB_WIDGET(user_data);
+  self->snapshot_timeout_id = 0;
+  wig_tab_widget_take_snapshot(self);
+}
+
+static void wig_tab_widget_clear_snapshot(WigTabWidget *self)
+{
+  g_clear_handle_id(&self->snapshot_timeout_id, g_source_remove);
+  if (self->snapshot_cancellable) {
+    g_cancellable_cancel(self->snapshot_cancellable);
+    g_clear_object(&self->snapshot_cancellable);
+  }
+  if (self->snapshot_popover) {
+    g_signal_handlers_disconnect_by_func(self->snapshot_popover, wig_tab_widget_snapshot_popover_closed, self);
+    g_clear_pointer(&self->snapshot_popover, gtk_widget_unparent);
+  }
+}
+
 static void wig_tab_widget_hover_enter(GtkEventControllerMotion *controller, double x, double y, WigTabWidget *self)
 {
   for (GtkWidget *w = gtk_widget_get_parent(GTK_WIDGET(self)); w != NULL; w = gtk_widget_get_parent(w)) {
@@ -390,24 +408,16 @@ static void wig_tab_widget_hover_enter(GtkEventControllerMotion *controller, dou
 
 static void wig_tab_widget_hover_leave(GtkEventControllerMotion *controller, WigTabWidget *self)
 {
-  g_clear_handle_id(&self->snapshot_timeout_id, g_source_remove);
-  if (self->snapshot_cancellable) {
-    g_cancellable_cancel(self->snapshot_cancellable);
-    g_clear_object(&self->snapshot_cancellable);
-  }
-  if (self->snapshot_popover) {
-    g_signal_handlers_disconnect_by_func(self->snapshot_popover, wig_tab_widget_snapshot_popover_closed, self);
-    g_clear_pointer(&self->snapshot_popover, gtk_widget_unparent);
-  }
+  if (self->preview_held)
+    return;
+  wig_tab_widget_clear_snapshot(self);
 }
 
 static void wig_tab_widget_dispose(GObject *object)
 {
   WigTabWidget *self = WIG_TAB_WIDGET(object);
 
-  g_clear_handle_id(&self->snapshot_timeout_id, g_source_remove);
-  g_cancellable_cancel(self->snapshot_cancellable);
-  g_clear_object(&self->snapshot_cancellable);
+  wig_tab_widget_clear_snapshot(self);
   g_clear_object(&self->tab);
 
   g_clear_pointer(&self->overlay, gtk_widget_unparent);
@@ -420,10 +430,6 @@ static void wig_tab_widget_dispose(GObject *object)
     self->capture_icons[kind] = NULL;
 
   g_clear_pointer(&self->context_menu_popover, gtk_widget_unparent);
-  if (self->snapshot_popover) {
-    g_signal_handlers_disconnect_by_func(self->snapshot_popover, wig_tab_widget_snapshot_popover_closed, self);
-    g_clear_pointer(&self->snapshot_popover, gtk_widget_unparent);
-  }
   G_OBJECT_CLASS(wig_tab_widget_parent_class)->dispose(object);
 }
 
@@ -490,6 +496,20 @@ void wig_tab_widget_show_context_menu(WigTabWidget *self, WigTabList *list)
   self->context_menu_popover = wig_tab_context_menu_popup(list, self->tab);
   gtk_widget_set_parent(self->context_menu_popover, GTK_WIDGET(self));
   gtk_popover_popup(GTK_POPOVER(self->context_menu_popover));
+}
+
+void wig_tab_widget_show_preview(WigTabWidget *self)
+{
+  self->preview_held = TRUE;
+  g_clear_handle_id(&self->snapshot_timeout_id, g_source_remove);
+  if (!self->snapshot_cancellable)
+    wig_tab_widget_take_snapshot(self);
+}
+
+void wig_tab_widget_hide_preview(WigTabWidget *self)
+{
+  self->preview_held = FALSE;
+  wig_tab_widget_clear_snapshot(self);
 }
 
 GtkWidget *wig_tab_widget_new(WigTab *tab)

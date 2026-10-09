@@ -35,5 +35,7 @@ G_DECLARE_FINAL_TYPE(WigTabWidget, wig_tab_widget, WIG, TAB_WIDGET, GtkWidget)
 GtkWidget *wig_tab_widget_new(WigTab *tab);
 WigTab *wig_tab_widget_get_tab(WigTabWidget *self);
 void wig_tab_widget_show_context_menu(WigTabWidget *self, WigTabList *list);
+void wig_tab_widget_show_preview(WigTabWidget *self);
+void wig_tab_widget_hide_preview(WigTabWidget *self);
 
 G_END_DECLS
