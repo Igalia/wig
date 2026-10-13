@@ -11,6 +11,7 @@ RUN dnf install -y dnf-plugins-core && \
       gtk4-devel \
       libepoxy-devel \
       libadwaita-devel \
+      json-glib-devel \
       flex \
       bison && \
     dnf clean all
