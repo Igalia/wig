@@ -1376,23 +1376,6 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   return TRUE;
 }
 
-/* Follows the popup test the HTML specification defines for window.open, as far
- * as the window properties reach: every bar defaults to visible, so a window is
- * a popup once the page has taken one of them away. A features string that only
- * carries a size cannot be told apart from no features at all, since nothing in
- * the window properties says a size was asked for. */
-static gboolean wig_window_properties_want_popup(WebKitWindowProperties *properties)
-{
-  if (!webkit_window_properties_get_locationbar_visible(properties)
-      && !webkit_window_properties_get_toolbar_visible(properties))
-    return TRUE;
-
-  return !webkit_window_properties_get_menubar_visible(properties)
-      || !webkit_window_properties_get_statusbar_visible(properties)
-      || !webkit_window_properties_get_scrollbars_visible(properties)
-      || !webkit_window_properties_get_resizable(properties);
-}
-
 /* The location bar stays even when the page asked for it to go, read-only, so a
  * popup cannot dress itself up as a page from somewhere else. */
 static void wig_window_set_popup(WigWindow *win, gboolean popup)
@@ -1407,12 +1390,80 @@ static void wig_window_set_popup(WigWindow *win, gboolean popup)
   wig_window_update_tab_view_visibility(win);
 }
 
+#if HAVE_WINDOW_GEOMETRY_SUPPORT
+static void wig_window_get_chrome_size(WigWindow *win, int *width, int *height)
+{
+  GtkWidget *bars[] = { win->header_bar, win->tab_bar, win->tab_separator };
+
+  *width = 0;
+  *height = 0;
+  for (guint i = 0; i < G_N_ELEMENTS(bars); i++) {
+    if (!bars[i] || !gtk_widget_get_visible(bars[i]))
+      continue;
+
+    int natural;
+    gtk_widget_measure(bars[i], GTK_ORIENTATION_VERTICAL, -1, NULL, &natural, NULL, NULL);
+    *height += natural;
+  }
+
+  if (win->tab_sidebar && gtk_widget_get_visible(win->tab_sidebar))
+    *width += gtk_paned_get_position(GTK_PANED(win->paned));
+}
+
+/* The size a page asks for is the size of the area it is shown in, which on WPE
+ * is all of its window a page can see, so the bars around that area go on top.
+ * A window cannot be placed, so the position is left to the compositor. */
+static void wig_window_apply_page_geometry(WigWindow *win, WebKitWindowProperties *properties)
+{
+  if (!webkit_window_properties_get_has_custom_geometry(properties))
+    return;
+
+  WebKitRectangle geometry;
+  webkit_window_properties_get_geometry(properties, &geometry);
+  if (geometry.width <= 0 || geometry.height <= 0)
+    return;
+
+  int chrome_width, chrome_height;
+  wig_window_get_chrome_size(win, &chrome_width, &chrome_height);
+  g_debug("window %u: the page asked for %dx%d", wig_window_base_get_id(WIG_WINDOW_BASE(win)), geometry.width,
+          geometry.height);
+  gtk_window_set_default_size(GTK_WINDOW(win), geometry.width + chrome_width, geometry.height + chrome_height);
+}
+
+/* resizeTo() and friends only reach a window the page was given to itself: once
+ * it holds other tabs, or was torn into another window, it is the user's. */
+static void wig_window_web_view_geometry_changed(WebKitWebView *web_view, GParamSpec *pspec,
+                                                 WebKitWindowProperties *properties)
+{
+  GtkWidget *widget = wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view)));
+  GtkRoot *root = gtk_widget_get_root(widget);
+  if (!WIG_IS_WINDOW(root))
+    return;
+
+  WigWindow *win = WIG_WINDOW(root);
+  if (wig_tab_list_get_n_tabs(win->tab_list) != 1 || gtk_window_is_maximized(GTK_WINDOW(win))
+      || gtk_window_is_fullscreen(GTK_WINDOW(win)))
+    return;
+
+  wig_window_apply_page_geometry(win, properties);
+}
+#endif
+
 static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web_view)
 {
-  gboolean popup = wig_window_properties_want_popup(webkit_web_view_get_window_properties(web_view));
+#if HAVE_WINDOW_POPUP_SUPPORT
+  WebKitWindowProperties *properties = webkit_web_view_get_window_properties(web_view);
+  gboolean popup = webkit_window_properties_get_is_popup(properties);
   g_debug("window %u: the page asked for %s", wig_window_base_get_id(WIG_WINDOW_BASE(win)),
           popup ? "a popup" : "a window");
   wig_window_set_popup(win, popup);
+
+#if HAVE_WINDOW_GEOMETRY_SUPPORT
+  wig_window_apply_page_geometry(win, properties);
+  g_signal_connect_object(properties, "notify::geometry", G_CALLBACK(wig_window_web_view_geometry_changed), web_view,
+                          G_CONNECT_SWAPPED);
+#endif
+#endif
 
   gtk_widget_grab_focus(wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view))));
   gtk_window_present(GTK_WINDOW(win));

@@ -138,6 +138,20 @@ config_h.set10(
     ),
 )
 config_h.set10(
+    'HAVE_WINDOW_POPUP_SUPPORT',
+    cc.has_function(
+        'webkit_window_properties_get_is_popup',
+        dependencies: wpe_webkit_dep,
+    ),
+)
+config_h.set10(
+    'HAVE_WINDOW_GEOMETRY_SUPPORT',
+    cc.has_function(
+        'webkit_window_properties_get_geometry',
+        dependencies: wpe_webkit_dep,
+    ),
+)
+config_h.set10(
     'HAVE_UPGRADE_TO_HTTPS_POLICY_SUPPORT',
     cc.has_function(
         'webkit_website_policies_get_upgrade_to_https_policy',

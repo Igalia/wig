@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Window Feature Tests</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 1080px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: #f6f6f6;
+      color: #222;
+    }
+    h1 { margin-bottom: 8px; }
+    p.subtitle { color: #555; margin-top: 0; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+    h2 { margin: 0 0 6px; font-size: 1.05em; }
+    p.desc { color: #555; font-size: 0.9em; margin: 0 0 14px; }
+    button {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: none;
+      background: #3584e4;
+      color: white;
+      font-size: 0.9em;
+      cursor: pointer;
+      margin: 0 6px 6px 0;
+    }
+    button:hover { background: #1c71d8; }
+    button.secondary { background: #deddda; color: #222; }
+    button.secondary:hover { background: #c0bfbc; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { color: #555; font-weight: 600; }
+    td.case { width: 210px; }
+    td.case button { margin-bottom: 4px; }
+    td.features { width: 220px; }
+    td.expected, td.size, td.position { white-space: nowrap; }
+    td.control { width: 150px; }
+    td.control button { padding: 3px 8px; font-size: 0.82em; margin: 0 4px 4px 0; }
+    code { background: #f0f0f0; padding: 1px 4px; border-radius: 4px; font-size: 0.92em; }
+    .pass { color: #26a269; font-weight: 600; }
+    .fail { color: #c01c28; font-weight: 600; }
+    .info { color: #9141ac; }
+    .muted { color: #777; }
+    .kind { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.85em; }
+    .kind.popup { background: #fde8d0; color: #8f4a00; }
+    .kind.window { background: #dbe9fb; color: #1a5fb4; }
+    #log { font-family: monospace; font-size: 0.82em; max-height: 160px; overflow: auto; background: #f0f0f0; padding: 8px 12px; border-radius: 6px; white-space: pre-wrap; }
+
+    /* The opened window. */
+    body.child { max-width: none; margin: 0; padding: 12px; }
+    body.child h1 { font-size: 1.1em; margin: 0 0 4px; }
+    body.child .readout { font-family: monospace; font-size: 1.05em; line-height: 1.6; }
+    body.child .readout b { display: inline-block; min-width: 7.5em; color: #555; font-weight: normal; }
+  </style>
+</head>
+<body>
+
+<div id="opener-ui" hidden>
+  <h1>Window Feature Tests</h1>
+  <p class="subtitle">
+    Exercises <code>WebKitWindowProperties</code>: <code>is-popup</code>, <code>geometry</code> and
+    <code>has-custom-geometry</code>, plus <code>resizeTo()</code>, <code>resizeBy()</code>,
+    <code>moveTo()</code> and <code>moveBy()</code> on an opened window.
+  </p>
+
+  <section>
+    <h2>What wig should do</h2>
+    <p class="desc">
+      A <span class="kind popup">popup</span> gets a window without navigation buttons or tabs, and a read-only
+      address. A <span class="kind window">window</span> is an ordinary browser window. When the page asks for a size,
+      the area the page is shown in is that size, and wig's bars are added around it. The page's size is limited to
+      at least 100&times;100 and at most the screen's available area. wig can't place windows, so a requested
+      position is reported to the page but not applied.
+    </p>
+  </section>
+
+  <section>
+    <h2>Open a window</h2>
+    <p class="desc">
+      Each row calls <code>window.open()</code> with the features shown. The expected values follow the HTML
+      specification's popup test. The <em>Size</em> column fills in once the window reports back, and it updates
+      live as the window is resized, by the page or by you.
+    </p>
+    <table>
+      <thead>
+        <tr><th></th><th>Features</th><th>Expected</th><th>Size (inner)</th><th>Position</th><th>Control</th></tr>
+      </thead>
+      <tbody id="cases"></tbody>
+    </table>
+    <p style="margin-top: 12px">
+      <button class="secondary" onclick="closeAll()">Close all opened windows</button>
+    </p>
+  </section>
+
+  <section>
+    <h2>Script-driven resize after load</h2>
+    <p class="desc">
+      Opens a 400&times;300 popup and has the opener resize it to 640&times;480 one second after it loads.
+      wig should follow, because the page owns that window. Drag a tab into it first and wig should ignore the
+      resize, because the window then belongs to you.
+    </p>
+    <button onclick="openThenResize()">Open, then resizeTo(640, 480)</button>
+    <span id="resize-result" class="muted"></span>
+  </section>
+
+  <section>
+    <h2>Log</h2>
+    <div id="log"></div>
+  </section>
+</div>
+
+<div id="child-ui" hidden>
+  <h1 id="child-title"></h1>
+  <div class="muted" id="child-features"></div>
+  <div class="readout" id="child-readout"></div>
+  <p>
+    <button onclick="window.resizeBy(60, 40)">resizeBy(60, 40)</button>
+    <button onclick="window.resizeBy(-60, -40)">resizeBy(-60, -40)</button>
+    <button onclick="window.resizeTo(500, 360)">resizeTo(500, 360)</button>
+    <button onclick="window.moveBy(40, 40)">moveBy(40, 40)</button>
+    <button class="secondary" onclick="window.close()">close()</button>
+  </p>
+</div>
+
+<script>
+'use strict';
+
+const params = new URLSearchParams(location.search);
+const baseURL = location.href.split('?')[0].split('#')[0];
+
+// The HTML specification's "parse a boolean feature".
+function parseBooleanFeature(value) {
+  if (value === '' || value === 'yes' || value === 'true')
+    return true;
+  const parsed = parseInt(value, 10);
+  return !Number.isNaN(parsed) && parsed !== 0;
+}
+
+const featureAliases = { screenx: 'left', screeny: 'top', innerwidth: 'width', innerheight: 'height' };
+
+function tokenizeFeatures(features) {
+  const tokens = new Map();
+  for (const part of features.split(',')) {
+    const [rawName, ...rest] = part.split('=');
+    const name = rawName.trim().toLowerCase();
+    if (!name)
+      continue;
+    tokens.set(featureAliases[name] || name, rest.join('=').trim().toLowerCase());
+  }
+  return tokens;
+}
+
+// The HTML specification's "check if a popup window is requested".
+function expectPopup(tokens) {
+  const meaningful = [...tokens.keys()].filter(name => name !== 'noopener' && name !== 'noreferrer');
+  if (!meaningful.length)
+    return false;
+  if (tokens.has('popup'))
+    return parseBooleanFeature(tokens.get('popup'));
+  const isSet = (name, fallback) => tokens.has(name) ? parseBooleanFeature(tokens.get(name)) : fallback;
+  if (!isSet('location', false) && !isSet('toolbar', false))
+    return true;
+  if (!isSet('menubar', false))
+    return true;
+  if (!isSet('resizable', true))
+    return true;
+  if (!isSet('scrollbars', false))
+    return true;
+  if (!isSet('status', false))
+    return true;
+  return false;
+}
+
+function positiveInteger(tokens, name) {
+  if (!tokens.has(name))
+    return null;
+  const value = parseInt(tokens.get(name), 10);
+  return Number.isNaN(value) || value <= 0 ? null : value;
+}
+
+// What WebKit puts in has-custom-geometry and geometry for the features.
+function expectGeometry(tokens) {
+  const width = positiveInteger(tokens, 'width');
+  const height = positiveInteger(tokens, 'height');
+  const custom = tokens.has('left') || tokens.has('top') || width !== null || height !== null;
+  const clamp = (value, max) => value === null ? null : Math.min(Math.max(100, value), max);
+  return {
+    custom,
+    width: clamp(width, screen.availWidth),
+    height: clamp(height, screen.availHeight),
+    left: tokens.has('left') ? tokens.get('left') : null,
+    top: tokens.has('top') ? tokens.get('top') : null,
+  };
+}
+
+const cases = [
+  { label: 'No features', features: '' },
+  { label: 'Size only', features: 'width=480,height=360',
+    note: 'Before is-popup and geometry existed, WPE could not tell this apart from no features.' },
+  { label: 'Size and position', features: 'left=200,top=120,width=480,height=360' },
+  { label: 'popup=1', features: 'popup=1' },
+  { label: 'popup=0 with a size', features: 'popup=0,width=520,height=380',
+    note: 'An ordinary window, but sized by the page.' },
+  { label: 'No toolbar or location bar', features: 'toolbar=no,location=no' },
+  { label: 'Every bar asked for', features: 'location=yes,toolbar=yes,menubar=yes,status=yes,scrollbars=yes,resizable=yes' },
+  { label: 'Every bar and a size', features: 'location=yes,toolbar=yes,menubar=yes,status=yes,scrollbars=yes,resizable=yes,width=600,height=420' },
+  { label: 'Not resizable', features: 'resizable=no,width=420,height=300',
+    note: 'wig still lets the user resize it.' },
+  { label: 'Zero size', features: 'width=0,height=0',
+    note: 'Zero means the default size, so it is not a custom size.' },
+  { label: 'Too small', features: 'width=40,height=30',
+    note: 'WebKit raises the size to its 100×100 minimum; the window still cannot be narrower than its header bar.',
+    check: false },
+  { label: 'Too large', features: 'width=20000,height=20000',
+    note: 'WebKit limits the size to the screen; the compositor may shrink the window further.', check: false },
+  { label: 'Aliases', features: 'screenx=50,screeny=50,innerwidth=450,innerheight=320' },
+];
+
+const opened = new Map();
+let nextId = 1;
+
+function log(message) {
+  const element = document.getElementById('log');
+  element.textContent += `${new Date().toLocaleTimeString()}  ${message}\n`;
+  element.scrollTop = element.scrollHeight;
+}
+
+function describeExpectation(tokens) {
+  const popup = expectPopup(tokens);
+  const geometry = expectGeometry(tokens);
+  let size = 'default size';
+  if (geometry.width !== null || geometry.height !== null)
+    size = `${geometry.width ?? 'default'}×${geometry.height ?? 'default'}`;
+  return `<span class="kind ${popup ? 'popup' : 'window'}">${popup ? 'popup' : 'window'}</span><br>` +
+    `<span class="muted">${size}${geometry.custom ? '<br>has-custom-geometry' : ''}</span>`;
+}
+
+function renderCases() {
+  const body = document.getElementById('cases');
+  cases.forEach((testCase, index) => {
+    const tokens = tokenizeFeatures(testCase.features);
+    const row = document.createElement('tr');
+    row.innerHTML =
+      `<td class="case"><button onclick="openCase(${index})">${testCase.label}</button>` +
+      (testCase.note ? `<div class="muted" style="font-size: 0.85em">${testCase.note}</div>` : '') + '</td>' +
+      `<td class="features"><code>${testCase.features ? testCase.features.replaceAll(',', ', ') : '(none)'}</code></td>` +
+      `<td class="expected">${describeExpectation(tokens)}</td>` +
+      '<td class="size muted">—</td><td class="position muted">—</td>' +
+      '<td class="control"></td>';
+    body.appendChild(row);
+    testCase.row = row;
+  });
+}
+
+function openCase(index) {
+  const testCase = cases[index];
+  const id = nextId++;
+  const url = `${baseURL}?child=${id}&label=${encodeURIComponent(testCase.label)}&features=${encodeURIComponent(testCase.features)}`;
+  const win = window.open(url, '', testCase.features);
+  if (!win) {
+    log(`#${id} ${testCase.label}: window.open() returned null`);
+    return;
+  }
+  opened.set(id, { win, testCase });
+  log(`#${id} ${testCase.label}: opened with "${testCase.features}"`);
+
+  const control = testCase.row.querySelector('.control');
+  control.innerHTML = '';
+  const commands = [
+    ['resizeTo 640×480', 'resizeTo', [640, 480]],
+    ['+80×60', 'resizeBy', [80, 60]],
+    ['−80×60', 'resizeBy', [-80, -60]],
+    ['moveTo 0,0', 'moveTo', [0, 0]],
+    ['close', 'close', []],
+  ];
+  for (const [text, op, args] of commands) {
+    const button = document.createElement('button');
+    button.className = 'secondary';
+    button.textContent = text;
+    button.onclick = () => sendCommand(id, op, args);
+    control.appendChild(button);
+  }
+}
+
+function sendCommand(id, op, args) {
+  const entry = opened.get(id);
+  if (!entry || entry.win.closed) {
+    log(`#${id} is closed`);
+    return;
+  }
+  log(`#${id} ${op}(${args.join(', ')})`);
+  entry.commanded = true;
+  entry.win.postMessage({ type: 'command', op, args }, '*');
+}
+
+function closeAll() {
+  for (const { win } of opened.values()) {
+    if (!win.closed)
+      win.close();
+  }
+}
+
+function sizeVerdict(expected, actual) {
+  if (expected === null)
+    return '';
+  return Math.abs(expected - actual) <= 1 ? '<span class="pass">✓</span>' : `<span class="fail">✗ wanted ${expected}</span>`;
+}
+
+function handleReport(report) {
+  const entry = opened.get(report.id);
+  if (!entry)
+    return;
+  entry.lastReport = report;
+  const { testCase } = entry;
+  const tokens = tokenizeFeatures(testCase.features);
+  const geometry = expectGeometry(tokens);
+  const [width, height] = report.inner;
+
+  let size = `${width}×${height}`;
+  if (!entry.commanded && testCase.check !== false && (geometry.width !== null || geometry.height !== null))
+    size += ` ${sizeVerdict(geometry.width, width)} ${sizeVerdict(geometry.height, height)}`;
+  else if (report.event !== 'load')
+    size += ` <span class="info">(${report.event})</span>`;
+  size += `<br><span class="muted">outer ${report.outer[0]}×${report.outer[1]}</span>`;
+
+  const sizeCell = testCase.row.querySelector('.size');
+  sizeCell.className = 'size';
+  sizeCell.innerHTML = size;
+
+  const positionCell = testCase.row.querySelector('.position');
+  positionCell.className = 'position';
+  const requested = geometry.left !== null || geometry.top !== null
+    ? `<br><span class="muted">asked ${geometry.left ?? '—'}, ${geometry.top ?? '—'}</span>` : '';
+  positionCell.innerHTML = `${report.screen[0]}, ${report.screen[1]}${requested}`;
+
+  if (report.event === 'load')
+    log(`#${report.id} loaded at ${width}×${height}`);
+}
+
+let pendingResize = null;
+
+function openThenResize() {
+  const result = document.getElementById('resize-result');
+  const id = nextId++;
+  const url = `${baseURL}?child=${id}&label=${encodeURIComponent('Resized after load')}&features=${encodeURIComponent('width=400,height=300')}`;
+  const win = window.open(url, '', 'width=400,height=300');
+  if (!win) {
+    result.textContent = 'window.open() returned null';
+    return;
+  }
+  opened.set(id, { win, testCase: { label: 'Resized after load', features: 'width=400,height=300', row: null } });
+  pendingResize = id;
+  result.className = 'muted';
+  result.textContent = 'waiting for the window to load…';
+}
+
+function handleResizeReport(report) {
+  if (report.id !== pendingResize)
+    return false;
+  const result = document.getElementById('resize-result');
+  const [width, height] = report.inner;
+  if (report.event === 'load') {
+    result.textContent = `loaded at ${width}×${height}, resizing in a second…`;
+    setTimeout(() => sendCommand(report.id, 'resizeTo', [640, 480]), 1000);
+  } else if (opened.get(report.id)?.commanded) {
+    const ok = width === 640 && height === 480;
+    result.className = ok ? 'pass' : 'fail';
+    result.textContent = `now ${width}×${height}` + (ok ? ' ✓' : ' (wanted 640×480)');
+  }
+  return true;
+}
+
+function initOpener() {
+  document.getElementById('opener-ui').hidden = false;
+  renderCases();
+  window.addEventListener('message', event => {
+    if (event.data?.type !== 'report')
+      return;
+    if (!handleResizeReport(event.data))
+      handleReport(event.data);
+  });
+}
+
+function initChild() {
+  document.body.classList.add('child');
+  document.getElementById('child-ui').hidden = false;
+  const id = Number(params.get('child'));
+  const features = params.get('features') || '';
+  document.title = params.get('label');
+  document.getElementById('child-title').textContent = `#${id} ${params.get('label')}`;
+  document.getElementById('child-features').textContent = features || '(no features)';
+
+  const bars = ['locationbar', 'menubar', 'personalbar', 'scrollbars', 'statusbar', 'toolbar'];
+  function report(event) {
+    const readout = document.getElementById('child-readout');
+    readout.innerHTML =
+      `<b>inner</b>${innerWidth}×${innerHeight}<br>` +
+      `<b>outer</b>${outerWidth}×${outerHeight}<br>` +
+      `<b>screenX/Y</b>${screenX}, ${screenY}<br>` +
+      `<b>available</b>${screen.availWidth}×${screen.availHeight}<br>` +
+      `<b>bars visible</b>${bars.filter(bar => window[bar].visible).join(', ') || 'none'}`;
+    if (window.opener) {
+      window.opener.postMessage({
+        type: 'report',
+        id,
+        event,
+        inner: [innerWidth, innerHeight],
+        outer: [outerWidth, outerHeight],
+        screen: [screenX, screenY],
+      }, '*');
+    }
+  }
+
+  window.addEventListener('message', event => {
+    if (event.data?.type !== 'command')
+      return;
+    const { op, args } = event.data;
+    window[op](...args);
+    // Moving does not fire resize, so the new position is reported once the window has had a moment.
+    if (op === 'moveTo' || op === 'moveBy')
+      setTimeout(() => report(op), 300);
+  });
+
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => report('resize'), 100);
+  });
+
+  if (document.readyState === 'complete')
+    report('load');
+  else
+    window.addEventListener('load', () => report('load'));
+}
+
+if (params.has('child'))
+  initChild();
+else
+  initOpener();
+</script>
+
+</body>
+</html>
