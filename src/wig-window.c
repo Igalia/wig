@@ -2318,7 +2318,7 @@ static void wig_window_constructed(GObject *object)
   g_menu_append_section(menu, NULL, G_MENU_MODEL(application_section));
 
   g_autoptr(GMenu) quit_section = g_menu_new();
-  g_menu_append(quit_section, "Quit", "app.quit");
+  g_menu_append(quit_section, "Quit", "app.quit-browser");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(quit_section));
 
   GtkWidget *menu_button = gtk_menu_button_new();

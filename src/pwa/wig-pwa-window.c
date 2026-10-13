@@ -481,6 +481,12 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
     { "open-shortcut", wig_pwa_window_open_shortcut, "s" },
   };
   g_action_map_add_action_entries(G_ACTION_MAP(self), actions, G_N_ELEMENTS(actions), self);
+  GtkEventController *shortcut_controller = gtk_shortcut_controller_new();
+  gtk_event_controller_set_propagation_phase(shortcut_controller, GTK_PHASE_CAPTURE);
+  gtk_shortcut_controller_add_shortcut(
+      GTK_SHORTCUT_CONTROLLER(shortcut_controller),
+      gtk_shortcut_new(gtk_shortcut_trigger_parse_string("<Primary>q"), gtk_named_action_new("win.close-tab")));
+  gtk_widget_add_controller(GTK_WIDGET(self), shortcut_controller);
   g_autoptr(GSimpleActionGroup) context_menu_action_group = g_simple_action_group_new();
   g_action_map_add_action_entries(G_ACTION_MAP(context_menu_action_group), context_menu_actions,
                                   G_N_ELEMENTS(context_menu_actions), self);

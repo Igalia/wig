@@ -71,6 +71,7 @@ struct _WigApplication {
 
   WigSession *session;
   gboolean quitting;
+  gboolean closing_browser;
   gboolean adopting_web_app;
   GHashTable *notifications; /* char* -> WebKitNotification* (owned) */
   WigPermissionsManager *permissions_manager;
@@ -86,6 +87,30 @@ G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
 static void wig_application_quit_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   g_application_quit(G_APPLICATION(user_data));
+}
+
+static void wig_application_quit_browser_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigApplication *app = WIG_APPLICATION(user_data);
+  g_autoptr(GPtrArray) browser_windows = g_ptr_array_new_with_free_func(g_object_unref);
+  gboolean web_app_windows = FALSE;
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (WIG_IS_WINDOW(l->data))
+      g_ptr_array_add(browser_windows, g_object_ref(l->data));
+    else if (WIG_IS_PWA_WINDOW(l->data))
+      web_app_windows = TRUE;
+  }
+
+  if (!web_app_windows) {
+    g_application_quit(G_APPLICATION(app));
+    return;
+  }
+
+  g_debug("application: closing %u browser windows, keeping the web apps", browser_windows->len);
+  wig_session_save(app->session);
+  app->closing_browser = TRUE;
+  for (guint i = 0; i < browser_windows->len; i++)
+    gtk_window_destroy(g_ptr_array_index(browser_windows, i));
 }
 
 static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow *win, const char *uri)
@@ -367,6 +392,7 @@ static void wig_application_restart_action(GSimpleAction *action, GVariant *para
 
 static const GActionEntry app_actions[] = {
   { "quit", wig_application_quit_action },
+  { "quit-browser", wig_application_quit_browser_action },
   { "new-window", wig_application_new_window_action },
   { "restart", wig_application_restart_action },
 };
@@ -591,7 +617,7 @@ static void on_notification_clicked_action(GSimpleAction *action, GVariant *para
 
 gboolean wig_application_is_quitting(WigApplication *app)
 {
-  return app->quitting;
+  return app->quitting || app->closing_browser;
 }
 
 static void wig_application_begin_quit(WigApplication *app)
@@ -623,8 +649,17 @@ static void wig_application_window_removed(GtkApplication *application, GtkWindo
 
   if (last)
     wig_application_begin_quit(app);
-  else
+  else if (!app->closing_browser)
     wig_session_save(app->session);
+}
+
+static void wig_application_window_added(GtkApplication *application, GtkWindow *window)
+{
+  WigApplication *app = WIG_APPLICATION(application);
+  if (WIG_IS_WINDOW(window))
+    app->closing_browser = FALSE;
+
+  GTK_APPLICATION_CLASS(wig_application_parent_class)->window_added(application, window);
 }
 
 /* The window list runs most recently focused first, so prepending leaves the
@@ -876,7 +911,7 @@ static void wig_application_startup(GApplication *application)
     { "win.focus-entry", { "<Primary>l", NULL } },
     { "win.new-tab", { "<Primary>t", NULL } },
     { "app.new-window", { "<Primary>n", NULL } },
-    { "app.quit", { "<Primary>q", NULL } },
+    { "app.quit-browser", { "<Primary>q", NULL } },
     { "win.close-tab", { "<Primary>w", NULL } },
     { "win.next-tab", { "<Primary>Page_Down", NULL } },
     { "win.prev-tab", { "<Primary>Page_Up", NULL } },
@@ -1136,6 +1171,7 @@ static void wig_application_class_init(WigApplicationClass *klass)
   gapplication_class->shutdown = wig_application_shutdown;
 
   GtkApplicationClass *gtkapplication_class = GTK_APPLICATION_CLASS(klass);
+  gtkapplication_class->window_added = wig_application_window_added;
   gtkapplication_class->window_removed = wig_application_window_removed;
 }
 
