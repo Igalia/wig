@@ -76,7 +76,9 @@
     <h2>What wig should do</h2>
     <p class="desc">
       A <span class="kind popup">popup</span> gets a window without navigation buttons or tabs, and a read-only
-      address. A <span class="kind window">window</span> is an ordinary browser window. When the page asks for a size,
+      address. A <span class="kind window">window</span> opens as a tab beside this page while
+      <em>Open New Windows in Tabs</em> is on (the default), and as an ordinary browser window otherwise; a tab
+      ignores any size it asked for. When a popup or a window asks for a size,
       the area the page is shown in is that size, and wig's bars are added around it. The page's size is limited to
       at least 100&times;100 and at most the screen's available area. wig can't place windows, so a requested
       position is reported to the page but not applied.
@@ -326,7 +328,9 @@ function handleReport(report) {
   const [width, height] = report.inner;
 
   let size = `${width}×${height}`;
-  if (!entry.commanded && testCase.check !== false && (geometry.width !== null || geometry.height !== null))
+  // A window that is not a popup may have become a tab, which keeps its own size.
+  const checkSize = testCase.check !== false && expectPopup(tokens) && (geometry.width !== null || geometry.height !== null);
+  if (!entry.commanded && checkSize)
     size += ` ${sizeVerdict(geometry.width, width)} ${sizeVerdict(geometry.height, height)}`;
   else if (report.event !== 'load')
     size += ` <span class="info">(${report.event})</span>`;

@@ -184,6 +184,10 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
            wig_settings_switch_row_new(settings, "restore-tabs", "Restore Tabs on Startup",
                                        "Open the windows and tabs that were open when wig was last closed."));
   pane_add(&pane,
+           wig_settings_switch_row_new(settings, "new-windows-in-tabs", "Open New Windows in Tabs",
+                                       "Show a window a page opens as a tab beside it. Pop-ups that set their "
+                                       "own size or hide the toolbars still get a window."));
+  pane_add(&pane,
            wig_settings_combo_row_new(settings, "tab-layout", "Tab Layout",
                                       "Show tabs in a bar above the page or in a sidebar beside it.", tab_layout_nicks,
                                       tab_layout_labels));

@@ -81,6 +81,7 @@ struct _WigWindow {
   GSignalGroup *active_tab_signals;
   GBinding *tab_loading_binding;
   GHashTable *web_view_signal_groups;
+  GPtrArray *unshown_web_views;
 };
 
 G_DEFINE_FINAL_TYPE(WigWindow, wig_window, WIG_TYPE_WINDOW_BASE)
@@ -1449,24 +1450,55 @@ static void wig_window_web_view_geometry_changed(WebKitWebView *web_view, GParam
 }
 #endif
 
+static void wig_window_unshown_web_view_closed(WigWindow *win, WebKitWebView *web_view)
+{
+  g_ptr_array_remove(win->unshown_web_views, web_view);
+}
+
+/* Whether a page gets a popup is only known once it asks to be shown, so the
+ * view waits with the window whose page opened it until then. A popup keeps a
+ * window of its own; it is also the one window that does not take tabs. */
 static void wig_window_web_view_ready_to_show(WigWindow *win, WebKitWebView *web_view)
 {
+  guint index;
+  if (!g_ptr_array_find(win->unshown_web_views, web_view, &index))
+    return;
+
+  g_autoptr(WebKitWebView) owned_web_view = g_ptr_array_steal_index(win->unshown_web_views, index);
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_unshown_web_view_closed, win);
+  g_signal_handlers_disconnect_by_func(web_view, wig_window_web_view_ready_to_show, win);
+
+  gboolean popup = FALSE;
 #if HAVE_WINDOW_POPUP_SUPPORT
   WebKitWindowProperties *properties = webkit_web_view_get_window_properties(web_view);
-  gboolean popup = webkit_window_properties_get_is_popup(properties);
-  g_debug("window %u: the page asked for %s", wig_window_base_get_id(WIG_WINDOW_BASE(win)),
+  popup = webkit_window_properties_get_is_popup(properties);
+#endif
+
+  WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
+  if (!popup && !win->popup && g_settings_get_boolean(wig_application_get_settings(app), "new-windows-in-tabs")) {
+    g_debug("window %u: the page asked for a window, opening a tab instead",
+            wig_window_base_get_id(WIG_WINDOW_BASE(win)));
+    wig_tab_list_set_active(win->tab_list, wig_window_add_tab_after_active(win, web_view));
+    return;
+  }
+
+  WigWindow *new_win = wig_window_new(app);
+  wig_window_add_web_view(new_win, web_view);
+
+#if HAVE_WINDOW_POPUP_SUPPORT
+  g_debug("window %u: the page asked for %s", wig_window_base_get_id(WIG_WINDOW_BASE(new_win)),
           popup ? "a popup" : "a window");
-  wig_window_set_popup(win, popup);
+  wig_window_set_popup(new_win, popup);
 
 #if HAVE_WINDOW_GEOMETRY_SUPPORT
-  wig_window_apply_page_geometry(win, properties);
+  wig_window_apply_page_geometry(new_win, properties);
   g_signal_connect_object(properties, "notify::geometry", G_CALLBACK(wig_window_web_view_geometry_changed), web_view,
                           G_CONNECT_SWAPPED);
 #endif
 #endif
 
   gtk_widget_grab_focus(wpe_view_gtk_get_widget(WPE_VIEW_GTK(webkit_web_view_get_wpe_view(web_view))));
-  gtk_window_present(GTK_WINDOW(win));
+  gtk_window_present(GTK_WINDOW(new_win));
 }
 
 static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigationAction *navigation,
@@ -1486,10 +1518,10 @@ static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigatio
   g_autoptr(WebKitWebView) web_view = WEBKIT_WEB_VIEW(g_object_new(
       WEBKIT_TYPE_WEB_VIEW, "related-view", opener, "settings", webkit_web_view_get_settings(opener), NULL));
 
-  WigWindow *new_win = wig_window_new(WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win))));
-  wig_window_add_web_view(new_win, web_view);
-  g_signal_connect_object(web_view, "ready-to-show", G_CALLBACK(wig_window_web_view_ready_to_show), new_win,
+  g_ptr_array_add(win->unshown_web_views, g_object_ref(web_view));
+  g_signal_connect_object(web_view, "ready-to-show", G_CALLBACK(wig_window_web_view_ready_to_show), win,
                           G_CONNECT_SWAPPED);
+  g_signal_connect_object(web_view, "close", G_CALLBACK(wig_window_unshown_web_view_closed), win, G_CONNECT_SWAPPED);
   return g_steal_pointer(&web_view);
 }
 
@@ -2083,6 +2115,7 @@ static void wig_window_dispose(GObject *object)
   WigWindow *win = WIG_WINDOW(object);
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
   g_clear_pointer(&win->closing_tabs, g_ptr_array_unref);
+  g_clear_pointer(&win->unshown_web_views, g_ptr_array_unref);
 
   /* Tearing down the tabs below emits signals that would otherwise reach the bar
    * while the window is already going away. */
@@ -2127,6 +2160,7 @@ static void wig_window_finalize(GObject *object)
 
 static void wig_window_init(WigWindow *win)
 {
+  win->unshown_web_views = g_ptr_array_new_with_free_func(g_object_unref);
   win->active_web_view_signals = g_signal_group_new(WEBKIT_TYPE_WEB_VIEW);
   g_signal_group_connect_swapped(win->active_web_view_signals, "notify::uri", G_CALLBACK(wig_window_uri_changed), win);
   g_signal_group_connect_swapped(win->active_web_view_signals, "notify::estimated-load-progress",
