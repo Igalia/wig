@@ -31,7 +31,6 @@
 #include "wig-pwa-icon.h"
 #include "wig-pwa-synthetic-manifest.h"
 #include "wig-pwa-util.h"
-#include "wig-search-bar.h"
 #include "wig-settings-page.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
@@ -71,7 +70,6 @@ struct _WigWindow {
   GtkWidget *tab_separator;
   GtkWidget *tab_sidebar;
   GtkWidget *tab_stack;
-  GtkWidget *search_bar;
   GtkWidget *overview_button;
   guint progress_timeout_id;
   gboolean suppress_entry_completion;
@@ -695,43 +693,6 @@ static void wig_window_focus_entry(GSimpleAction *action, GVariant *parameter, g
   gtk_editable_select_region(GTK_EDITABLE(win->url_entry), 0, -1);
 }
 
-static void wig_window_find(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  WigTab *tab = win->tab_list ? wig_tab_list_get_active(win->tab_list) : NULL;
-
-  if (tab && wig_tab_start_search(tab))
-    return;
-
-  if (!win->search_bar)
-    return;
-
-  wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
-  wig_search_bar_open(WIG_SEARCH_BAR(win->search_bar));
-}
-
-static void wig_window_find_next(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (win->search_bar && wig_search_bar_is_open(WIG_SEARCH_BAR(win->search_bar)))
-    wig_search_bar_find_next(WIG_SEARCH_BAR(win->search_bar));
-}
-
-static void wig_window_find_previous(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  if (win->search_bar && wig_search_bar_is_open(WIG_SEARCH_BAR(win->search_bar)))
-    wig_search_bar_find_previous(WIG_SEARCH_BAR(win->search_bar));
-}
-
-/* The find bar took the keyboard away from the page; hand it back. */
-static void wig_window_search_bar_closed(WigSearchBar *search_bar, WigWindow *win)
-{
-  WigTab *tab = win->tab_list ? wig_tab_list_get_active(win->tab_list) : NULL;
-  if (tab)
-    gtk_widget_grab_focus(wig_tab_get_widget(tab));
-}
-
 static void wig_window_show_downloads(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:downloads");
@@ -1074,9 +1035,6 @@ static const GActionEntry actions[] = {
   { "next-tab", wig_window_next_tab },
   { "prev-tab", wig_window_prev_tab },
   { "focus-entry", wig_window_focus_entry },
-  { "find", wig_window_find },
-  { "find-next", wig_window_find_next },
-  { "find-previous", wig_window_find_previous },
   { "show-downloads", wig_window_show_downloads },
   { "show-history", wig_window_show_history },
   { "show-bookmarks", wig_window_show_bookmarks },
@@ -2033,8 +1991,7 @@ static void wig_window_active_tab_changed(WigWindow *win, GParamSpec *pspec, Wig
   if (tab)
     gtk_stack_set_visible_child(GTK_STACK(win->tab_stack), wig_tab_get_widget(tab));
 
-  if (win->search_bar)
-    wig_search_bar_set_tab(WIG_SEARCH_BAR(win->search_bar), tab);
+  wig_window_base_set_active_tab(WIG_WINDOW_BASE(win), tab);
 
   wig_window_reset_url_entry(win);
 #if HAVE_APPLICATION_MANIFEST_SUPPORT
@@ -2385,12 +2342,9 @@ static void wig_window_constructed(GObject *object)
   win->tab_stack = gtk_stack_new();
   gtk_widget_set_vexpand(win->tab_stack, TRUE);
 
-  win->search_bar = wig_search_bar_new();
-  g_signal_connect_object(win->search_bar, "closed", G_CALLBACK(wig_window_search_bar_closed), win, G_CONNECT_DEFAULT);
-
   GtkWidget *view_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_box_append(GTK_BOX(view_box), win->tab_stack);
-  gtk_box_append(GTK_BOX(view_box), win->search_bar);
+  gtk_box_append(GTK_BOX(view_box), wig_window_base_get_search_bar(WIG_WINDOW_BASE(win)));
 
   win->paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
   GtkWidget *paned = win->paned;
@@ -2420,10 +2374,6 @@ static void wig_window_dispose(GObject *object)
   g_clear_handle_id(&win->progress_timeout_id, g_source_remove);
   g_clear_pointer(&win->closing_tabs, g_ptr_array_unref);
   g_clear_pointer(&win->unshown_web_views, g_ptr_array_unref);
-
-  /* Tearing down the tabs below emits signals that would otherwise reach the bar
-   * while the window is already going away. */
-  win->search_bar = NULL;
 
   g_clear_object(&win->tab_switcher);
 

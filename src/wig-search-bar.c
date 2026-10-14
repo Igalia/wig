@@ -339,6 +339,11 @@ void wig_search_bar_set_tab(WigSearchBar *self, WigTab *tab)
     gtk_widget_remove_css_class(self->entry, "error");
 }
 
+WigTab *wig_search_bar_get_tab(WigSearchBar *self)
+{
+  return self->tab;
+}
+
 void wig_search_bar_open(WigSearchBar *self)
 {
   gtk_widget_set_visible(GTK_WIDGET(self), TRUE);

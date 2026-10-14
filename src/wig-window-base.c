@@ -28,6 +28,7 @@
 #include "wig-emoji-chooser.h"
 #include "wig-favicon.h"
 #include "wig-permissions-popover.h"
+#include "wig-search-bar.h"
 #include "wpe-view-gtk.h"
 
 typedef struct {
@@ -45,6 +46,7 @@ typedef struct {
   GtkWidget *permissions_popover;
   GtkWidget *permission_request_popover;
   GtkWidget *emoji_chooser;
+  GtkWidget *search_bar;
   WigPermissionsManager *permissions_manager; /* borrowed from application */
   char *active_origin;
 } WigWindowBasePrivate;
@@ -511,6 +513,40 @@ static void wig_window_base_insert_emoji(GSimpleAction *action, GVariant *parame
                                               g_object_ref(self));
 }
 
+static void wig_window_base_find(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(WIG_WINDOW_BASE(user_data));
+  WigSearchBar *search_bar = WIG_SEARCH_BAR(priv->search_bar);
+  WigTab *tab = wig_search_bar_get_tab(search_bar);
+
+  if (tab && wig_tab_start_search(tab))
+    return;
+
+  wig_search_bar_open(search_bar);
+}
+
+static void wig_window_base_find_next(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(WIG_WINDOW_BASE(user_data));
+  if (wig_search_bar_is_open(WIG_SEARCH_BAR(priv->search_bar)))
+    wig_search_bar_find_next(WIG_SEARCH_BAR(priv->search_bar));
+}
+
+static void wig_window_base_find_previous(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(WIG_WINDOW_BASE(user_data));
+  if (wig_search_bar_is_open(WIG_SEARCH_BAR(priv->search_bar)))
+    wig_search_bar_find_previous(WIG_SEARCH_BAR(priv->search_bar));
+}
+
+/* The find bar took the keyboard away from the page; hand it back. */
+static void wig_window_base_search_bar_closed(WigSearchBar *search_bar, WigWindowBase *self)
+{
+  WigTab *tab = wig_search_bar_get_tab(search_bar);
+  if (tab)
+    gtk_widget_grab_focus(wig_tab_get_widget(tab));
+}
+
 static const GActionEntry actions[] = {
   { "go-back", wig_window_base_go_back },
   { "go-forward", wig_window_base_go_forward },
@@ -522,6 +558,9 @@ static const GActionEntry actions[] = {
   { "zoom-out", wig_window_base_zoom_out },
   { "zoom-reset", wig_window_base_zoom_reset },
   { "insert-emoji", wig_window_base_insert_emoji },
+  { "find", wig_window_base_find },
+  { "find-next", wig_window_base_find_next },
+  { "find-previous", wig_window_base_find_previous },
 };
 
 static void wig_window_base_update_navigation_actions(WigWindowBase *self)
@@ -850,6 +889,7 @@ static void wig_window_base_dispose(GObject *object)
   g_clear_pointer(&priv->emoji_chooser, gtk_widget_unparent);
   g_clear_object(&priv->permissions_popover);
   g_clear_object(&priv->permission_request_popover);
+  g_clear_object(&priv->search_bar);
   g_clear_pointer(&priv->active_origin, g_free);
 
   G_OBJECT_CLASS(wig_window_base_parent_class)->dispose(object);
@@ -884,6 +924,10 @@ static void wig_window_base_init(WigWindowBase *self)
   gtk_menu_button_set_popover(GTK_MENU_BUTTON(priv->permissions_button), priv->permissions_popover);
 
   priv->downloads_button = wig_downloads_button_new();
+
+  priv->search_bar = g_object_ref_sink(wig_search_bar_new());
+  g_signal_connect_object(priv->search_bar, "closed", G_CALLBACK(wig_window_base_search_bar_closed), self,
+                          G_CONNECT_DEFAULT);
 
   g_signal_connect_swapped(priv->permissions_popover, "notify::has-permissions",
                            G_CALLBACK(update_permissions_button_visibility), self);
@@ -1001,6 +1045,18 @@ void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web
 WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self)
 {
   return get_active_web_view(self);
+}
+
+void wig_window_base_set_active_tab(WigWindowBase *self, WigTab *tab)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  wig_search_bar_set_tab(WIG_SEARCH_BAR(priv->search_bar), tab);
+}
+
+GtkWidget *wig_window_base_get_search_bar(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  return priv->search_bar;
 }
 
 gboolean wig_window_base_get_loading(WigWindowBase *self)

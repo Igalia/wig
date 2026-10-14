@@ -379,6 +379,7 @@ static void wig_pwa_window_dispose(GObject *object)
   if (self->tab) {
     WebKitWebView *web_view = wig_tab_get_web_view(self->tab);
     wig_window_base_set_active_web_view(WIG_WINDOW_BASE(self), NULL);
+    wig_window_base_set_active_tab(WIG_WINDOW_BASE(self), NULL);
     wig_window_base_detach_web_view(WIG_WINDOW_BASE(self), web_view);
     gtk_window_set_child(GTK_WINDOW(self), NULL);
   }
@@ -493,7 +494,11 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
   gtk_widget_insert_action_group(GTK_WIDGET(self), "popup", G_ACTION_GROUP(context_menu_action_group));
   g_autoptr(WPEToplevel) toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(display), 0, GTK_WINDOW(self));
   wig_window_base_set_toplevel(WIG_WINDOW_BASE(self), toplevel);
-  gtk_window_set_child(GTK_WINDOW(self), wig_tab_get_widget(tab));
+  GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_widget_set_vexpand(wig_tab_get_widget(tab), TRUE);
+  gtk_box_append(GTK_BOX(content), wig_tab_get_widget(tab));
+  gtk_box_append(GTK_BOX(content), wig_window_base_get_search_bar(WIG_WINDOW_BASE(self)));
+  gtk_window_set_child(GTK_WINDOW(self), content);
   wig_window_base_attach_web_view(WIG_WINDOW_BASE(self), web_view);
   if (background_color) {
     WebKitColor color;
@@ -505,6 +510,7 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
     }
   }
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(self), web_view);
+  wig_window_base_set_active_tab(WIG_WINDOW_BASE(self), tab);
   wig_pwa_window_set_shortcuts(self, shortcuts);
   g_signal_group_set_target(self->web_view_signals, web_view);
   wig_pwa_window_update_title(self);
@@ -530,6 +536,7 @@ WigTab *wig_pwa_window_take_tab(WigPwaWindow *self)
 
   g_signal_group_set_target(self->web_view_signals, NULL);
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(self), NULL);
+  wig_window_base_set_active_tab(WIG_WINDOW_BASE(self), NULL);
   wig_window_base_detach_web_view(WIG_WINDOW_BASE(self), wig_tab_get_web_view(self->tab));
   gtk_window_set_child(GTK_WINDOW(self), NULL);
   return g_steal_pointer(&self->tab);
