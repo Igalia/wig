@@ -24,8 +24,7 @@
 
 #include "wig-application.h"
 #include "wig-history-store.h"
-#include "wig-pwa-manager.h"
-#include "wig-pwa-util.h"
+#include "wig-web-app-filter.h"
 
 #include <adwaita.h>
 
@@ -49,10 +48,8 @@ struct _WigHistoryPage {
   WigNativePage parent;
 
   WigHistoryStore *store;
-  WigPwaManager *pwa_manager;
   GListStore *items;
   char *query;
-  char *web_app;
   /* Where the next batch picks up: the time of the oldest visit shown. */
   gint64 before_time;
 
@@ -99,6 +96,7 @@ static void wig_history_page_load(WigHistoryPage *self, gboolean append)
 {
   g_autoptr(GError) error = NULL;
   g_autoptr(GPtrArray) items = NULL;
+  const char *web_app = wig_web_app_filter_get_web_app(WIG_WEB_APP_FILTER(self->filter));
 
   if (!append) {
     self->before_time = 0;
@@ -110,7 +108,7 @@ static void wig_history_page_load(WigHistoryPage *self, gboolean append)
   self->loading = TRUE;
 
   if (self->store)
-    items = wig_history_store_query(self->store, self->query, self->web_app, self->before_time, HISTORY_PAGE_LIMIT,
+    items = wig_history_store_query(self->store, self->query, web_app, self->before_time, HISTORY_PAGE_LIMIT,
                                     &self->has_more, &error);
 
   if (error)
@@ -129,13 +127,13 @@ static void wig_history_page_load(WigHistoryPage *self, gboolean append)
   self->loading = FALSE;
 
   g_debug("history: showing %u item(s)%s%s from %s, more=%s", g_list_model_get_n_items(G_LIST_MODEL(self->items)),
-          self->query ? " matching " : "", self->query ? self->query : "",
-          self->web_app ? self->web_app : "the browser", self->has_more ? "yes" : "no");
+          self->query ? " matching " : "", self->query ? self->query : "", web_app ? web_app : "the browser",
+          self->has_more ? "yes" : "no");
 
   adw_status_page_set_title(ADW_STATUS_PAGE(self->empty), self->query ? "No Results" : "No History Yet");
   if (self->query)
     adw_status_page_set_description(ADW_STATUS_PAGE(self->empty), "No page you have visited matches that.");
-  else if (self->web_app)
+  else if (web_app)
     adw_status_page_set_description(ADW_STATUS_PAGE(self->empty), "Pages you visit in this web app are listed here.");
   else
     adw_status_page_set_description(ADW_STATUS_PAGE(self->empty), "Pages you visit are listed here.");
@@ -155,107 +153,10 @@ static void wig_history_page_search_changed(WigHistoryPage *self, GtkSearchEntry
   wig_history_page_load(self, FALSE);
 }
 
-static GVariant *wig_history_page_list_web_apps(WigHistoryPage *self)
+static void wig_history_page_web_app_changed(WigHistoryPage *self, GParamSpec *pspec, WigWebAppFilter *filter)
 {
-  g_autoptr(GError) error = NULL;
-  GVariant *apps = wig_pwa_manager_list(self->pwa_manager, &error);
-
-  if (!apps)
-    g_warning("history: could not list the installed web apps: %s", error->message);
-  return apps;
-}
-
-static char *wig_history_page_web_app_name(WigHistoryPage *self, const char *id)
-{
-  g_autoptr(GVariant) apps = wig_history_page_list_web_apps(self);
-  GVariantIter iterator;
-
-  if (!apps)
-    return g_strdup(id);
-
-  g_variant_iter_init(&iterator, apps);
-  while (TRUE) {
-    g_autoptr(GVariant) app = g_variant_iter_next_value(&iterator);
-    if (!app)
-      break;
-
-    if (g_strcmp0(wig_pwa_variant_lookup_string(app, "id"), id) == 0) {
-      const char *name = wig_pwa_variant_lookup_string(app, "name");
-      return g_strdup(name && *name ? name : id);
-    }
-  }
-
-  return g_strdup(id);
-}
-
-static void wig_history_page_update_filter(WigHistoryPage *self)
-{
-  g_autoptr(GVariant) apps = wig_history_page_list_web_apps(self);
-  g_autofree char *label = self->web_app ? wig_history_page_web_app_name(self, self->web_app) : g_strdup("Browser");
-
-  gtk_menu_button_set_label(GTK_MENU_BUTTON(self->filter), label);
-  gtk_widget_set_visible(self->filter, self->web_app || (apps && g_variant_n_children(apps) > 0));
-}
-
-static void wig_history_page_build_filter_menu(GtkMenuButton *button, gpointer user_data)
-{
-  WigHistoryPage *self = WIG_HISTORY_PAGE(user_data);
-  g_autoptr(GMenu) menu = g_menu_new();
-  g_autoptr(GMenu) web_apps = g_menu_new();
-  g_autoptr(GVariant) apps = wig_history_page_list_web_apps(self);
-
-  g_autoptr(GMenuItem) browser = g_menu_item_new("Browser", NULL);
-  g_menu_item_set_action_and_target(browser, "history.web-app", "s", "");
-  g_menu_append_item(menu, browser);
-
-  GVariantIter iterator;
-  if (apps)
-    g_variant_iter_init(&iterator, apps);
-  while (apps) {
-    g_autoptr(GVariant) app = g_variant_iter_next_value(&iterator);
-    if (!app)
-      break;
-
-    const char *id = wig_pwa_variant_lookup_string(app, "id");
-    const char *name = wig_pwa_variant_lookup_string(app, "name");
-    if (!id)
-      continue;
-
-    g_autoptr(GString) label = g_string_new(name && *name ? name : id);
-    g_string_replace(label, "_", "__", 0);
-    g_autoptr(GMenuItem) item = g_menu_item_new(label->str, NULL);
-    g_menu_item_set_action_and_target(item, "history.web-app", "s", id);
-    g_menu_append_item(web_apps, item);
-  }
-
-  g_menu_append_section(menu, "Web Apps", G_MENU_MODEL(web_apps));
-  gtk_menu_button_set_menu_model(button, G_MENU_MODEL(menu));
-}
-
-static void wig_history_page_web_app_changed(GSimpleAction *action, GVariant *state, gpointer user_data)
-{
-  WigHistoryPage *self = WIG_HISTORY_PAGE(user_data);
-  const char *web_app = g_variant_get_string(state, NULL);
-
-  g_simple_action_set_state(action, state);
-  if (!g_set_str(&self->web_app, *web_app ? web_app : NULL))
-    return;
-
-  wig_history_page_update_filter(self);
   wig_history_page_load(self, FALSE);
 }
-
-static void wig_history_page_web_app_removed(WigHistoryPage *self, const char *id, WigPwaManager *manager)
-{
-  if (g_strcmp0(id, self->web_app) == 0)
-    gtk_widget_activate_action(GTK_WIDGET(self), "history.web-app", "s", "");
-  else
-    wig_history_page_update_filter(self);
-}
-
-static const GActionEntry history_actions[] = {
-  { "web-app", NULL, "s", "''", wig_history_page_web_app_changed },
-};
 
 /* The next batch is taken on as the end of what is shown comes into view, so
  * scrolling never stops at a button. A batch that does not fill the view leaves
@@ -384,7 +285,6 @@ static void wig_history_page_dispose(GObject *object)
   g_clear_pointer(&self->toolbar, gtk_widget_unparent);
   g_clear_object(&self->items);
   g_clear_pointer(&self->query, g_free);
-  g_clear_pointer(&self->web_app, g_free);
 
   G_OBJECT_CLASS(wig_history_page_parent_class)->dispose(object);
 }
@@ -408,12 +308,7 @@ static void wig_history_page_class_init(WigHistoryPageClass *klass)
 static void wig_history_page_init(WigHistoryPage *self)
 {
   self->store = wig_application_get_history_store(wig_application_get());
-  self->pwa_manager = wig_application_get_pwa_manager(wig_application_get());
   self->items = g_list_store_new(WIG_TYPE_HISTORY_ITEM);
-
-  g_autoptr(GSimpleActionGroup) actions = g_simple_action_group_new();
-  g_action_map_add_action_entries(G_ACTION_MAP(actions), history_actions, G_N_ELEMENTS(history_actions), self);
-  gtk_widget_insert_action_group(GTK_WIDGET(self), "history", G_ACTION_GROUP(actions));
 
   self->entry = gtk_search_entry_new();
   gtk_widget_set_hexpand(self->entry, TRUE);
@@ -421,14 +316,9 @@ static void wig_history_page_init(WigHistoryPage *self)
   g_signal_connect_object(self->entry, "search-changed", G_CALLBACK(wig_history_page_search_changed), self,
                           G_CONNECT_SWAPPED);
 
-  self->filter = gtk_menu_button_new();
-  gtk_menu_button_set_always_show_arrow(GTK_MENU_BUTTON(self->filter), TRUE);
+  self->filter = wig_web_app_filter_new();
   gtk_widget_set_tooltip_text(self->filter, "Show History From");
-  gtk_menu_button_set_create_popup_func(GTK_MENU_BUTTON(self->filter), wig_history_page_build_filter_menu, self, NULL);
-  wig_history_page_update_filter(self);
-  g_signal_connect_object(self->pwa_manager, "changed", G_CALLBACK(wig_history_page_update_filter), self,
-                          G_CONNECT_SWAPPED);
-  g_signal_connect_object(self->pwa_manager, "removed", G_CALLBACK(wig_history_page_web_app_removed), self,
+  g_signal_connect_object(self->filter, "notify::web-app", G_CALLBACK(wig_history_page_web_app_changed), self,
                           G_CONNECT_SWAPPED);
 
   GtkWidget *search_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
