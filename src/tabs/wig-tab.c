@@ -785,7 +785,7 @@ static void wig_tab_show_settings_page(WigTab *self, const char *uri)
  * behind this one, the way middle-clicking a link on a page does. */
 static void wig_tab_native_page_open_uri(WigTab *self, const char *uri, gboolean background)
 {
-  GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(self));
+  GtkRoot *root = gtk_widget_get_root(self->view_overlay);
 
   g_debug("tab %u: opening %s from a page of wig's own%s", self->id, uri,
           background ? " in a tab behind this one" : "");
