@@ -1038,11 +1038,15 @@ static void dispatch_tool_call(WigMcpServer *self, McpCall *call, JsonObject *pa
 
     if (filter_object) {
       const char *value = wig_mcp_json_get_string_member(filter_object, "url_substring");
-      if (value)
-        filter.url_substring = url_substring = g_ascii_strdown(value, -1);
+      if (value) {
+        url_substring = g_ascii_strdown(value, -1);
+        filter.url_substring = url_substring;
+      }
       value = wig_mcp_json_get_string_member(filter_object, "method");
-      if (value)
-        filter.method = method = g_ascii_strdown(value, -1);
+      if (value) {
+        method = g_ascii_strdown(value, -1);
+        filter.method = method;
+      }
 
       double status_min = 0;
       double status_max = 0;

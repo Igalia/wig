@@ -691,7 +691,7 @@ static void mcp_session_get_property(GObject *object, guint prop_id, GValue *val
 
   switch ((McpSessionProperty)prop_id) {
   case PROP_SESSION_STATE:
-    g_value_set_enum(value, session->state);
+    g_value_set_enum(value, (gint)session->state);
     break;
   case PROP_SESSION_PROTOCOL_VERSION:
     g_value_set_string(value, session->protocol_version);

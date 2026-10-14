@@ -463,7 +463,7 @@ static gboolean write_entries(WigPwaManager *self, GVariant *entries, GError **e
 {
   g_autofree char *directory = g_path_get_dirname(self->path);
   if (g_mkdir_with_parents(directory, 0700) == -1) {
-    g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno), "Failed to create '%s': %s", directory,
+    g_set_error(error, G_IO_ERROR, (gint)g_io_error_from_errno(errno), "Failed to create '%s': %s", directory,
                 g_strerror(errno));
     return FALSE;
   }

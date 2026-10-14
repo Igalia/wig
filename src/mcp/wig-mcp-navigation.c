@@ -55,20 +55,17 @@ static void navigation_call_free(NavigationCall *navigation)
   g_free(navigation);
 }
 
+static gint navigation_call_compare_pending(gconstpointer data, gconstpointer user_data)
+{
+  const NavigationCall *navigation = data;
+  return navigation->completed ? 1 : 0;
+}
+
 void wig_mcp_navigation_cancel_all(WigMcpServer *self)
 {
-  while (TRUE) {
-    NavigationCall *navigation = NULL;
-    for (GList *l = self->navigation_calls; l; l = l->next) {
-      NavigationCall *candidate = l->data;
-      if (!candidate->completed) {
-        navigation = candidate;
-        break;
-      }
-    }
-    if (!navigation)
-      return;
-
+  GList *link;
+  while ((link = g_list_find_custom(self->navigation_calls, NULL, navigation_call_compare_pending))) {
+    NavigationCall *navigation = link->data;
     navigation->completed = TRUE;
     wig_mcp_call_finish_text(navigation->call, "The MCP transport was closed", TRUE);
     navigation_call_free(navigation);

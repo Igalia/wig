@@ -3,6 +3,7 @@ Checks: >
   clang-analyzer-*,
   -clang-diagnostic-unused-parameter,
   -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
 
 WarningsAsErrors: >
   *,

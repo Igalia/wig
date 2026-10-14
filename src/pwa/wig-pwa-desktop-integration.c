@@ -120,7 +120,8 @@ static gboolean remove_file(const char *path, GError **error)
 {
   if (g_unlink(path) == 0 || errno == ENOENT)
     return TRUE;
-  g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno), "Failed to remove '%s': %s", path, g_strerror(errno));
+  g_set_error(error, G_IO_ERROR, (gint)g_io_error_from_errno(errno), "Failed to remove '%s': %s", path,
+              g_strerror(errno));
   return FALSE;
 }
 
@@ -151,7 +152,7 @@ static gboolean write_desktop_file(const char *data_home, const char *id, GVaria
   g_autofree char *applications_dir = g_build_filename(data_home, "applications", NULL);
   g_autofree char *desktop_path = g_build_filename(applications_dir, desktop_basename, NULL);
   if (g_mkdir_with_parents(applications_dir, 0755) == -1) {
-    g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno), "Failed to create '%s': %s", applications_dir,
+    g_set_error(error, G_IO_ERROR, (gint)g_io_error_from_errno(errno), "Failed to create '%s': %s", applications_dir,
                 g_strerror(errno));
     return FALSE;
   }
@@ -230,7 +231,7 @@ WigPwaDesktopArtifacts *wig_pwa_desktop_install(const char *data_home, const cha
   g_autofree char *icon_path = g_build_filename(data_home, icon_relative, NULL);
   g_autofree char *icon_directory = g_path_get_dirname(icon_path);
   if (g_mkdir_with_parents(icon_directory, 0755) == -1) {
-    g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno), "Failed to create '%s': %s", icon_directory,
+    g_set_error(error, G_IO_ERROR, (gint)g_io_error_from_errno(errno), "Failed to create '%s': %s", icon_directory,
                 g_strerror(errno));
     return NULL;
   }
