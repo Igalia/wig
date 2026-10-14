@@ -912,9 +912,26 @@ static void wig_window_base_class_init(WigWindowBaseClass *klass)
   g_object_class_install_properties(object_class, G_N_ELEMENTS(props), props);
 }
 
+static void wig_window_base_click_pressed(GtkGestureClick *gesture, int n_press, double x, double y,
+                                          WigWindowBase *self)
+{
+  guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+  /* Handle typical back/forward mouse buttons. */
+  if (button == 8)
+    g_action_group_activate_action(G_ACTION_GROUP(self), "go-back", NULL);
+  else if (button == 9)
+    g_action_group_activate_action(G_ACTION_GROUP(self), "go-forward", NULL);
+}
+
 static void wig_window_base_init(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+
+  GtkGestureClick *click = GTK_GESTURE_CLICK(gtk_gesture_click_new());
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
+  g_signal_connect_object(click, "pressed", G_CALLBACK(wig_window_base_click_pressed), self, G_CONNECT_DEFAULT);
+  gtk_widget_add_controller(GTK_WIDGET(self), GTK_EVENT_CONTROLLER(click));
 
   priv->permissions_popover = g_object_ref_sink(wig_permissions_popover_new());
   priv->permission_request_popover = g_object_ref_sink(wig_permission_request_popover_new());
