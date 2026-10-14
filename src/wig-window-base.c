@@ -1273,6 +1273,7 @@ static void selected_text_ready(GObject *source, GAsyncResult *result, gpointer 
 gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMenu *context_menu,
                                            WebKitHitTestResult *hit_test_result)
 {
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   WebKitWebView *web_view = get_active_web_view(self);
   if (!web_view)
     return FALSE;
@@ -1281,7 +1282,8 @@ gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMen
    * proposed has to be taken now, before the page is asked for the selection. */
   g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
   g_autoptr(GMenu) search_section = NULL;
-  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, &search_section);
+  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, G_ACTION_GROUP(priv->context_menu_actions),
+                                                 hit_test_result, &search_section);
 
   GdkRectangle target = { 0, 0, 1, 1 };
   gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);
