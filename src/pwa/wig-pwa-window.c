@@ -352,15 +352,8 @@ static void wig_pwa_window_open_in_new_tab(GSimpleAction *action, GVariant *para
   wig_application_open_uri_in_browser(wig_application_get(), g_variant_get_string(parameter, NULL));
 }
 
-static void wig_pwa_window_copy_text(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigPwaWindow *self = WIG_PWA_WINDOW(user_data);
-  gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(self)), g_variant_get_string(parameter, NULL));
-}
-
 static const GActionEntry context_menu_actions[] = {
   { "open-in-new-tab", wig_pwa_window_open_in_new_tab, "s" },
-  { "copy-text", wig_pwa_window_copy_text, "s" },
 };
 
 static void wig_pwa_window_finalize(GObject *object)
@@ -488,10 +481,8 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
       GTK_SHORTCUT_CONTROLLER(shortcut_controller),
       gtk_shortcut_new(gtk_shortcut_trigger_parse_string("<Primary>q"), gtk_named_action_new("win.close-tab")));
   gtk_widget_add_controller(GTK_WIDGET(self), shortcut_controller);
-  g_autoptr(GSimpleActionGroup) context_menu_action_group = g_simple_action_group_new();
-  g_action_map_add_action_entries(G_ACTION_MAP(context_menu_action_group), context_menu_actions,
+  g_action_map_add_action_entries(wig_window_base_get_context_menu_actions(WIG_WINDOW_BASE(self)), context_menu_actions,
                                   G_N_ELEMENTS(context_menu_actions), self);
-  gtk_widget_insert_action_group(GTK_WIDGET(self), "popup", G_ACTION_GROUP(context_menu_action_group));
   g_autoptr(WPEToplevel) toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(display), 0, GTK_WINDOW(self));
   wig_window_base_set_toplevel(WIG_WINDOW_BASE(self), toplevel);
   GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);

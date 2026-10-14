@@ -33,7 +33,6 @@ G_DECLARE_FINAL_TYPE(WigSearchBar, wig_search_bar, WIG, SEARCH_BAR, GtkWidget)
 
 GtkWidget *wig_search_bar_new(void);
 void wig_search_bar_set_tab(WigSearchBar *self, WigTab *tab);
-WigTab *wig_search_bar_get_tab(WigSearchBar *self);
 void wig_search_bar_open(WigSearchBar *self);
 void wig_search_bar_close(WigSearchBar *self);
 gboolean wig_search_bar_is_open(WigSearchBar *self);

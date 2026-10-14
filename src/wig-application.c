@@ -202,11 +202,12 @@ void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, con
     }
   }
 
-  if (!WIG_IS_WINDOW(win))
-    win = GTK_WINDOW(wig_application_find_browser_window(app));
+  if (!WIG_IS_WINDOW(win)) {
+    wig_application_open_uri_in_browser(app, uri);
+    return;
+  }
 
-  if (win)
-    wig_application_add_new_tab_with_uri(app, WIG_WINDOW(win), uri);
+  wig_application_add_new_tab_with_uri(app, WIG_WINDOW(win), uri);
 }
 
 static gboolean uri_should_be_recorded(const char *uri)
