@@ -24,6 +24,7 @@
 
 #include "wig-application.h"
 #include "wig-downloads-list.h"
+#include "wig-web-app-filter.h"
 
 #include <adwaita.h>
 
@@ -39,6 +40,7 @@ struct _WigDownloadsPage {
 
   GtkWidget *toolbar;
   GtkWidget *entry;
+  GtkWidget *filter;
   GtkWidget *clear_button;
   GtkWidget *list;
 };
@@ -52,10 +54,27 @@ gboolean uri_is_downloads_page(const char *uri)
   return parsed && g_strcmp0(g_uri_get_scheme(parsed), "wig") == 0 && g_str_equal(g_uri_get_path(parsed), "downloads");
 }
 
+static const char *wig_downloads_page_web_app(WigDownloadsPage *self)
+{
+  return wig_web_app_filter_get_web_app(WIG_WEB_APP_FILTER(self->filter));
+}
+
+static void wig_downloads_page_update_clear_button(WigDownloadsPage *self)
+{
+  gtk_widget_set_sensitive(self->clear_button,
+                           wig_downloads_manager_has_finished(self->manager, wig_downloads_page_web_app(self)));
+}
+
 static void wig_downloads_page_sync(WigDownloadsPage *self)
 {
   wig_downloads_list_sync(WIG_DOWNLOADS_LIST(self->list));
-  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager, NULL));
+  wig_downloads_page_update_clear_button(self);
+}
+
+static void wig_downloads_page_web_app_changed(WigDownloadsPage *self, GParamSpec *pspec, WigWebAppFilter *filter)
+{
+  wig_downloads_list_set_web_app(WIG_DOWNLOADS_LIST(self->list), wig_downloads_page_web_app(self));
+  wig_downloads_page_update_clear_button(self);
 }
 
 static void wig_downloads_page_download_added(WigDownloadsPage *self, const char *web_app, WigDownloadsManager *manager)
@@ -66,13 +85,13 @@ static void wig_downloads_page_download_added(WigDownloadsPage *self, const char
 static void wig_downloads_page_search_changed(WigDownloadsPage *self, GtkSearchEntry *entry)
 {
   wig_downloads_list_set_terms(WIG_DOWNLOADS_LIST(self->list), gtk_editable_get_text(GTK_EDITABLE(entry)));
-  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager, NULL));
+  wig_downloads_page_update_clear_button(self);
 }
 
 static void wig_downloads_page_clear_clicked(WigDownloadsPage *self)
 {
   wig_downloads_list_clear_error(WIG_DOWNLOADS_LIST(self->list));
-  wig_downloads_manager_clear_finished(self->manager, NULL);
+  wig_downloads_manager_clear_finished(self->manager, wig_downloads_page_web_app(self));
 }
 
 static gboolean wig_downloads_page_start_search(WigNativePage *page)
@@ -118,8 +137,14 @@ static void wig_downloads_page_init(WigDownloadsPage *self)
   g_signal_connect_object(self->clear_button, "clicked", G_CALLBACK(wig_downloads_page_clear_clicked), self,
                           G_CONNECT_SWAPPED);
 
+  self->filter = wig_web_app_filter_new();
+  gtk_widget_set_tooltip_text(self->filter, "Show Downloads From");
+  g_signal_connect_object(self->filter, "notify::web-app", G_CALLBACK(wig_downloads_page_web_app_changed), self,
+                          G_CONNECT_SWAPPED);
+
   GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append(GTK_BOX(bar), self->entry);
+  gtk_box_append(GTK_BOX(bar), self->filter);
   gtk_box_append(GTK_BOX(bar), self->clear_button);
 
   GtkWidget *bar_clamp = adw_clamp_new();
