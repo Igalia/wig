@@ -1911,18 +1911,21 @@ static void wig_window_update_state_changed(WigWindow *win, GParamSpec *pspec, W
   case WIG_UPDATE_STATE_AVAILABLE:
     gtk_button_set_label(GTK_BUTTON(win->update_button), "Download Update");
     gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), "app.download-update");
+    gtk_widget_set_tooltip_text(win->update_button, NULL);
     gtk_widget_set_sensitive(win->update_button, TRUE);
     gtk_widget_set_visible(win->update_button, TRUE);
     break;
   case WIG_UPDATE_STATE_DOWNLOADING:
     gtk_button_set_label(GTK_BUTTON(win->update_button), "Downloading Update…");
     gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), NULL);
+    gtk_widget_set_tooltip_text(win->update_button, NULL);
     gtk_widget_set_sensitive(win->update_button, FALSE);
     gtk_widget_set_visible(win->update_button, TRUE);
     break;
   case WIG_UPDATE_STATE_READY:
     gtk_button_set_label(GTK_BUTTON(win->update_button), "Restart to Update");
     gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), "app.restart-to-update");
+    gtk_widget_set_tooltip_text(win->update_button, NULL);
     gtk_widget_set_sensitive(win->update_button, TRUE);
     gtk_widget_set_visible(win->update_button, TRUE);
     break;
@@ -1930,6 +1933,24 @@ static void wig_window_update_state_changed(WigWindow *win, GParamSpec *pspec, W
     gtk_button_set_label(GTK_BUTTON(win->update_button), "Update Blocked");
     gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), NULL);
     gtk_widget_set_tooltip_text(win->update_button, "wig is not allowed to update itself");
+    gtk_widget_set_sensitive(win->update_button, FALSE);
+    gtk_widget_set_visible(win->update_button, TRUE);
+    break;
+  case WIG_UPDATE_STATE_FAILED: {
+    g_autofree char *tooltip = g_strdup_printf("%s. Click to try again.", wig_update_monitor_get_failure(monitor));
+    gtk_button_set_label(GTK_BUTTON(win->update_button), "Update Failed");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), "app.download-update");
+    gtk_widget_set_tooltip_text(win->update_button, tooltip);
+    gtk_widget_set_sensitive(win->update_button, TRUE);
+    gtk_widget_set_visible(win->update_button, TRUE);
+    break;
+  }
+  case WIG_UPDATE_STATE_MANUAL:
+    gtk_button_set_label(GTK_BUTTON(win->update_button), "Manual Update Required");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(win->update_button), NULL);
+    gtk_widget_set_tooltip_text(win->update_button,
+                                "This update changes wig's permissions, so it has to be installed from your "
+                                "software manager");
     gtk_widget_set_sensitive(win->update_button, FALSE);
     gtk_widget_set_visible(win->update_button, TRUE);
     break;

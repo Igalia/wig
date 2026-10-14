@@ -27,6 +27,7 @@
 
 /* What the portal reports when the flatpak updates permission for this application is "no". */
 #define WIG_DBUS_ERROR_ACCESS_DENIED "org.freedesktop.DBus.Error.AccessDenied"
+#define WIG_DBUS_ERROR_NOT_SUPPORTED "org.freedesktop.DBus.Error.NotSupported"
 
 #define FLATPAK_UPDATED_FILE "/app/.updated"
 
@@ -47,6 +48,8 @@ struct _WigUpdateMonitor {
   char *object_path;
   char *local_commit;
   char *remote_commit;
+  char *manual_commit;
+  char *failure;
   guint update_available_id;
   guint progress_id;
   gboolean has_updated_file;
@@ -61,7 +64,9 @@ G_DEFINE_ENUM_TYPE(WigUpdateState, wig_update_state, G_DEFINE_ENUM_VALUE(WIG_UPD
                    G_DEFINE_ENUM_VALUE(WIG_UPDATE_STATE_AVAILABLE, "available"),
                    G_DEFINE_ENUM_VALUE(WIG_UPDATE_STATE_DOWNLOADING, "downloading"),
                    G_DEFINE_ENUM_VALUE(WIG_UPDATE_STATE_READY, "ready"),
-                   G_DEFINE_ENUM_VALUE(WIG_UPDATE_STATE_BLOCKED, "blocked"))
+                   G_DEFINE_ENUM_VALUE(WIG_UPDATE_STATE_BLOCKED, "blocked"),
+                   G_DEFINE_ENUM_VALUE(WIG_UPDATE_STATE_FAILED, "failed"),
+                   G_DEFINE_ENUM_VALUE(WIG_UPDATE_STATE_MANUAL, "manual"))
 
 enum {
   PROP_STATE = 1,
@@ -77,8 +82,11 @@ static WigUpdateState wig_update_monitor_derive_state(WigUpdateMonitor *self)
 
   gboolean download_pending = self->remote_commit && g_strcmp0(self->remote_commit, self->local_commit) != 0;
 
-  if (download_pending && !self->download_blocked)
-    return WIG_UPDATE_STATE_AVAILABLE;
+  if (download_pending && !self->download_blocked) {
+    if (g_strcmp0(self->remote_commit, self->manual_commit) == 0)
+      return WIG_UPDATE_STATE_MANUAL;
+    return self->failure ? WIG_UPDATE_STATE_FAILED : WIG_UPDATE_STATE_AVAILABLE;
+  }
 
   if (self->has_updated_file)
     return WIG_UPDATE_STATE_READY;
@@ -174,6 +182,10 @@ static void wig_update_monitor_progress(GDBusConnection *connection, const char 
      * flatpak permission-set flatpak updates com.igalia.wig ask */
     if (g_strcmp0(error_name, WIG_DBUS_ERROR_ACCESS_DENIED) == 0)
       self->download_blocked = TRUE;
+    else if (g_strcmp0(error_name, WIG_DBUS_ERROR_NOT_SUPPORTED) == 0)
+      g_set_str(&self->manual_commit, self->remote_commit);
+    else
+      g_set_str(&self->failure, error_message && *error_message ? error_message : "The update could not be downloaded");
     break;
   }
   default:
@@ -197,6 +209,7 @@ static void wig_update_monitor_update_finished(GObject *source, GAsyncResult *re
 
   g_warning("update: the portal refused to download the update: %s", error->message);
   self->downloading = FALSE;
+  g_set_str(&self->failure, error->message);
   wig_update_monitor_refresh_state(self);
 }
 
@@ -217,6 +230,8 @@ static void wig_update_monitor_update_available(GDBusConnection *connection, con
 
   g_debug("update: available, running %s, local %s, remote %s", running_commit, local_commit, remote_commit);
 
+  if (g_strcmp0(remote_commit, self->remote_commit) != 0)
+    g_clear_pointer(&self->failure, g_free);
   g_set_str(&self->local_commit, local_commit);
   g_set_str(&self->remote_commit, remote_commit);
 
@@ -313,6 +328,8 @@ static void wig_update_monitor_dispose(GObject *object)
   g_clear_pointer(&self->object_path, g_free);
   g_clear_pointer(&self->local_commit, g_free);
   g_clear_pointer(&self->remote_commit, g_free);
+  g_clear_pointer(&self->manual_commit, g_free);
+  g_clear_pointer(&self->failure, g_free);
   g_clear_object(&self->updated_file_monitor);
   g_clear_object(&self->connection);
   g_clear_object(&self->cancellable);
@@ -355,11 +372,17 @@ WigUpdateState wig_update_monitor_get_state(WigUpdateMonitor *self)
   return self->state;
 }
 
+const char *wig_update_monitor_get_failure(WigUpdateMonitor *self)
+{
+  return self->failure;
+}
+
 void wig_update_monitor_download(WigUpdateMonitor *self)
 {
-  if (self->state != WIG_UPDATE_STATE_AVAILABLE)
+  if (self->state != WIG_UPDATE_STATE_AVAILABLE && self->state != WIG_UPDATE_STATE_FAILED)
     return;
 
+  g_clear_pointer(&self->failure, g_free);
   self->downloading = TRUE;
   wig_update_monitor_refresh_state(self);
   g_debug("update: asking the portal to download the update");

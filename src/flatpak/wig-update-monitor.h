@@ -35,6 +35,8 @@ typedef enum {
   WIG_UPDATE_STATE_DOWNLOADING,
   WIG_UPDATE_STATE_READY,
   WIG_UPDATE_STATE_BLOCKED,
+  WIG_UPDATE_STATE_FAILED,
+  WIG_UPDATE_STATE_MANUAL,
 } WigUpdateState;
 
 #define WIG_TYPE_UPDATE_STATE (wig_update_state_get_type())
@@ -42,6 +44,7 @@ GType wig_update_state_get_type(void);
 
 WigUpdateMonitor *wig_update_monitor_new(void);
 WigUpdateState wig_update_monitor_get_state(WigUpdateMonitor *self);
+const char *wig_update_monitor_get_failure(WigUpdateMonitor *self);
 void wig_update_monitor_download(WigUpdateMonitor *self);
 gboolean wig_update_monitor_spawn_restart_helper(GError **error);
 
