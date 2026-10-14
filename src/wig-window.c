@@ -1327,7 +1327,7 @@ static void wig_window_update_entry_completion(WigWindow *win)
 
   gboolean has_more = FALSE;
   g_autoptr(GError) error = NULL;
-  g_autoptr(GPtrArray) history_items = wig_history_store_query(store, text, 0, 10, &has_more, &error);
+  g_autoptr(GPtrArray) history_items = wig_history_store_query(store, text, NULL, 0, 10, &has_more, &error);
   if (!history_items) {
     g_warning("entry-completion: history query failed: %s", error->message);
     gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));

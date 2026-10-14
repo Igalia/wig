@@ -105,8 +105,8 @@ static void wig_history_page_load(WigHistoryPage *self, gboolean append)
   self->loading = TRUE;
 
   if (self->store)
-    items = wig_history_store_query(self->store, self->query, self->before_time, HISTORY_PAGE_LIMIT, &self->has_more,
-                                    &error);
+    items = wig_history_store_query(self->store, self->query, NULL, self->before_time, HISTORY_PAGE_LIMIT,
+                                    &self->has_more, &error);
 
   if (error)
     g_warning("history: query failed: %s", error->message);

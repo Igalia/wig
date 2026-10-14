@@ -230,6 +230,16 @@ static void history_web_view_finalized(gpointer data, GObject *web_view)
   g_hash_table_remove(app->history_suppressions, web_view);
 }
 
+static const char *web_app_for_web_view(WigApplication *app, WebKitWebView *web_view)
+{
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (WIG_IS_PWA_WINDOW(l->data) && wig_window_base_get_active_web_view(WIG_WINDOW_BASE(l->data)) == web_view)
+      return wig_pwa_window_get_id(WIG_PWA_WINDOW(l->data));
+  }
+
+  return NULL;
+}
+
 static void record_history_visit(WigApplication *app, WebKitWebView *web_view, gboolean typed)
 {
   if (!app->history_store)
@@ -241,7 +251,8 @@ static void record_history_visit(WigApplication *app, WebKitWebView *web_view, g
 
   const char *title = webkit_web_view_get_title(web_view);
   g_autoptr(GError) error = NULL;
-  wig_history_store_record_visit(app->history_store, uri, title ? title : "", typed, g_get_real_time() / 1000, &error);
+  wig_history_store_record_visit(app->history_store, uri, title ? title : "", typed,
+                                 web_app_for_web_view(app, web_view), g_get_real_time() / 1000, &error);
   if (error)
     g_warning("history: record visit: %s", error->message);
 }
@@ -746,6 +757,10 @@ static void wig_application_mcp_enabled_changed(WigApplication *app)
 
 static void wig_application_record_history(WigApplication *app, WebKitWebView *web_view)
 {
+  if (g_signal_handler_find(web_view, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, on_web_view_load_changed,
+                            app))
+    return;
+
   g_signal_connect(web_view, "load-changed", G_CALLBACK(on_web_view_load_changed), app);
   g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
   g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
@@ -1240,24 +1255,18 @@ static gboolean on_web_view_decide_policy(WebKitWebView *web_view, WebKitPolicyD
   return TRUE;
 }
 
-static WebKitWebView *wig_application_create_web_view_internal(WigApplication *app, gboolean record_history)
+WebKitWebView *wig_application_create_web_view(WigApplication *app)
 {
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
   WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(
       WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context, "network-session",
       app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
   g_signal_connect(web_view, "decide-policy", G_CALLBACK(on_web_view_decide_policy), app);
   g_signal_connect(web_view, "load-failed", G_CALLBACK(on_load_failed), app);
-  if (record_history)
-    wig_application_record_history(app, web_view);
+  wig_application_record_history(app, web_view);
 
   return web_view;
-}
-
-WebKitWebView *wig_application_create_web_view(WigApplication *app)
-{
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
-  return wig_application_create_web_view_internal(app, TRUE);
 }
 
 void wig_application_open_uri_in_browser(WigApplication *app, const char *uri)
@@ -1311,7 +1320,7 @@ static gboolean wig_application_open_web_app_in_new_window(WigApplication *app, 
   if (!wig_application_get_pwa_window_configuration(app, id, &navigation_policy, &background_color, &shortcuts, error))
     return FALSE;
 
-  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view_internal(app, FALSE);
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
   g_autoptr(WigTab) tab = wig_tab_new(web_view);
   WigPwaWindow *window = wig_pwa_window_new(GTK_APPLICATION(app), app->display, id, navigation_policy, shortcuts,
                                             background_color, tab);
@@ -1412,13 +1421,6 @@ gboolean wig_application_adopt_web_app(WigApplication *app, const char *id, WebK
     g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Web view is no longer in a browser tab");
     return FALSE;
   }
-
-  WebKitWebView *adopted_web_view = wig_tab_get_web_view(adopted_tab);
-  guint history_handlers = g_signal_handlers_disconnect_by_func(adopted_web_view, on_web_view_load_changed, app);
-  history_handlers += g_signal_handlers_disconnect_by_func(adopted_web_view, on_history_title_changed, app);
-  if (history_handlers)
-    g_object_weak_unref(G_OBJECT(adopted_web_view), history_web_view_finalized, app);
-  g_hash_table_remove(app->typed_navigations, adopted_web_view);
 
   WigPwaWindow *window = wig_pwa_window_new(GTK_APPLICATION(app), app->display, id, navigation_policy, shortcuts,
                                             background_color, adopted_tab);
