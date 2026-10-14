@@ -30,4 +30,5 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(WigDownloadsButton, wig_downloads_button, WIG, DOWNLOADS_BUTTON, GtkWidget)
 
 GtkWidget *wig_downloads_button_new(void);
+void wig_downloads_button_set_web_app(WigDownloadsButton *self, const char *web_app);
 G_END_DECLS

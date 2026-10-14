@@ -230,7 +230,7 @@ static void history_web_view_finalized(gpointer data, GObject *web_view)
   g_hash_table_remove(app->history_suppressions, web_view);
 }
 
-static const char *web_app_for_web_view(WigApplication *app, WebKitWebView *web_view)
+const char *wig_application_get_web_app_for_web_view(WigApplication *app, WebKitWebView *web_view)
 {
   for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
     if (WIG_IS_PWA_WINDOW(l->data) && wig_window_base_get_active_web_view(WIG_WINDOW_BASE(l->data)) == web_view)
@@ -252,7 +252,8 @@ static void record_history_visit(WigApplication *app, WebKitWebView *web_view, g
   const char *title = webkit_web_view_get_title(web_view);
   g_autoptr(GError) error = NULL;
   wig_history_store_record_visit(app->history_store, uri, title ? title : "", typed,
-                                 web_app_for_web_view(app, web_view), g_get_real_time() / 1000, &error);
+                                 wig_application_get_web_app_for_web_view(app, web_view), g_get_real_time() / 1000,
+                                 &error);
   if (error)
     g_warning("history: record visit: %s", error->message);
 }

@@ -23,6 +23,7 @@
 #include "wig-pwa-window.h"
 
 #include "wig-application.h"
+#include "wig-downloads-button.h"
 #include "wig-tab.h"
 #include "wpe-display-gtk.h"
 #include "wpe-toplevel-gtk.h"
@@ -466,6 +467,8 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
 
   WigPwaWindow *self = g_object_new(WIG_TYPE_PWA_WINDOW, "application", application, NULL);
   self->id = g_strdup(id);
+  wig_downloads_button_set_web_app(WIG_DOWNLOADS_BUTTON(wig_window_base_get_downloads_button(WIG_WINDOW_BASE(self))),
+                                   id);
   g_set_object(&self->navigation_policy, navigation_policy);
   g_set_object(&self->tab, tab);
   g_signal_connect(self, "notify::loading", G_CALLBACK(wig_pwa_window_loading_changed), NULL);

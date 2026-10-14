@@ -29,6 +29,7 @@ struct _WigDownloadsList {
   GtkWidget parent;
 
   WigDownloadsManager *manager;
+  char *web_app;
   /* Folded, since that is what every row is compared against. */
   char *terms;
 
@@ -91,7 +92,7 @@ void wig_downloads_list_sync(WigDownloadsList *self)
 
     WigDownloadRow *row = WIG_DOWNLOAD_ROW(child);
     WigDownloadRecord *record = wig_download_row_get_record(row);
-    if (!g_ptr_array_find(records, record, NULL)) {
+    if (!g_ptr_array_find(records, record, NULL) || !wig_download_record_belongs_to(record, self->web_app)) {
       gtk_box_remove(GTK_BOX(self->list), child);
       continue;
     }
@@ -104,7 +105,7 @@ void wig_downloads_list_sync(WigDownloadsList *self)
    * newest download at the top, above the rows that are already there. */
   for (guint i = 0; i < records->len; i++) {
     WigDownloadRecord *record = g_ptr_array_index(records, i);
-    if (g_hash_table_contains(shown, record))
+    if (g_hash_table_contains(shown, record) || !wig_download_record_belongs_to(record, self->web_app))
       continue;
 
     GtkWidget *row = wig_download_row_new(record);
@@ -138,6 +139,12 @@ void wig_downloads_list_set_terms(WigDownloadsList *self, const char *terms)
   wig_downloads_list_sync(self);
 }
 
+void wig_downloads_list_set_web_app(WigDownloadsList *self, const char *web_app)
+{
+  if (g_set_str(&self->web_app, web_app))
+    wig_downloads_list_sync(self);
+}
+
 void wig_downloads_list_set_max_height(WigDownloadsList *self, int height)
 {
   gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(self->scroller), height > 0);
@@ -149,6 +156,7 @@ static void wig_downloads_list_dispose(GObject *object)
   WigDownloadsList *self = WIG_DOWNLOADS_LIST(object);
 
   g_clear_pointer(&self->box, gtk_widget_unparent);
+  g_clear_pointer(&self->web_app, g_free);
   g_clear_pointer(&self->terms, g_free);
 
   G_OBJECT_CLASS(wig_downloads_list_parent_class)->dispose(object);

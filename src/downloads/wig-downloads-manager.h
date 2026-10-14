@@ -41,6 +41,7 @@ typedef struct {
   WigDownloadsManager *manager;
   WebKitDownload *download;
   WigDownloadState state;
+  char *web_app;
 
   gint64 sample_time;
   guint64 sample_received;
@@ -48,14 +49,15 @@ typedef struct {
 } WigDownloadRecord;
 
 double wig_download_record_get_speed(WigDownloadRecord *record);
+gboolean wig_download_record_belongs_to(WigDownloadRecord *record, const char *web_app);
 
 WigDownloadsManager *wig_downloads_manager_new(WebKitNetworkSession *session);
 
 GPtrArray *wig_downloads_manager_get_records(WigDownloadsManager *self);
-gboolean wig_downloads_manager_is_empty(WigDownloadsManager *self);
-gboolean wig_downloads_manager_has_finished(WigDownloadsManager *self);
-double wig_downloads_manager_get_progress(WigDownloadsManager *self);
-void wig_downloads_manager_clear_finished(WigDownloadsManager *self);
+gboolean wig_downloads_manager_is_empty(WigDownloadsManager *self, const char *web_app);
+gboolean wig_downloads_manager_has_finished(WigDownloadsManager *self, const char *web_app);
+double wig_downloads_manager_get_progress(WigDownloadsManager *self, const char *web_app);
+void wig_downloads_manager_clear_finished(WigDownloadsManager *self, const char *web_app);
 
 void wig_downloads_manager_retry(WigDownloadsManager *self, WigDownloadRecord *record);
 void wig_downloads_manager_remove(WigDownloadsManager *self, WigDownloadRecord *record);

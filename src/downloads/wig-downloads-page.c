@@ -55,19 +55,24 @@ gboolean uri_is_downloads_page(const char *uri)
 static void wig_downloads_page_sync(WigDownloadsPage *self)
 {
   wig_downloads_list_sync(WIG_DOWNLOADS_LIST(self->list));
-  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager));
+  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager, NULL));
+}
+
+static void wig_downloads_page_download_added(WigDownloadsPage *self, const char *web_app, WigDownloadsManager *manager)
+{
+  wig_downloads_page_sync(self);
 }
 
 static void wig_downloads_page_search_changed(WigDownloadsPage *self, GtkSearchEntry *entry)
 {
   wig_downloads_list_set_terms(WIG_DOWNLOADS_LIST(self->list), gtk_editable_get_text(GTK_EDITABLE(entry)));
-  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager));
+  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager, NULL));
 }
 
 static void wig_downloads_page_clear_clicked(WigDownloadsPage *self)
 {
   wig_downloads_list_clear_error(WIG_DOWNLOADS_LIST(self->list));
-  wig_downloads_manager_clear_finished(self->manager);
+  wig_downloads_manager_clear_finished(self->manager, NULL);
 }
 
 static gboolean wig_downloads_page_start_search(WigNativePage *page)
@@ -143,7 +148,8 @@ static void wig_downloads_page_init(WigDownloadsPage *self)
   gtk_widget_set_parent(self->toolbar, GTK_WIDGET(self));
 
   g_signal_connect_object(self->manager, "changed", G_CALLBACK(wig_downloads_page_sync), self, G_CONNECT_SWAPPED);
-  g_signal_connect_object(self->manager, "added", G_CALLBACK(wig_downloads_page_sync), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(self->manager, "added", G_CALLBACK(wig_downloads_page_download_added), self,
+                          G_CONNECT_SWAPPED);
 
   wig_native_page_set_title(WIG_NATIVE_PAGE(self), WIG_DOWNLOADS_PAGE_TITLE);
   wig_downloads_page_sync(self);

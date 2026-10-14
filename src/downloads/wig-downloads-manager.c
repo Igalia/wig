@@ -22,6 +22,8 @@
 
 #include "wig-downloads-manager.h"
 
+#include "wig-application.h"
+
 struct _WigDownloadsManager {
   GObject parent;
 
@@ -50,7 +52,13 @@ static void wig_download_record_untrack(WigDownloadRecord *record)
 static void wig_download_record_free(WigDownloadRecord *record)
 {
   wig_download_record_untrack(record);
+  g_free(record->web_app);
   g_free(record);
+}
+
+gboolean wig_download_record_belongs_to(WigDownloadRecord *record, const char *web_app)
+{
+  return g_strcmp0(record->web_app, web_app) == 0;
 }
 
 static WigDownloadRecord *wig_downloads_manager_find_record(WigDownloadsManager *self, WebKitDownload *download)
@@ -121,7 +129,7 @@ static void on_download_finished(WebKitDownload *download, WigDownloadRecord *re
    * here with its state already decided. */
   if (record->state == WIG_DOWNLOAD_ACTIVE) {
     record->state = WIG_DOWNLOAD_COMPLETE;
-    g_signal_emit(record->manager, signals[COMPLETED], 0);
+    g_signal_emit(record->manager, signals[COMPLETED], 0, record->web_app);
   }
 
   g_signal_emit(record->manager, signals[CHANGED], 0);
@@ -181,17 +189,20 @@ static void on_download_started(WebKitNetworkSession *session, WebKitDownload *d
 
   /* Downloads the browser starts for itself, like a web app icon, have no view
    * behind them and are not the user's business. */
-  if (!webkit_download_get_web_view(download))
+  WebKitWebView *web_view = webkit_download_get_web_view(download);
+  if (!web_view)
     return;
-
-  g_debug("downloads: started '%s'", webkit_uri_request_get_uri(webkit_download_get_request(download)));
 
   WigDownloadRecord *record = g_new0(WigDownloadRecord, 1);
   record->manager = self;
+  record->web_app = g_strdup(wig_application_get_web_app_for_web_view(wig_application_get(), web_view));
   wig_download_record_track(record, download);
   g_ptr_array_add(self->records, record);
 
-  g_signal_emit(self, signals[ADDED], 0);
+  g_debug("downloads: started '%s' in %s", webkit_uri_request_get_uri(webkit_download_get_request(download)),
+          record->web_app ? record->web_app : "the browser");
+
+  g_signal_emit(self, signals[ADDED], 0, record->web_app);
   g_signal_emit(self, signals[CHANGED], 0);
 }
 
@@ -214,9 +225,9 @@ static void wig_downloads_manager_class_init(WigDownloadsManagerClass *klass)
   object_class->dispose = wig_downloads_manager_dispose;
 
   signals[ADDED] = g_signal_new("added", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE,
-                                0);
+                                1, G_TYPE_STRING);
   signals[COMPLETED] = g_signal_new("completed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
-                                    G_TYPE_NONE, 0);
+                                    G_TYPE_NONE, 1, G_TYPE_STRING);
   signals[CHANGED] = g_signal_new("changed", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
                                   G_TYPE_NONE, 0);
 }
@@ -242,16 +253,21 @@ GPtrArray *wig_downloads_manager_get_records(WigDownloadsManager *self)
   return self->records;
 }
 
-gboolean wig_downloads_manager_is_empty(WigDownloadsManager *self)
+gboolean wig_downloads_manager_is_empty(WigDownloadsManager *self, const char *web_app)
 {
-  return self->records->len == 0;
+  for (guint i = 0; i < self->records->len; i++) {
+    if (wig_download_record_belongs_to(g_ptr_array_index(self->records, i), web_app))
+      return FALSE;
+  }
+
+  return TRUE;
 }
 
-gboolean wig_downloads_manager_has_finished(WigDownloadsManager *self)
+gboolean wig_downloads_manager_has_finished(WigDownloadsManager *self, const char *web_app)
 {
   for (guint i = 0; i < self->records->len; i++) {
     WigDownloadRecord *record = g_ptr_array_index(self->records, i);
-    if (record->state != WIG_DOWNLOAD_ACTIVE)
+    if (record->state != WIG_DOWNLOAD_ACTIVE && wig_download_record_belongs_to(record, web_app))
       return TRUE;
   }
 
@@ -260,14 +276,14 @@ gboolean wig_downloads_manager_has_finished(WigDownloadsManager *self)
 
 /* Downloads that are already over no longer say anything about how much is left
  * to do, so only the running ones are averaged. */
-double wig_downloads_manager_get_progress(WigDownloadsManager *self)
+double wig_downloads_manager_get_progress(WigDownloadsManager *self, const char *web_app)
 {
   double total = 0;
   guint active = 0;
 
   for (guint i = 0; i < self->records->len; i++) {
     WigDownloadRecord *record = g_ptr_array_index(self->records, i);
-    if (record->state != WIG_DOWNLOAD_ACTIVE)
+    if (record->state != WIG_DOWNLOAD_ACTIVE || !wig_download_record_belongs_to(record, web_app))
       continue;
 
     total += webkit_download_get_estimated_progress(record->download);
@@ -303,13 +319,13 @@ void wig_downloads_manager_remove(WigDownloadsManager *self, WigDownloadRecord *
     g_signal_emit(self, signals[CHANGED], 0);
 }
 
-void wig_downloads_manager_clear_finished(WigDownloadsManager *self)
+void wig_downloads_manager_clear_finished(WigDownloadsManager *self, const char *web_app)
 {
-  g_debug("downloads: clearing finished");
+  g_debug("downloads: clearing finished from %s", web_app ? web_app : "the browser");
 
   for (gint i = (gint)self->records->len - 1; i >= 0; i--) {
     WigDownloadRecord *record = g_ptr_array_index(self->records, (guint)i);
-    if (record->state != WIG_DOWNLOAD_ACTIVE)
+    if (record->state != WIG_DOWNLOAD_ACTIVE && wig_download_record_belongs_to(record, web_app))
       g_ptr_array_remove_index(self->records, (guint)i);
   }
 

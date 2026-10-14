@@ -96,5 +96,6 @@ WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app);
 WigNetworkMonitor *wig_application_get_network_monitor(WigApplication *app);
 WigMcpServer *wig_application_get_mcp_server(WigApplication *app);
 WigPwaManager *wig_application_get_pwa_manager(WigApplication *app);
+const char *wig_application_get_web_app_for_web_view(WigApplication *app, WebKitWebView *web_view);
 
 G_END_DECLS

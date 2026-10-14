@@ -43,6 +43,7 @@ struct _WigDownloadsButton {
   WigDownloadsPaintable *paintable;
 
   WigDownloadsManager *manager;
+  char *web_app;
   GtkEventController *window_clicks;
   GtkEventController *window_keys;
   gboolean popover_open;
@@ -56,17 +57,17 @@ G_DEFINE_FINAL_TYPE(WigDownloadsButton, wig_downloads_button, GTK_TYPE_WIDGET)
 static void wig_downloads_button_sync(WigDownloadsButton *self)
 {
   wig_downloads_list_sync(WIG_DOWNLOADS_LIST(self->list));
-  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager));
+  gtk_widget_set_sensitive(self->clear_button, wig_downloads_manager_has_finished(self->manager, self->web_app));
 }
 
 static void wig_downloads_button_update(WigDownloadsButton *self)
 {
   /* Once the popover is up the button has to stay put underneath it, even for an
    * empty list the user asked to see. */
-  gboolean any = !wig_downloads_manager_is_empty(self->manager);
+  gboolean any = !wig_downloads_manager_is_empty(self->manager, self->web_app);
   gtk_revealer_set_reveal_child(GTK_REVEALER(self->revealer), any || self->popover_open);
 
-  double progress = wig_downloads_manager_get_progress(self->manager);
+  double progress = wig_downloads_manager_get_progress(self->manager, self->web_app);
   wig_downloads_paintable_set_active(self->paintable, progress > 0);
   wig_downloads_paintable_set_progress(self->paintable, progress);
 
@@ -79,7 +80,7 @@ static void wig_downloads_button_update(WigDownloadsButton *self)
 static void wig_downloads_button_clear_clicked(WigDownloadsButton *self)
 {
   wig_downloads_list_clear_error(WIG_DOWNLOADS_LIST(self->list));
-  wig_downloads_manager_clear_finished(self->manager);
+  wig_downloads_manager_clear_finished(self->manager, self->web_app);
 }
 
 static void wig_downloads_button_attention_over(WigDownloadsButton *self)
@@ -115,8 +116,12 @@ static void wig_downloads_button_popover_used(WigDownloadsButton *self)
   g_clear_handle_id(&self->auto_close_id, g_source_remove);
 }
 
-static void wig_downloads_button_download_added(WigDownloadsButton *self)
+static void wig_downloads_button_download_added(WigDownloadsButton *self, const char *web_app,
+                                                WigDownloadsManager *manager)
 {
+  if (g_strcmp0(web_app, self->web_app) != 0)
+    return;
+
   g_clear_handle_id(&self->attention_id, g_source_remove);
   gtk_widget_add_css_class(self->image, "accent");
   self->attention_id = g_timeout_add_once(ATTENTION_MS, (GSourceOnceFunc)wig_downloads_button_attention_over, self);
@@ -135,9 +140,11 @@ static void wig_downloads_button_download_added(WigDownloadsButton *self)
     wig_downloads_button_arm_auto_close(self);
 }
 
-static void wig_downloads_button_download_completed(WigDownloadsButton *self)
+static void wig_downloads_button_download_completed(WigDownloadsButton *self, const char *web_app,
+                                                    WigDownloadsManager *manager)
 {
-  wig_downloads_paintable_flash_done(self->paintable);
+  if (g_strcmp0(web_app, self->web_app) == 0)
+    wig_downloads_paintable_flash_done(self->paintable);
 }
 
 /* Presses inside the popover go to its own surface, so one arriving here was
@@ -235,6 +242,7 @@ static void wig_downloads_button_dispose(GObject *object)
   wig_downloads_button_unwatch_window(self);
   g_clear_pointer(&self->revealer, gtk_widget_unparent);
   g_clear_object(&self->paintable);
+  g_clear_pointer(&self->web_app, g_free);
 
   G_OBJECT_CLASS(wig_downloads_button_parent_class)->dispose(object);
 }
@@ -340,4 +348,13 @@ static void wig_downloads_button_init(WigDownloadsButton *self)
 GtkWidget *wig_downloads_button_new(void)
 {
   return GTK_WIDGET(g_object_new(WIG_TYPE_DOWNLOADS_BUTTON, NULL));
+}
+
+void wig_downloads_button_set_web_app(WigDownloadsButton *self, const char *web_app)
+{
+  if (!g_set_str(&self->web_app, web_app))
+    return;
+
+  wig_downloads_list_set_web_app(WIG_DOWNLOADS_LIST(self->list), web_app);
+  wig_downloads_button_update(self);
 }
