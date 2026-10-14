@@ -1126,8 +1126,14 @@ static int wig_application_command_line(GApplication *application, GApplicationC
 
   int argc = 0;
   g_auto(GStrv) argv = g_application_command_line_get_arguments(command_line, &argc);
+  g_autoptr(GPtrArray) files = g_ptr_array_new_with_free_func(g_object_unref);
+  for (int i = 1; i < argc; i++) {
+    if (*argv[i])
+      g_ptr_array_add(files, g_application_command_line_create_file_for_arg(command_line, argv[i]));
+  }
+
   if (web_app_id) {
-    if (argc <= 1) {
+    if (files->len == 0) {
       g_autoptr(GError) error = NULL;
       if (!wig_application_open_web_app(app, web_app_id, NULL, &error)) {
         g_application_command_line_printerr(command_line, "Failed to open web app '%s': %s\n", web_app_id,
@@ -1135,9 +1141,8 @@ static int wig_application_command_line(GApplication *application, GApplicationC
         return 1;
       }
     } else {
-      for (int i = 1; i < argc; i++) {
-        g_autoptr(GFile) file = g_application_command_line_create_file_for_arg(command_line, argv[i]);
-        g_autofree char *uri = g_file_get_uri(file);
+      for (guint i = 0; i < files->len; i++) {
+        g_autofree char *uri = g_file_get_uri(g_ptr_array_index(files, i));
         g_autoptr(GError) error = NULL;
         if (!wig_application_open_web_app(app, web_app_id, uri, &error)) {
           g_application_command_line_printerr(command_line, "Failed to open '%s' for web app '%s': %s\n", uri,
@@ -1149,14 +1154,11 @@ static int wig_application_command_line(GApplication *application, GApplicationC
     return 0;
   }
 
-  if (argc <= 1) {
+  if (files->len == 0) {
     g_application_activate(application);
     return 0;
   }
 
-  g_autoptr(GPtrArray) files = g_ptr_array_new_with_free_func(g_object_unref);
-  for (int i = 1; i < argc; i++)
-    g_ptr_array_add(files, g_application_command_line_create_file_for_arg(command_line, argv[i]));
   g_application_open(application, (GFile **)files->pdata, (int)files->len, "");
   return 0;
 }
