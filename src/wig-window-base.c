@@ -571,7 +571,7 @@ static void wig_window_base_show_bookmarks(GSimpleAction *action, GVariant *para
 
 static void wig_window_base_show_settings(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:settings");
+  wig_application_show_settings(wig_application_get(), GTK_WIDGET(user_data));
 }
 
 static void wig_window_base_copy_text(GSimpleAction *action, GVariant *parameter, gpointer user_data)

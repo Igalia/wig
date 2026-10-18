@@ -34,7 +34,6 @@
 #include "wig-new-tab-page.h"
 #include "wig-option-menu.h"
 #include "wig-script-dialog.h"
-#include "wig-settings-page.h"
 #include "wig-tls-error-page.h"
 #include "wig-unresponsive-dialog.h"
 #include "wig-utils.h"
@@ -772,14 +771,6 @@ gboolean wig_tab_start_search(WigTab *self)
   return wig_native_page_start_search(WIG_NATIVE_PAGE(self->native_page));
 }
 
-static void wig_tab_show_settings_page(WigTab *self, const char *uri)
-{
-  if (wig_tab_native_page_answers_to(self, uri))
-    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
-  else
-    wig_tab_show_native_page(self, wig_settings_page_new(uri));
-}
-
 /* Following an entry is an ordinary navigation, so the page it lands on takes
  * this one's place the way any other link would; middle-clicking it opens a tab
  * behind this one, the way middle-clicking a link on a page does. */
@@ -846,9 +837,7 @@ static void wig_tab_show_downloads_page(WigTab *self, const char *uri)
 
 static gboolean wig_tab_show_internal_page(WigTab *self, const char *uri)
 {
-  if (uri_is_settings_page(uri))
-    wig_tab_show_settings_page(self, uri);
-  else if (uri_is_history_page(uri))
+  if (uri_is_history_page(uri))
     wig_tab_show_history_page(self, uri);
   else if (uri_is_bookmarks_page(uri))
     wig_tab_show_bookmarks_page(self, uri);

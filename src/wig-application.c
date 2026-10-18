@@ -31,10 +31,10 @@
 #include "wig-new-tab-page.h"
 #include "wig-pwa-launch-handler.h"
 #include "wig-pwa-window.h"
+#include "wig-settings-dialog.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
 #include "wig-settings-memory.h"
-#include "wig-settings-page.h"
 #include "wig-settings.h"
 #include "wig-tab.h"
 #include "wig-window.h"
@@ -80,6 +80,7 @@ struct _WigApplication {
   guint unload_unused_tabs_id;
   WigMcpServer *mcp_server;
   WigPwaManager *pwa_manager;
+  AdwDialog *settings_dialog;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -181,6 +182,25 @@ gboolean wig_application_focus_internal_page(WigApplication *app, const char *ur
   }
 
   return FALSE;
+}
+
+static void wig_application_settings_closed(WigApplication *app, AdwDialog *dialog)
+{
+  if (app->settings_dialog == dialog)
+    g_clear_weak_pointer(&app->settings_dialog);
+}
+
+void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
+{
+  if (app->settings_dialog) {
+    gtk_window_present(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(app->settings_dialog))));
+    return;
+  }
+
+  AdwDialog *dialog = wig_settings_dialog_new();
+  g_set_weak_pointer(&app->settings_dialog, dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_settings_closed), app, G_CONNECT_SWAPPED);
+  adw_dialog_present(dialog, parent);
 }
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
@@ -992,6 +1012,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->network_monitor);
   g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
   g_clear_object(&app->pwa_manager);
+  g_clear_weak_pointer(&app->settings_dialog);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -1124,8 +1145,7 @@ static int wig_application_command_line(GApplication *application, GApplicationC
   GVariantDict *options = g_application_command_line_get_options_dict(command_line);
   if (g_variant_dict_contains(options, "mcp-stdio")) {
     if (!g_settings_get_boolean(app->settings, "enable-mcp")) {
-      g_application_command_line_printerr(command_line,
-                                          "MCP is disabled. Turn on MCP Server in wig:settings/mcp to use it.\n");
+      g_application_command_line_printerr(command_line, "MCP is disabled. Turn on MCP Server in Settings to use it.\n");
       return 1;
     }
 

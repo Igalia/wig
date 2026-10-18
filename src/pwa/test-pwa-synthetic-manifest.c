@@ -72,7 +72,7 @@ static void test_port_is_kept(void)
 
 static void test_pages_that_are_not_sites(void)
 {
-  const char *addresses[] = { "wig:settings", "about:blank", "file:///tmp/page.html", "", NULL };
+  const char *addresses[] = { "wig:history", "about:blank", "file:///tmp/page.html", "", NULL };
 
   for (guint i = 0; addresses[i]; i++) {
     g_autoptr(GError) error = NULL;
