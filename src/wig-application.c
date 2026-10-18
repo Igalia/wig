@@ -424,9 +424,8 @@ static void wig_application_download_update_action(GSimpleAction *action, GVaria
 /* Nothing here is about the update: the helper waits for wig to let go of its
  * name and then asks for it back, which is a restart whatever the reason for
  * one. Tabs are put back so restarting costs the session nothing. */
-static void wig_application_restart_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+void wig_application_restart(WigApplication *app)
 {
-  WigApplication *app = WIG_APPLICATION(user_data);
   g_autoptr(GError) error = NULL;
 
   if (!wig_update_monitor_spawn_restart_helper(&error)) {
@@ -436,6 +435,11 @@ static void wig_application_restart_action(GSimpleAction *action, GVariant *para
 
   wig_session_set_restore_on_next_start(app->session);
   g_application_quit(G_APPLICATION(app));
+}
+
+static void wig_application_restart_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_restart(WIG_APPLICATION(user_data));
 }
 
 static const GActionEntry app_actions[] = {

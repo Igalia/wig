@@ -185,6 +185,11 @@ void wig_settings_memory_index(WigSettingsSearch *search, const char *pane, cons
     wig_settings_search_add(search, memory_values[i].title, memory_values[i].description, pane, pane_title);
 }
 
+static void restart_clicked(AdwBanner *banner, gpointer user_data)
+{
+  wig_application_restart(wig_application_get());
+}
+
 static void wig_settings_memory_dispose(GObject *object)
 {
   WigSettingsMemory *self = WIG_SETTINGS_MEMORY(object);
@@ -216,7 +221,7 @@ static void wig_settings_memory_init(WigSettingsMemory *self)
 
   self->banner = ADW_BANNER(adw_banner_new("Changes take effect after restarting the browser."));
   adw_banner_set_button_label(self->banner, "Restart Browser");
-  gtk_actionable_set_action_name(GTK_ACTIONABLE(self->banner), "app.restart");
+  g_signal_connect(self->banner, "button-clicked", G_CALLBACK(restart_clicked), NULL);
   adw_preferences_page_set_banner(ADW_PREFERENCES_PAGE(self->page), self->banner);
 
   AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
