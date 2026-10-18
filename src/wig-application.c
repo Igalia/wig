@@ -25,6 +25,7 @@
 #include <errno.h>
 
 #include "mcp/wig-mcp-server.h"
+#include "wig-downloads-dialog.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
 #include "wig-history-page.h"
@@ -81,6 +82,7 @@ struct _WigApplication {
   WigMcpServer *mcp_server;
   WigPwaManager *pwa_manager;
   AdwDialog *settings_dialog;
+  AdwDialog *downloads_dialog;
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -184,23 +186,36 @@ gboolean wig_application_focus_internal_page(WigApplication *app, const char *ur
   return FALSE;
 }
 
-static void wig_application_settings_closed(WigApplication *app, AdwDialog *dialog)
+static void wig_application_dialog_closed(WigApplication *app, AdwDialog *dialog)
 {
   if (app->settings_dialog == dialog)
     g_clear_weak_pointer(&app->settings_dialog);
+  if (app->downloads_dialog == dialog)
+    g_clear_weak_pointer(&app->downloads_dialog);
+}
+
+static void wig_application_present_dialog(WigApplication *app, AdwDialog **dialog, AdwDialog *(*dialog_new)(void),
+                                           GtkWidget *parent)
+{
+  if (*dialog) {
+    gtk_window_present(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(*dialog))));
+    return;
+  }
+
+  AdwDialog *new_dialog = dialog_new();
+  g_set_weak_pointer(dialog, new_dialog);
+  g_signal_connect_object(new_dialog, "closed", G_CALLBACK(wig_application_dialog_closed), app, G_CONNECT_SWAPPED);
+  adw_dialog_present(new_dialog, parent);
 }
 
 void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
 {
-  if (app->settings_dialog) {
-    gtk_window_present(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(app->settings_dialog))));
-    return;
-  }
+  wig_application_present_dialog(app, &app->settings_dialog, wig_settings_dialog_new, parent);
+}
 
-  AdwDialog *dialog = wig_settings_dialog_new();
-  g_set_weak_pointer(&app->settings_dialog, dialog);
-  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_settings_closed), app, G_CONNECT_SWAPPED);
-  adw_dialog_present(dialog, parent);
+void wig_application_show_downloads(WigApplication *app, GtkWidget *parent)
+{
+  wig_application_present_dialog(app, &app->downloads_dialog, wig_downloads_dialog_new, parent);
 }
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
@@ -1013,6 +1028,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
   g_clear_object(&app->pwa_manager);
   g_clear_weak_pointer(&app->settings_dialog);
+  g_clear_weak_pointer(&app->downloads_dialog);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }

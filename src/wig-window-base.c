@@ -556,7 +556,7 @@ static void wig_window_base_toggle_inspector(GSimpleAction *action, GVariant *pa
 
 static void wig_window_base_show_downloads(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:downloads");
+  wig_application_show_downloads(wig_application_get(), GTK_WIDGET(user_data));
 }
 
 static void wig_window_base_show_history(GSimpleAction *action, GVariant *parameter, gpointer user_data)
