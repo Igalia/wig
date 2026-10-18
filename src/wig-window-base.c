@@ -996,6 +996,9 @@ static void wig_window_base_init(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
 
+  g_autoptr(GtkWindowGroup) group = gtk_window_group_new();
+  gtk_window_group_add_window(group, GTK_WINDOW(self));
+
   GtkGestureClick *click = GTK_GESTURE_CLICK(gtk_gesture_click_new());
   gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
