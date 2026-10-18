@@ -206,6 +206,7 @@ static void wig_application_present_dialog(WigApplication *app, AdwDialog **dial
   g_set_weak_pointer(dialog, new_dialog);
   g_signal_connect_object(new_dialog, "closed", G_CALLBACK(wig_application_dialog_closed), app, G_CONNECT_SWAPPED);
   adw_dialog_present(new_dialog, parent);
+  gtk_window_set_modal(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(new_dialog))), FALSE);
 }
 
 void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
