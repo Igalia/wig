@@ -29,6 +29,6 @@ G_BEGIN_DECLS
 #define WIG_TYPE_DOWNLOADS_DIALOG (wig_downloads_dialog_get_type())
 G_DECLARE_FINAL_TYPE(WigDownloadsDialog, wig_downloads_dialog, WIG, DOWNLOADS_DIALOG, AdwDialog)
 
-AdwDialog *wig_downloads_dialog_new(void);
+AdwDialog *wig_downloads_dialog_new(const char *web_app);
 
 G_END_DECLS

@@ -217,3 +217,8 @@ const char *wig_web_app_filter_get_web_app(WigWebAppFilter *self)
 {
   return self->web_app;
 }
+
+void wig_web_app_filter_set_web_app(WigWebAppFilter *self, const char *web_app)
+{
+  gtk_widget_activate_action(GTK_WIDGET(self), "web-app-filter.select", "s", web_app ? web_app : "");
+}

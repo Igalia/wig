@@ -82,7 +82,7 @@ struct _WigApplication {
   WigMcpServer *mcp_server;
   WigPwaManager *pwa_manager;
   AdwDialog *settings_dialog;
-  AdwDialog *downloads_dialog;
+  GHashTable *downloads_dialogs; /* char* web app, "" for the browser -> AdwDialog* (unowned) */
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -186,37 +186,60 @@ gboolean wig_application_focus_internal_page(WigApplication *app, const char *ur
   return FALSE;
 }
 
-static void wig_application_dialog_closed(WigApplication *app, AdwDialog *dialog)
+static void wig_application_raise_dialog(AdwDialog *dialog)
+{
+  gtk_window_present(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))));
+}
+
+static void wig_application_present_dialog(AdwDialog *dialog, GtkWidget *parent)
+{
+  adw_dialog_present(dialog, parent);
+  gtk_window_set_modal(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))), FALSE);
+}
+
+static void wig_application_settings_closed(WigApplication *app, AdwDialog *dialog)
 {
   if (app->settings_dialog == dialog)
     g_clear_weak_pointer(&app->settings_dialog);
-  if (app->downloads_dialog == dialog)
-    g_clear_weak_pointer(&app->downloads_dialog);
-}
-
-static void wig_application_present_dialog(WigApplication *app, AdwDialog **dialog, AdwDialog *(*dialog_new)(void),
-                                           GtkWidget *parent)
-{
-  if (*dialog) {
-    gtk_window_present(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(*dialog))));
-    return;
-  }
-
-  AdwDialog *new_dialog = dialog_new();
-  g_set_weak_pointer(dialog, new_dialog);
-  g_signal_connect_object(new_dialog, "closed", G_CALLBACK(wig_application_dialog_closed), app, G_CONNECT_SWAPPED);
-  adw_dialog_present(new_dialog, parent);
-  gtk_window_set_modal(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(new_dialog))), FALSE);
 }
 
 void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
 {
-  wig_application_present_dialog(app, &app->settings_dialog, wig_settings_dialog_new, parent);
+  if (app->settings_dialog) {
+    wig_application_raise_dialog(app->settings_dialog);
+    return;
+  }
+
+  AdwDialog *dialog = wig_settings_dialog_new();
+  g_set_weak_pointer(&app->settings_dialog, dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_settings_closed), app, G_CONNECT_SWAPPED);
+  wig_application_present_dialog(dialog, parent);
 }
 
-void wig_application_show_downloads(WigApplication *app, GtkWidget *parent)
+static gboolean downloads_dialog_is(gpointer key, gpointer value, gpointer user_data)
 {
-  wig_application_present_dialog(app, &app->downloads_dialog, wig_downloads_dialog_new, parent);
+  return value == user_data;
+}
+
+static void wig_application_downloads_closed(WigApplication *app, AdwDialog *dialog)
+{
+  g_hash_table_foreach_remove(app->downloads_dialogs, downloads_dialog_is, dialog);
+}
+
+void wig_application_show_downloads(WigApplication *app, GtkWidget *parent, const char *web_app)
+{
+  const char *key = web_app ? web_app : "";
+  AdwDialog *dialog = g_hash_table_lookup(app->downloads_dialogs, key);
+
+  if (dialog) {
+    wig_application_raise_dialog(dialog);
+    return;
+  }
+
+  dialog = wig_downloads_dialog_new(web_app);
+  g_hash_table_insert(app->downloads_dialogs, g_strdup(key), dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_downloads_closed), app, G_CONNECT_SWAPPED);
+  wig_application_present_dialog(dialog, parent);
 }
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
@@ -515,6 +538,7 @@ static void wig_application_init(WigApplication *app)
 
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
+  app->downloads_dialogs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   app->history_suppressions = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
@@ -1033,7 +1057,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
   g_clear_object(&app->pwa_manager);
   g_clear_weak_pointer(&app->settings_dialog);
-  g_clear_weak_pointer(&app->downloads_dialog);
+  g_clear_pointer(&app->downloads_dialogs, g_hash_table_unref);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }

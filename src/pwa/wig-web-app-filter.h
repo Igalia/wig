@@ -31,5 +31,6 @@ G_DECLARE_FINAL_TYPE(WigWebAppFilter, wig_web_app_filter, WIG, WEB_APP_FILTER, G
 
 GtkWidget *wig_web_app_filter_new(void);
 const char *wig_web_app_filter_get_web_app(WigWebAppFilter *self);
+void wig_web_app_filter_set_web_app(WigWebAppFilter *self, const char *web_app);
 
 G_END_DECLS

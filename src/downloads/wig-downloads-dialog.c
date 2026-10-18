@@ -143,7 +143,10 @@ static void wig_downloads_dialog_init(WigDownloadsDialog *self)
   wig_downloads_dialog_sync(self);
 }
 
-AdwDialog *wig_downloads_dialog_new(void)
+AdwDialog *wig_downloads_dialog_new(const char *web_app)
 {
-  return g_object_new(WIG_TYPE_DOWNLOADS_DIALOG, NULL);
+  WigDownloadsDialog *self = g_object_new(WIG_TYPE_DOWNLOADS_DIALOG, NULL);
+
+  wig_web_app_filter_set_web_app(WIG_WEB_APP_FILTER(self->filter), web_app);
+  return ADW_DIALOG(self);
 }
