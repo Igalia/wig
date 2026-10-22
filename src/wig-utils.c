@@ -48,8 +48,14 @@ static psl_ctx_t *get_psl_context(void)
 {
   static psl_ctx_t *psl = NULL;
 
-  if (!psl)
+  // Tests load a list of their own, as what the system's list says changes over time.
+  if (!psl) {
+#ifdef WIG_PSL_FILE
+    psl = psl_load_file(WIG_PSL_FILE);
+#else
     psl = psl_latest(NULL);
+#endif
+  }
 
   return psl;
 }
