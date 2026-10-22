@@ -37,6 +37,7 @@ typedef enum {
 
 WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url);
 char *wig_util_complete_uri(const char *url, const char *search_engine);
+char *wig_util_complete_uri_dot_com(const char *url, const char *search_engine);
 char *wig_util_search_uri(const char *terms, const char *search_engine);
 char *wig_util_search_engine_name(const char *search_engine);
 gboolean wig_util_paths_are_same_page(const char *first, const char *second);
