@@ -22,17 +22,13 @@
 
 #pragma once
 
-#include "wig-native-page.h"
+#include <adwaita.h>
 
 G_BEGIN_DECLS
 
-#define WIG_BOOKMARKS_PAGE_URI "wig:bookmarks"
-#define WIG_BOOKMARKS_PAGE_TITLE "Bookmarks"
+#define WIG_TYPE_BOOKMARKS_DIALOG (wig_bookmarks_dialog_get_type())
+G_DECLARE_FINAL_TYPE(WigBookmarksDialog, wig_bookmarks_dialog, WIG, BOOKMARKS_DIALOG, AdwDialog)
 
-#define WIG_TYPE_BOOKMARKS_PAGE (wig_bookmarks_page_get_type())
-G_DECLARE_FINAL_TYPE(WigBookmarksPage, wig_bookmarks_page, WIG, BOOKMARKS_PAGE, WigNativePage)
-
-GtkWidget *wig_bookmarks_page_new(const char *uri);
-gboolean uri_is_bookmarks_page(const char *uri);
+AdwDialog *wig_bookmarks_dialog_new(void);
 
 G_END_DECLS

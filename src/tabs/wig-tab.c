@@ -24,7 +24,6 @@
 
 #include "wig-auth-dialog.h"
 #include "wig-blank-page.h"
-#include "wig-bookmarks-page.h"
 #include "wig-crash-page.h"
 #include "wig-error-page.h"
 #include "wig-favicon.h"
@@ -789,18 +788,6 @@ static void wig_tab_native_page_open_uri(WigTab *self, const char *uri, gboolean
   webkit_web_view_load_uri(web_view, uri);
 }
 
-static void wig_tab_show_bookmarks_page(WigTab *self, const char *uri)
-{
-  if (wig_tab_native_page_answers_to(self, uri)) {
-    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
-    return;
-  }
-
-  GtkWidget *page = wig_bookmarks_page_new(uri);
-  g_signal_connect_object(page, "open-uri", G_CALLBACK(wig_tab_native_page_open_uri), self, G_CONNECT_SWAPPED);
-  wig_tab_show_native_page(self, page);
-}
-
 static void wig_tab_show_new_tab_page(WigTab *self, const char *uri)
 {
   if (wig_tab_native_page_answers_to(self, uri)) {
@@ -815,9 +802,7 @@ static void wig_tab_show_new_tab_page(WigTab *self, const char *uri)
 
 static gboolean wig_tab_show_internal_page(WigTab *self, const char *uri)
 {
-  if (uri_is_bookmarks_page(uri))
-    wig_tab_show_bookmarks_page(self, uri);
-  else if (uri_is_new_tab_page(uri))
+  if (uri_is_new_tab_page(uri))
     wig_tab_show_new_tab_page(self, uri);
   else
     return FALSE;

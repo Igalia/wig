@@ -69,6 +69,7 @@ WigBookmarksStore *wig_application_get_bookmarks_store(WigApplication *app);
 WigDownloadsManager *wig_application_get_downloads_manager(WigApplication *app);
 void wig_application_restart(WigApplication *app);
 void wig_application_show_settings(WigApplication *app, GtkWidget *parent);
+void wig_application_show_bookmarks(WigApplication *app, GtkWidget *parent);
 void wig_application_show_downloads(WigApplication *app, GtkWidget *parent, const char *web_app);
 void wig_application_show_history(WigApplication *app, GtkWidget *parent, const char *web_app);
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri);

@@ -25,6 +25,7 @@
 #include <errno.h>
 
 #include "mcp/wig-mcp-server.h"
+#include "wig-bookmarks-dialog.h"
 #include "wig-downloads-dialog.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
@@ -82,6 +83,7 @@ struct _WigApplication {
   WigMcpServer *mcp_server;
   WigPwaManager *pwa_manager;
   AdwDialog *settings_dialog;
+  AdwDialog *bookmarks_dialog;
   GHashTable *downloads_dialogs; /* char* web app, "" for the browser -> AdwDialog* (unowned) */
   GHashTable *history_dialogs; /* char* web app, "" for the browser -> AdwDialog* (unowned) */
 };
@@ -198,10 +200,37 @@ static void wig_application_present_dialog(AdwDialog *dialog, GtkWidget *parent)
   gtk_window_set_modal(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))), FALSE);
 }
 
-static void wig_application_settings_closed(WigApplication *app, AdwDialog *dialog)
+static void wig_application_dialog_closed(WigApplication *app, AdwDialog *dialog)
 {
   if (app->settings_dialog == dialog)
     g_clear_weak_pointer(&app->settings_dialog);
+  if (app->bookmarks_dialog == dialog)
+    g_clear_weak_pointer(&app->bookmarks_dialog);
+}
+
+static void wig_application_dialog_open_uri(WigApplication *app, const char *uri, gboolean background,
+                                            AdwDialog *dialog)
+{
+  GtkWindow *parent = gtk_window_get_transient_for(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))));
+  WigWindow *win = WIG_IS_WINDOW(parent) ? WIG_WINDOW(parent) : wig_application_find_browser_window(app);
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
+
+  g_debug("application: opening %s from %s%s", uri, G_OBJECT_TYPE_NAME(dialog),
+          background ? " in a background tab" : "");
+
+  gboolean created = !win;
+
+  if (created)
+    win = wig_window_new(app);
+
+  if (background)
+    wig_window_add_web_view_in_background(win, web_view);
+  else
+    wig_window_add_web_view(win, web_view);
+  webkit_web_view_load_uri(web_view, uri);
+
+  if (GTK_WINDOW(win) != parent && (!background || created))
+    gtk_window_present(GTK_WINDOW(win));
 }
 
 void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
@@ -213,7 +242,21 @@ void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
 
   AdwDialog *dialog = wig_settings_dialog_new();
   g_set_weak_pointer(&app->settings_dialog, dialog);
-  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_settings_closed), app, G_CONNECT_SWAPPED);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_dialog_closed), app, G_CONNECT_SWAPPED);
+  wig_application_present_dialog(dialog, parent);
+}
+
+void wig_application_show_bookmarks(WigApplication *app, GtkWidget *parent)
+{
+  if (app->bookmarks_dialog) {
+    wig_application_raise_dialog(app->bookmarks_dialog);
+    return;
+  }
+
+  AdwDialog *dialog = wig_bookmarks_dialog_new();
+  g_set_weak_pointer(&app->bookmarks_dialog, dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_dialog_closed), app, G_CONNECT_SWAPPED);
+  g_signal_connect_object(dialog, "open-uri", G_CALLBACK(wig_application_dialog_open_uri), app, G_CONNECT_SWAPPED);
   wig_application_present_dialog(dialog, parent);
 }
 
@@ -255,30 +298,6 @@ void wig_application_show_downloads(WigApplication *app, GtkWidget *parent, cons
                                          web_app);
 }
 
-static void wig_application_history_open_uri(WigApplication *app, const char *uri, gboolean background,
-                                             AdwDialog *dialog)
-{
-  GtkWindow *parent = gtk_window_get_transient_for(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))));
-  WigWindow *win = WIG_IS_WINDOW(parent) ? WIG_WINDOW(parent) : wig_application_find_browser_window(app);
-  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
-
-  g_debug("application: opening %s from history%s", uri, background ? " in a background tab" : "");
-
-  gboolean created = !win;
-
-  if (created)
-    win = wig_window_new(app);
-
-  if (background)
-    wig_window_add_web_view_in_background(win, web_view);
-  else
-    wig_window_add_web_view(win, web_view);
-  webkit_web_view_load_uri(web_view, uri);
-
-  if (GTK_WINDOW(win) != parent && (!background || created))
-    gtk_window_present(GTK_WINDOW(win));
-}
-
 void wig_application_show_history(WigApplication *app, GtkWidget *parent, const char *web_app)
 {
   AdwDialog *dialog = wig_application_raise_web_app_dialog(app->history_dialogs, web_app);
@@ -289,7 +308,7 @@ void wig_application_show_history(WigApplication *app, GtkWidget *parent, const 
   }
 
   dialog = wig_history_dialog_new(web_app);
-  g_signal_connect_object(dialog, "open-uri", G_CALLBACK(wig_application_history_open_uri), app, G_CONNECT_SWAPPED);
+  g_signal_connect_object(dialog, "open-uri", G_CALLBACK(wig_application_dialog_open_uri), app, G_CONNECT_SWAPPED);
   wig_application_present_web_app_dialog(app, app->history_dialogs, dialog, parent, web_app);
 }
 
@@ -1109,6 +1128,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
   g_clear_object(&app->pwa_manager);
   g_clear_weak_pointer(&app->settings_dialog);
+  g_clear_weak_pointer(&app->bookmarks_dialog);
   g_clear_pointer(&app->downloads_dialogs, g_hash_table_unref);
   g_clear_pointer(&app->history_dialogs, g_hash_table_unref);
 
