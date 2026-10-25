@@ -263,53 +263,6 @@ static void wig_window_web_view_closed(WigWindow *win, WebKitWebView *web_view)
   wig_tab_list_close(win->tab_list, tab);
 }
 
-WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore, gboolean reload)
-{
-  g_autoptr(GUri) lookup = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
-  if (!lookup)
-    return NULL;
-
-  const char *lookup_scheme = g_uri_get_scheme(lookup);
-  const char *lookup_host = g_uri_get_host(lookup);
-  const char *lookup_path = g_uri_get_path(lookup);
-
-  guint n = wig_tab_list_get_n_tabs(win->tab_list);
-  for (guint i = 0; i < n; i++) {
-    WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
-    WebKitWebView *web_view = wig_tab_get_web_view(tab);
-    if (web_view == ignore)
-      continue;
-
-    const char *tab_uri = wig_tab_get_uri(tab);
-    if (!tab_uri)
-      continue;
-
-    g_autoptr(GUri) parsed = g_uri_parse(tab_uri, G_URI_FLAGS_NONE, NULL);
-    if (!parsed)
-      continue;
-
-    const char *tab_scheme = g_uri_get_scheme(parsed);
-    const char *tab_host = g_uri_get_host(parsed);
-
-    gboolean match;
-    if (lookup_host && *lookup_host)
-      match = g_str_equal(lookup_scheme, tab_scheme) && tab_host && g_ascii_strcasecmp(lookup_host, tab_host) == 0;
-    else
-      match = g_str_equal(lookup_scheme, tab_scheme)
-          && wig_util_paths_are_same_page(lookup_path, g_uri_get_path(parsed));
-
-    if (match) {
-      gboolean discarded = wig_tab_get_discarded(tab);
-      wig_tab_list_set_active(win->tab_list, tab);
-      wig_tab_load_discarded(tab);
-      if (reload && !discarded)
-        webkit_web_view_reload(web_view);
-      return web_view;
-    }
-  }
-  return NULL;
-}
-
 static void wig_window_close_install_web_app_popover(WigWindow *win)
 {
   if (win->install_popover)
@@ -1496,12 +1449,6 @@ static const char *wig_navigation_type_name(WebKitNavigationType type)
   }
 }
 
-static const char *wig_web_view_get_committed_uri(WebKitWebView *web_view)
-{
-  WebKitWebResource *resource = webkit_web_view_get_main_resource(web_view);
-  return resource ? webkit_web_resource_get_uri(resource) : NULL;
-}
-
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
                                          WebKitPolicyDecisionType decision_type, WebKitWebView *web_view)
 {
@@ -1540,14 +1487,6 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
       webkit_policy_decision_ignore(decision);
       return TRUE;
     }
-  }
-
-  if (g_strcmp0(target_scheme, "wig") == 0
-      && !wig_util_uris_are_same_page(wig_web_view_get_committed_uri(web_view), request_uri)
-      && wig_application_focus_internal_page(wig_application_get(), request_uri, web_view)) {
-    g_debug("wig: focusing the page that is already open instead of '%s'", request_uri);
-    webkit_policy_decision_ignore(decision);
-    return TRUE;
   }
 
   /* Ctrl + primary-clicking and middle-clicking a link opens it in a

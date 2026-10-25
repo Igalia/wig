@@ -127,12 +127,6 @@ static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow 
   webkit_web_view_load_uri(web_view, uri);
 }
 
-static WebKitWebView *wig_application_focus_internal_page_in_window(WigWindow *win, const char *uri,
-                                                                    WebKitWebView *ignore, gboolean reload)
-{
-  return wig_window_focus_tab_by_site(win, uri, ignore, reload);
-}
-
 static WigWindow *wig_application_find_browser_window(WigApplication *app)
 {
   GtkWindow *active = gtk_application_get_active_window(GTK_APPLICATION(app));
@@ -169,24 +163,6 @@ gboolean wig_application_open_uri(WigApplication *app, GtkWindow *win, const cha
   webkit_web_view_load_uri(web_view, uri);
 
   return TRUE;
-}
-
-gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore)
-{
-  if (uri_is_new_tab_page(uri))
-    return FALSE;
-
-  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
-    if (!WIG_IS_WINDOW(l->data))
-      continue;
-
-    if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, ignore, FALSE)) {
-      gtk_window_present(GTK_WINDOW(l->data));
-      return TRUE;
-    }
-  }
-
-  return FALSE;
 }
 
 static void wig_application_raise_dialog(AdwDialog *dialog)
@@ -314,23 +290,6 @@ void wig_application_show_history(WigApplication *app, GtkWidget *parent, const 
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
 {
-  if (!uri_is_new_tab_page(uri)) {
-    if (WIG_IS_WINDOW(win) && wig_application_focus_internal_page_in_window(WIG_WINDOW(win), uri, NULL, TRUE))
-      return;
-
-    for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
-      if (l->data == win)
-        continue;
-      if (!WIG_IS_WINDOW(l->data))
-        continue;
-
-      if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, NULL, TRUE)) {
-        gtk_window_present(GTK_WINDOW(l->data));
-        return;
-      }
-    }
-  }
-
   if (!WIG_IS_WINDOW(win)) {
     wig_application_open_uri_in_browser(app, uri);
     return;

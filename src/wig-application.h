@@ -74,7 +74,6 @@ void wig_application_show_downloads(WigApplication *app, GtkWidget *parent, cons
 void wig_application_show_history(WigApplication *app, GtkWidget *parent, const char *web_app);
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri);
 gboolean wig_application_open_uri(WigApplication *app, GtkWindow *win, const char *uri);
-gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore);
 
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);

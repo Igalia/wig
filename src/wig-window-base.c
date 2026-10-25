@@ -519,9 +519,6 @@ static void wig_window_base_find(GSimpleAction *action, GVariant *parameter, gpo
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(WIG_WINDOW_BASE(user_data));
 
-  if (priv->active_tab && wig_tab_start_search(priv->active_tab))
-    return;
-
   wig_search_bar_open(WIG_SEARCH_BAR(priv->search_bar));
 }
 

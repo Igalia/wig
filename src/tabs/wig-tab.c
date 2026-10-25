@@ -646,21 +646,6 @@ static void wig_tab_native_page_title_changed(WigTab *self, GParamSpec *pspec, W
   wig_tab_set_title(self, wig_native_page_get_title(page));
 }
 
-/* The page moves around inside itself by changing the address it is at, which
- * the view follows so the entry, history and session see an ordinary
- * navigation. */
-static void wig_tab_native_page_uri_changed(WigTab *self, GParamSpec *pspec, WigNativePage *page)
-{
-  const char *uri = wig_native_page_get_uri(page);
-
-  g_object_notify_by_pspec(G_OBJECT(self), props[PROP_PAGE_URI]);
-
-  if (!uri || g_strcmp0(uri, webkit_web_view_get_uri(self->web_view)) == 0)
-    return;
-
-  webkit_web_view_load_uri(self->web_view, uri);
-}
-
 static gboolean wig_tab_focus_is_in_input(WigTab *self)
 {
   GtkRoot *root = gtk_widget_get_root(self->view_overlay);
@@ -688,7 +673,6 @@ static void wig_tab_show_native_page(WigTab *self, GtkWidget *page)
 
   g_signal_connect_object(page, "notify::title", G_CALLBACK(wig_tab_native_page_title_changed), self,
                           G_CONNECT_SWAPPED);
-  g_signal_connect_object(page, "notify::uri", G_CALLBACK(wig_tab_native_page_uri_changed), self, G_CONNECT_SWAPPED);
 
   /* A page that says nothing about what it is called leaves the tab the title
    * it already had, which for a failed load is the page it was leaving. */
@@ -740,8 +724,6 @@ static void wig_tab_on_buffer_rendered(WigTab *self)
   wig_tab_clear_native_page(self);
 }
 
-/* A native page answers to every address of the page it is, panes included, so
- * moving between them is the page taking a new address rather than a new page. */
 static gboolean wig_tab_native_page_answers_to(WigTab *self, const char *uri)
 {
   if (!WIG_IS_NATIVE_PAGE(self->native_page))
@@ -752,20 +734,12 @@ static gboolean wig_tab_native_page_answers_to(WigTab *self, const char *uri)
   if (self->page_is_stand_in)
     return FALSE;
 
-  return wig_util_uris_are_same_page(wig_native_page_get_uri(WIG_NATIVE_PAGE(self->native_page)), uri);
+  return g_strcmp0(wig_native_page_get_uri(WIG_NATIVE_PAGE(self->native_page)), uri) == 0;
 }
 
 GtkWidget *wig_tab_get_native_page(WigTab *self)
 {
   return self->native_page;
-}
-
-gboolean wig_tab_start_search(WigTab *self)
-{
-  if (!WIG_IS_NATIVE_PAGE(self->native_page))
-    return FALSE;
-
-  return wig_native_page_start_search(WIG_NATIVE_PAGE(self->native_page));
 }
 
 /* Following an entry is an ordinary navigation, so the page it lands on takes
@@ -790,10 +764,8 @@ static void wig_tab_native_page_open_uri(WigTab *self, const char *uri, gboolean
 
 static void wig_tab_show_new_tab_page(WigTab *self, const char *uri)
 {
-  if (wig_tab_native_page_answers_to(self, uri)) {
-    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+  if (wig_tab_native_page_answers_to(self, uri))
     return;
-  }
 
   GtkWidget *page = wig_new_tab_page_new(uri);
   g_signal_connect_object(page, "open-uri", G_CALLBACK(wig_tab_native_page_open_uri), self, G_CONNECT_SWAPPED);
@@ -814,10 +786,8 @@ static void wig_tab_on_uri_changed(WigTab *self)
 {
   const char *uri = webkit_web_view_get_uri(self->web_view);
 
-  if (wig_tab_native_page_answers_to(self, uri)) {
-    wig_native_page_set_uri(WIG_NATIVE_PAGE(self->native_page), uri);
+  if (wig_tab_native_page_answers_to(self, uri))
     return;
-  }
 
   if (wig_tab_show_internal_page(self, uri)) {
     g_debug("tab %u: showing %s ahead of its load", self->id, uri);
@@ -848,8 +818,8 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
     self->restoring_icon = FALSE;
     wig_tab_set_hovered_link(self, NULL, NULL);
 
-    /* Moving between panes would otherwise take the page down and put an empty
-     * document on screen until the next one commits. */
+    /* A page shown ahead of its own load would otherwise be taken down and leave
+     * an empty document on screen until that load commits. */
     const char *started_uri = webkit_web_view_get_uri(self->web_view);
     if (!wig_tab_native_page_answers_to(self, started_uri))
       wig_tab_clear_native_page(self);
