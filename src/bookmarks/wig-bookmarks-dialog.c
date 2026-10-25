@@ -28,6 +28,7 @@
 #include "wig-bookmarks-store.h"
 
 #define BOOKMARKS_DIALOG_SEARCH_LIMIT 100
+#define BOOKMARKS_DIALOG_CRUMB_WIDTH 20
 
 enum {
   OPEN_URI_SIGNAL,
@@ -83,7 +84,13 @@ static void wig_bookmarks_dialog_append_crumb(WigBookmarksDialog *self, GtkWidge
 static void wig_bookmarks_dialog_add_breadcrumb(WigBookmarksDialog *self, const char *label, const char *folder_id,
                                                 gboolean is_current)
 {
-  GtkWidget *button = gtk_button_new_with_label(label);
+  GtkWidget *name = gtk_label_new(label);
+  gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+  gtk_label_set_max_width_chars(GTK_LABEL(name), BOOKMARKS_DIALOG_CRUMB_WIDTH);
+
+  GtkWidget *button = gtk_button_new();
+  gtk_button_set_child(GTK_BUTTON(button), name);
+  gtk_widget_set_tooltip_text(button, label);
   gtk_widget_set_name(button, folder_id ? folder_id : "");
   gtk_widget_add_css_class(button, "flat");
   gtk_widget_set_sensitive(button, !is_current);
