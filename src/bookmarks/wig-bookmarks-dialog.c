@@ -69,6 +69,17 @@ static void wig_bookmarks_dialog_breadcrumb_clicked(WigBookmarksDialog *self, Gt
   wig_bookmarks_dialog_open_folder(self, *folder_id ? folder_id : NULL);
 }
 
+static void wig_bookmarks_dialog_append_crumb(WigBookmarksDialog *self, GtkWidget *crumb)
+{
+  if (gtk_widget_get_first_child(self->breadcrumbs)) {
+    GtkWidget *separator = gtk_image_new_from_icon_name("go-next-symbolic");
+    gtk_widget_add_css_class(separator, "dim-label");
+    gtk_box_append(GTK_BOX(self->breadcrumbs), separator);
+  }
+
+  gtk_box_append(GTK_BOX(self->breadcrumbs), crumb);
+}
+
 static void wig_bookmarks_dialog_add_breadcrumb(WigBookmarksDialog *self, const char *label, const char *folder_id,
                                                 gboolean is_current)
 {
@@ -78,7 +89,7 @@ static void wig_bookmarks_dialog_add_breadcrumb(WigBookmarksDialog *self, const 
   gtk_widget_set_sensitive(button, !is_current);
   g_signal_connect_object(button, "clicked", G_CALLBACK(wig_bookmarks_dialog_breadcrumb_clicked), self,
                           G_CONNECT_SWAPPED);
-  gtk_box_append(GTK_BOX(self->breadcrumbs), button);
+  wig_bookmarks_dialog_append_crumb(self, button);
 }
 
 static void wig_bookmarks_dialog_build_breadcrumbs(WigBookmarksDialog *self)
