@@ -29,6 +29,7 @@
 
 #define BOOKMARKS_DIALOG_SEARCH_LIMIT 100
 #define BOOKMARKS_DIALOG_CRUMB_WIDTH 20
+#define BOOKMARKS_DIALOG_SHOWN_ANCESTORS 1
 
 enum {
   OPEN_URI_SIGNAL,
@@ -99,6 +100,26 @@ static void wig_bookmarks_dialog_add_breadcrumb(WigBookmarksDialog *self, const 
   wig_bookmarks_dialog_append_crumb(self, button);
 }
 
+static void wig_bookmarks_dialog_add_collapsed_breadcrumbs(WigBookmarksDialog *self, GPtrArray *ancestors, guint count)
+{
+  g_autoptr(GMenu) menu = g_menu_new();
+
+  for (guint i = 0; i < count; i++) {
+    WigBookmark *ancestor = g_ptr_array_index(ancestors, i);
+    g_autoptr(GMenuItem) item = g_menu_item_new(wig_bookmark_get_title(ancestor), NULL);
+
+    g_menu_item_set_action_and_target(item, "bookmark.open-folder", "s", wig_bookmark_get_id(ancestor));
+    g_menu_append_item(menu, item);
+  }
+
+  GtkWidget *button = gtk_menu_button_new();
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(button), "view-more-horizontal-symbolic");
+  gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(button), FALSE);
+  gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(button), G_MENU_MODEL(menu));
+  gtk_widget_set_tooltip_text(button, "Enclosing Folders");
+  wig_bookmarks_dialog_append_crumb(self, button);
+}
+
 static void wig_bookmarks_dialog_build_breadcrumbs(WigBookmarksDialog *self)
 {
   GtkWidget *child = gtk_widget_get_first_child(self->breadcrumbs);
@@ -114,7 +135,14 @@ static void wig_bookmarks_dialog_build_breadcrumbs(WigBookmarksDialog *self)
     return;
 
   g_autoptr(GPtrArray) ancestors = wig_bookmarks_store_get_ancestors(self->store, self->folder_id, NULL);
-  for (guint i = 0; ancestors && i < ancestors->len; i++) {
+  guint first_shown = 0;
+
+  if (ancestors && ancestors->len > BOOKMARKS_DIALOG_SHOWN_ANCESTORS + 1) {
+    first_shown = ancestors->len - BOOKMARKS_DIALOG_SHOWN_ANCESTORS;
+    wig_bookmarks_dialog_add_collapsed_breadcrumbs(self, ancestors, first_shown);
+  }
+
+  for (guint i = first_shown; ancestors && i < ancestors->len; i++) {
     WigBookmark *ancestor = g_ptr_array_index(ancestors, i);
     wig_bookmarks_dialog_add_breadcrumb(self, wig_bookmark_get_title(ancestor), wig_bookmark_get_id(ancestor), FALSE);
   }
@@ -271,9 +299,15 @@ static void wig_bookmarks_dialog_remove(GSimpleAction *action, GVariant *paramet
     g_warning("bookmarks: could not remove %s: %s", id, error->message);
 }
 
+static void wig_bookmarks_dialog_open_folder_activated(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_bookmarks_dialog_open_folder(user_data, g_variant_get_string(parameter, NULL));
+}
+
 static const GActionEntry bookmark_actions[] = {
   { "edit", wig_bookmarks_dialog_edit, "s" },
   { "move", wig_bookmarks_dialog_move, "(ss)" },
+  { "open-folder", wig_bookmarks_dialog_open_folder_activated, "s" },
   { "remove", wig_bookmarks_dialog_remove, "s" },
 };
 
