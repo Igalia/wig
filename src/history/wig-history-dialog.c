@@ -20,22 +20,13 @@
  * SOFTWARE.
  */
 
-#include "wig-history-page.h"
+#include "wig-history-dialog.h"
 
 #include "wig-application.h"
 #include "wig-history-store.h"
 #include "wig-web-app-filter.h"
 
-#include <adwaita.h>
-
-/* What one look at the store asks for, the same batch the page used to render at
- * a time. */
-#define HISTORY_PAGE_LIMIT 100
-
-/* Rows carry more than a line of text, so they are given more room than the
- * clamp would otherwise allow. */
-#define HISTORY_PAGE_WIDTH 900
-#define HISTORY_PAGE_TIGHTENING 600
+#define HISTORY_DIALOG_LIMIT 100
 
 enum {
   OPEN_URI_SIGNAL,
@@ -44,8 +35,8 @@ enum {
 
 static guint signals[N_SIGNALS];
 
-struct _WigHistoryPage {
-  WigNativePage parent;
+struct _WigHistoryDialog {
+  AdwDialog parent;
 
   WigHistoryStore *store;
   GListStore *items;
@@ -58,7 +49,6 @@ struct _WigHistoryPage {
    * scrollbar and asking for the next one from there would never end. */
   gboolean loading;
 
-  GtkWidget *toolbar;
   GtkWidget *entry;
   GtkWidget *filter;
   GtkWidget *stack;
@@ -66,24 +56,7 @@ struct _WigHistoryPage {
   GtkWidget *empty;
 };
 
-G_DEFINE_FINAL_TYPE(WigHistoryPage, wig_history_page, WIG_TYPE_NATIVE_PAGE)
-
-gboolean uri_is_history_page(const char *uri)
-{
-  g_autoptr(GUri) parsed = uri ? g_uri_parse(uri, G_URI_FLAGS_NONE, NULL) : NULL;
-
-  return parsed && g_strcmp0(g_uri_get_scheme(parsed), "wig") == 0 && g_str_equal(g_uri_get_path(parsed), "history");
-}
-
-static char *history_query_for_uri(const char *uri)
-{
-  g_autoptr(GUri) parsed = uri ? g_uri_parse(uri, G_URI_FLAGS_NONE, NULL) : NULL;
-  const char *raw_query = parsed ? g_uri_get_query(parsed) : NULL;
-  g_autoptr(GHashTable) params = raw_query ? g_uri_parse_params(raw_query, -1, "&", G_URI_PARAMS_NONE, NULL) : NULL;
-  const char *query = params ? g_hash_table_lookup(params, "q") : NULL;
-
-  return query && *query ? g_strdup(query) : NULL;
-}
+G_DEFINE_FINAL_TYPE(WigHistoryDialog, wig_history_dialog, ADW_TYPE_DIALOG)
 
 static char *history_visit_time(gint64 visit_time)
 {
@@ -92,7 +65,7 @@ static char *history_visit_time(gint64 visit_time)
   return date_time ? g_date_time_format(date_time, "%x %X") : g_strdup("");
 }
 
-static void wig_history_page_load(WigHistoryPage *self, gboolean append)
+static void wig_history_dialog_load(WigHistoryDialog *self, gboolean append)
 {
   g_autoptr(GError) error = NULL;
   g_autoptr(GPtrArray) items = NULL;
@@ -108,7 +81,7 @@ static void wig_history_page_load(WigHistoryPage *self, gboolean append)
   self->loading = TRUE;
 
   if (self->store)
-    items = wig_history_store_query(self->store, self->query, web_app, self->before_time, HISTORY_PAGE_LIMIT,
+    items = wig_history_store_query(self->store, self->query, web_app, self->before_time, HISTORY_DIALOG_LIMIT,
                                     &self->has_more, &error);
 
   if (error)
@@ -141,7 +114,7 @@ static void wig_history_page_load(WigHistoryPage *self, gboolean append)
                                    g_list_model_get_n_items(G_LIST_MODEL(self->items)) > 0 ? "list" : "empty");
 }
 
-static void wig_history_page_search_changed(WigHistoryPage *self, GtkSearchEntry *entry)
+static void wig_history_dialog_search_changed(WigHistoryDialog *self, GtkSearchEntry *entry)
 {
   const char *terms = gtk_editable_get_text(GTK_EDITABLE(entry));
   const char *query = *terms ? terms : NULL;
@@ -150,18 +123,18 @@ static void wig_history_page_search_changed(WigHistoryPage *self, GtkSearchEntry
     return;
 
   g_set_str(&self->query, query);
-  wig_history_page_load(self, FALSE);
+  wig_history_dialog_load(self, FALSE);
 }
 
-static void wig_history_page_web_app_changed(WigHistoryPage *self, GParamSpec *pspec, WigWebAppFilter *filter)
+static void wig_history_dialog_web_app_changed(WigHistoryDialog *self, GParamSpec *pspec, WigWebAppFilter *filter)
 {
-  wig_history_page_load(self, FALSE);
+  wig_history_dialog_load(self, FALSE);
 }
 
 /* The next batch is taken on as the end of what is shown comes into view, so
  * scrolling never stops at a button. A batch that does not fill the view leaves
  * the end still in sight, and the adjustment says so again until it does. */
-static void wig_history_page_scrolled(WigHistoryPage *self, GtkAdjustment *adjustment)
+static void wig_history_dialog_scrolled(WigHistoryDialog *self, GtkAdjustment *adjustment)
 {
   double remaining = gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_value(adjustment)
       - gtk_adjustment_get_page_size(adjustment);
@@ -169,10 +142,10 @@ static void wig_history_page_scrolled(WigHistoryPage *self, GtkAdjustment *adjus
   if (!self->has_more || self->loading || remaining > gtk_adjustment_get_page_size(adjustment))
     return;
 
-  wig_history_page_load(self, TRUE);
+  wig_history_dialog_load(self, TRUE);
 }
 
-static void wig_history_page_row_activated(WigHistoryPage *self, guint position)
+static void wig_history_dialog_row_activated(WigHistoryDialog *self, guint position)
 {
   g_autoptr(WigHistoryItem) item = g_list_model_get_item(G_LIST_MODEL(self->items), position);
 
@@ -180,7 +153,8 @@ static void wig_history_page_row_activated(WigHistoryPage *self, guint position)
     g_signal_emit(self, signals[OPEN_URI_SIGNAL], 0, wig_history_item_get_url(item), FALSE);
 }
 
-static void history_row_middle_clicked(GtkGestureClick *gesture, int n_press, double x, double y, WigHistoryPage *self)
+static void history_row_middle_clicked(GtkGestureClick *gesture, int n_press, double x, double y,
+                                       WigHistoryDialog *self)
 {
   GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
   const char *url = gtk_widget_get_name(row);
@@ -189,7 +163,7 @@ static void history_row_middle_clicked(GtkGestureClick *gesture, int n_press, do
   g_signal_emit(self, signals[OPEN_URI_SIGNAL], 0, url, TRUE);
 }
 
-static void history_row_setup(GtkSignalListItemFactory *factory, GtkListItem *list_item, WigHistoryPage *self)
+static void history_row_setup(GtkSignalListItemFactory *factory, GtkListItem *list_item, WigHistoryDialog *self)
 {
   GtkWidget *title = gtk_label_new(NULL);
   gtk_label_set_xalign(GTK_LABEL(title), 0.0);
@@ -233,7 +207,7 @@ static void history_row_setup(GtkSignalListItemFactory *factory, GtkListItem *li
   gtk_list_item_set_child(list_item, row);
 }
 
-static void history_row_bind(GtkSignalListItemFactory *factory, GtkListItem *list_item, WigHistoryPage *self)
+static void history_row_bind(GtkSignalListItemFactory *factory, GtkListItem *list_item, WigHistoryDialog *self)
 {
   WigHistoryItem *item = gtk_list_item_get_item(list_item);
   GtkWidget *row = gtk_list_item_get_child(list_item);
@@ -253,59 +227,38 @@ static void history_row_bind(GtkSignalListItemFactory *factory, GtkListItem *lis
   gtk_label_set_label(GTK_LABEL(gtk_widget_get_last_child(visits)), counts);
 }
 
-static void wig_history_page_apply_uri(WigHistoryPage *self)
+static gboolean wig_history_dialog_start_search(GtkWidget *widget, GVariant *args, gpointer user_data)
 {
-  g_autofree char *query = history_query_for_uri(wig_native_page_get_uri(WIG_NATIVE_PAGE(self)));
-
-  g_set_str(&self->query, query);
-  gtk_editable_set_text(GTK_EDITABLE(self->entry), query ? query : "");
-  wig_history_page_load(self, FALSE);
-}
-
-static void wig_history_page_uri_changed(WigHistoryPage *self)
-{
-  g_autofree char *query = history_query_for_uri(wig_native_page_get_uri(WIG_NATIVE_PAGE(self)));
-
-  if (g_strcmp0(query, self->query) != 0)
-    wig_history_page_apply_uri(self);
-}
-
-static gboolean wig_history_page_start_search(WigNativePage *page)
-{
-  WigHistoryPage *self = WIG_HISTORY_PAGE(page);
+  WigHistoryDialog *self = WIG_HISTORY_DIALOG(widget);
 
   gtk_widget_grab_focus(self->entry);
   return TRUE;
 }
 
-static void wig_history_page_dispose(GObject *object)
+static void wig_history_dialog_dispose(GObject *object)
 {
-  WigHistoryPage *self = WIG_HISTORY_PAGE(object);
+  WigHistoryDialog *self = WIG_HISTORY_DIALOG(object);
 
-  g_clear_pointer(&self->toolbar, gtk_widget_unparent);
   g_clear_object(&self->items);
   g_clear_pointer(&self->query, g_free);
 
-  G_OBJECT_CLASS(wig_history_page_parent_class)->dispose(object);
+  G_OBJECT_CLASS(wig_history_dialog_parent_class)->dispose(object);
 }
 
-static void wig_history_page_class_init(WigHistoryPageClass *klass)
+static void wig_history_dialog_class_init(WigHistoryDialogClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS(klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
 
-  object_class->dispose = wig_history_page_dispose;
-  WIG_NATIVE_PAGE_CLASS(klass)->start_search = wig_history_page_start_search;
+  object_class->dispose = wig_history_dialog_dispose;
 
-  /* Following an entry is the tab's to carry out, since the page is only what is
-   * drawn over it. */
   signals[OPEN_URI_SIGNAL] = g_signal_new("open-uri", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
                                           G_TYPE_NONE, 2, G_TYPE_STRING, G_TYPE_BOOLEAN);
 
-  gtk_widget_class_set_css_name(widget_class, "wig-history-page");
+  gtk_widget_class_add_binding(widget_class, GDK_KEY_f, GDK_CONTROL_MASK, wig_history_dialog_start_search, NULL);
 }
 
-static void wig_history_page_init(WigHistoryPage *self)
+static void wig_history_dialog_init(WigHistoryDialog *self)
 {
   self->store = wig_application_get_history_store(wig_application_get());
   self->items = g_list_store_new(WIG_TYPE_HISTORY_ITEM);
@@ -313,26 +266,21 @@ static void wig_history_page_init(WigHistoryPage *self)
   self->entry = gtk_search_entry_new();
   gtk_widget_set_hexpand(self->entry, TRUE);
   gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(self->entry), "Search History");
-  g_signal_connect_object(self->entry, "search-changed", G_CALLBACK(wig_history_page_search_changed), self,
+  g_signal_connect_object(self->entry, "search-changed", G_CALLBACK(wig_history_dialog_search_changed), self,
                           G_CONNECT_SWAPPED);
 
   self->filter = wig_web_app_filter_new();
   gtk_widget_set_tooltip_text(self->filter, "Show History From");
-  g_signal_connect_object(self->filter, "notify::web-app", G_CALLBACK(wig_history_page_web_app_changed), self,
+  g_signal_connect_object(self->filter, "notify::web-app", G_CALLBACK(wig_history_dialog_web_app_changed), self,
                           G_CONNECT_SWAPPED);
 
-  GtkWidget *search_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-  gtk_box_append(GTK_BOX(search_box), self->entry);
-  gtk_box_append(GTK_BOX(search_box), self->filter);
-
-  GtkWidget *entry_clamp = adw_clamp_new();
-  adw_clamp_set_child(ADW_CLAMP(entry_clamp), search_box);
-  adw_clamp_set_maximum_size(ADW_CLAMP(entry_clamp), HISTORY_PAGE_WIDTH);
-  adw_clamp_set_tightening_threshold(ADW_CLAMP(entry_clamp), HISTORY_PAGE_TIGHTENING);
-  gtk_widget_set_margin_top(entry_clamp, 6);
-  gtk_widget_set_margin_bottom(entry_clamp, 6);
-  gtk_widget_set_margin_start(entry_clamp, 12);
-  gtk_widget_set_margin_end(entry_clamp, 12);
+  GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append(GTK_BOX(bar), self->entry);
+  gtk_box_append(GTK_BOX(bar), self->filter);
+  gtk_widget_set_margin_top(bar, 6);
+  gtk_widget_set_margin_bottom(bar, 6);
+  gtk_widget_set_margin_start(bar, 12);
+  gtk_widget_set_margin_end(bar, 12);
 
   GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
   g_signal_connect_object(factory, "setup", G_CALLBACK(history_row_setup), self, G_CONNECT_DEFAULT);
@@ -343,21 +291,18 @@ static void wig_history_page_init(WigHistoryPage *self)
   gtk_list_view_set_single_click_activate(GTK_LIST_VIEW(self->list), TRUE);
   gtk_widget_add_css_class(self->list, "rich-list");
   gtk_widget_add_css_class(self->list, "separators");
-  g_signal_connect_object(self->list, "activate", G_CALLBACK(wig_history_page_row_activated), self, G_CONNECT_SWAPPED);
-
-  GtkWidget *clamp = adw_clamp_scrollable_new();
-  adw_clamp_scrollable_set_child(ADW_CLAMP_SCROLLABLE(clamp), self->list);
-  adw_clamp_scrollable_set_maximum_size(ADW_CLAMP_SCROLLABLE(clamp), HISTORY_PAGE_WIDTH);
-  adw_clamp_scrollable_set_tightening_threshold(ADW_CLAMP_SCROLLABLE(clamp), HISTORY_PAGE_TIGHTENING);
+  g_signal_connect_object(self->list, "activate", G_CALLBACK(wig_history_dialog_row_activated), self,
+                          G_CONNECT_SWAPPED);
 
   GtkWidget *scroller = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), clamp);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), self->list);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_widget_set_vexpand(scroller, TRUE);
 
   GtkAdjustment *adjustment = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scroller));
-  g_signal_connect_object(adjustment, "value-changed", G_CALLBACK(wig_history_page_scrolled), self, G_CONNECT_SWAPPED);
-  g_signal_connect_object(adjustment, "changed", G_CALLBACK(wig_history_page_scrolled), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object(adjustment, "value-changed", G_CALLBACK(wig_history_dialog_scrolled), self,
+                          G_CONNECT_SWAPPED);
+  g_signal_connect_object(adjustment, "changed", G_CALLBACK(wig_history_dialog_scrolled), self, G_CONNECT_SWAPPED);
 
   self->empty = adw_status_page_new();
   adw_status_page_set_icon_name(ADW_STATUS_PAGE(self->empty), "document-open-recent-symbolic");
@@ -366,26 +311,29 @@ static void wig_history_page_init(WigHistoryPage *self)
   gtk_stack_add_named(GTK_STACK(self->stack), scroller, "list");
   gtk_stack_add_named(GTK_STACK(self->stack), self->empty, "empty");
 
-  self->toolbar = adw_toolbar_view_new();
-  adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(self->toolbar), ADW_TOOLBAR_FLAT);
-  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(self->toolbar), entry_clamp);
-  adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(self->toolbar), self->stack);
-  gtk_widget_set_parent(self->toolbar, GTK_WIDGET(self));
+  GtkWidget *toolbar = adw_toolbar_view_new();
+  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), adw_header_bar_new());
+  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), bar);
+  adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), self->stack);
 
-  wig_native_page_set_title(WIG_NATIVE_PAGE(self), WIG_HISTORY_PAGE_TITLE);
+  adw_dialog_set_title(ADW_DIALOG(self), "History");
+  adw_dialog_set_content_width(ADW_DIALOG(self), 720);
+  adw_dialog_set_content_height(ADW_DIALOG(self), 560);
+  adw_dialog_set_child(ADW_DIALOG(self), toolbar);
 }
 
-GtkWidget *wig_history_page_new(const char *uri)
+void wig_history_dialog_reload(WigHistoryDialog *self)
 {
-  WigHistoryPage *self = g_object_new(WIG_TYPE_HISTORY_PAGE, "uri", uri, NULL);
+  wig_history_dialog_load(self, FALSE);
+}
 
-  /* The address only arrives once construction is over, so the first look at the
-   * store happens here rather than in init, where a search in it would not be
-   * known yet and everything would be listed before being listed again.
-   * Connecting afterwards leaves the handler to later addresses only, since the
-   * address this page was made with is already accounted for. */
-  wig_history_page_apply_uri(self);
-  g_signal_connect(self, "notify::uri", G_CALLBACK(wig_history_page_uri_changed), NULL);
+AdwDialog *wig_history_dialog_new(const char *web_app)
+{
+  WigHistoryDialog *self = g_object_new(WIG_TYPE_HISTORY_DIALOG, NULL);
 
-  return GTK_WIDGET(self);
+  wig_web_app_filter_set_web_app(WIG_WEB_APP_FILTER(self->filter), web_app);
+  if (!web_app)
+    wig_history_dialog_load(self, FALSE);
+
+  return ADW_DIALOG(self);
 }

@@ -28,7 +28,7 @@
 #include "wig-downloads-dialog.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
-#include "wig-history-page.h"
+#include "wig-history-dialog.h"
 #include "wig-new-tab-page.h"
 #include "wig-pwa-launch-handler.h"
 #include "wig-pwa-window.h"
@@ -83,6 +83,7 @@ struct _WigApplication {
   WigPwaManager *pwa_manager;
   AdwDialog *settings_dialog;
   GHashTable *downloads_dialogs; /* char* web app, "" for the browser -> AdwDialog* (unowned) */
+  GHashTable *history_dialogs; /* char* web app, "" for the browser -> AdwDialog* (unowned) */
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -216,30 +217,80 @@ void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
   wig_application_present_dialog(dialog, parent);
 }
 
-static gboolean downloads_dialog_is(gpointer key, gpointer value, gpointer user_data)
+static gboolean web_app_dialog_is(gpointer key, gpointer value, gpointer user_data)
 {
   return value == user_data;
 }
 
-static void wig_application_downloads_closed(WigApplication *app, AdwDialog *dialog)
+static void wig_application_web_app_dialog_closed(WigApplication *app, AdwDialog *dialog)
 {
-  g_hash_table_foreach_remove(app->downloads_dialogs, downloads_dialog_is, dialog);
+  g_hash_table_foreach_remove(app->downloads_dialogs, web_app_dialog_is, dialog);
+  g_hash_table_foreach_remove(app->history_dialogs, web_app_dialog_is, dialog);
+}
+
+static AdwDialog *wig_application_raise_web_app_dialog(GHashTable *dialogs, const char *web_app)
+{
+  AdwDialog *dialog = g_hash_table_lookup(dialogs, web_app ? web_app : "");
+
+  if (dialog)
+    wig_application_raise_dialog(dialog);
+
+  return dialog;
+}
+
+static void wig_application_present_web_app_dialog(WigApplication *app, GHashTable *dialogs, AdwDialog *dialog,
+                                                   GtkWidget *parent, const char *web_app)
+{
+  g_hash_table_insert(dialogs, g_strdup(web_app ? web_app : ""), dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_web_app_dialog_closed), app, G_CONNECT_SWAPPED);
+  wig_application_present_dialog(dialog, parent);
 }
 
 void wig_application_show_downloads(WigApplication *app, GtkWidget *parent, const char *web_app)
 {
-  const char *key = web_app ? web_app : "";
-  AdwDialog *dialog = g_hash_table_lookup(app->downloads_dialogs, key);
+  if (wig_application_raise_web_app_dialog(app->downloads_dialogs, web_app))
+    return;
+
+  wig_application_present_web_app_dialog(app, app->downloads_dialogs, wig_downloads_dialog_new(web_app), parent,
+                                         web_app);
+}
+
+static void wig_application_history_open_uri(WigApplication *app, const char *uri, gboolean background,
+                                             AdwDialog *dialog)
+{
+  GtkWindow *parent = gtk_window_get_transient_for(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))));
+  WigWindow *win = WIG_IS_WINDOW(parent) ? WIG_WINDOW(parent) : wig_application_find_browser_window(app);
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
+
+  g_debug("application: opening %s from history%s", uri, background ? " in a background tab" : "");
+
+  gboolean created = !win;
+
+  if (created)
+    win = wig_window_new(app);
+
+  if (background)
+    wig_window_add_web_view_in_background(win, web_view);
+  else
+    wig_window_add_web_view(win, web_view);
+  webkit_web_view_load_uri(web_view, uri);
+
+  if (GTK_WINDOW(win) != parent && (!background || created))
+    gtk_window_present(GTK_WINDOW(win));
+}
+
+void wig_application_show_history(WigApplication *app, GtkWidget *parent, const char *web_app)
+{
+  AdwDialog *dialog = wig_application_raise_web_app_dialog(app->history_dialogs, web_app);
 
   if (dialog) {
-    wig_application_raise_dialog(dialog);
+    wig_history_dialog_reload(WIG_HISTORY_DIALOG(dialog));
     return;
   }
 
-  dialog = wig_downloads_dialog_new(web_app);
-  g_hash_table_insert(app->downloads_dialogs, g_strdup(key), dialog);
-  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_downloads_closed), app, G_CONNECT_SWAPPED);
-  wig_application_present_dialog(dialog, parent);
+  dialog = wig_history_dialog_new(web_app);
+  g_signal_connect_object(dialog, "open-uri", G_CALLBACK(wig_application_history_open_uri), app, G_CONNECT_SWAPPED);
+  wig_application_present_web_app_dialog(app, app->history_dialogs, dialog, parent, web_app);
 }
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
@@ -539,6 +590,7 @@ static void wig_application_init(WigApplication *app)
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->downloads_dialogs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  app->history_dialogs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   app->history_suppressions = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
@@ -1058,6 +1110,7 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->pwa_manager);
   g_clear_weak_pointer(&app->settings_dialog);
   g_clear_pointer(&app->downloads_dialogs, g_hash_table_unref);
+  g_clear_pointer(&app->history_dialogs, g_hash_table_unref);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }

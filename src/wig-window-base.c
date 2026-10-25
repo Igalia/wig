@@ -565,7 +565,11 @@ static void wig_window_base_show_downloads(GSimpleAction *action, GVariant *para
 
 static void wig_window_base_show_history(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:history");
+  WigApplication *app = wig_application_get();
+  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
+
+  wig_application_show_history(app, GTK_WIDGET(user_data),
+                               web_view ? wig_application_get_web_app_for_web_view(app, web_view) : NULL);
 }
 
 static void wig_window_base_show_bookmarks(GSimpleAction *action, GVariant *parameter, gpointer user_data)
