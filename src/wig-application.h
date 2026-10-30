@@ -67,9 +67,13 @@ gboolean wig_application_adopt_web_app(WigApplication *app, const char *id, WebK
 WigHistoryStore *wig_application_get_history_store(WigApplication *app);
 WigBookmarksStore *wig_application_get_bookmarks_store(WigApplication *app);
 WigDownloadsManager *wig_application_get_downloads_manager(WigApplication *app);
+void wig_application_restart(WigApplication *app);
+void wig_application_show_settings(WigApplication *app, GtkWidget *parent);
+void wig_application_show_bookmarks(WigApplication *app, GtkWidget *parent);
+void wig_application_show_downloads(WigApplication *app, GtkWidget *parent, const char *web_app);
+void wig_application_show_history(WigApplication *app, GtkWidget *parent, const char *web_app);
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri);
 gboolean wig_application_open_uri(WigApplication *app, GtkWindow *win, const char *uri);
-gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore);
 
 void wig_application_mark_typed_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
 void wig_application_mark_internal_navigation(WigApplication *app, WebKitWebView *web_view, const char *uri);
@@ -96,5 +100,6 @@ WigUpdateMonitor *wig_application_get_update_monitor(WigApplication *app);
 WigNetworkMonitor *wig_application_get_network_monitor(WigApplication *app);
 WigMcpServer *wig_application_get_mcp_server(WigApplication *app);
 WigPwaManager *wig_application_get_pwa_manager(WigApplication *app);
+const char *wig_application_get_web_app_for_web_view(WigApplication *app, WebKitWebView *web_view);
 
 G_END_DECLS

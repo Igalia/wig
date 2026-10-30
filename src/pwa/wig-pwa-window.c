@@ -23,6 +23,7 @@
 #include "wig-pwa-window.h"
 
 #include "wig-application.h"
+#include "wig-downloads-button.h"
 #include "wig-tab.h"
 #include "wpe-display-gtk.h"
 #include "wpe-toplevel-gtk.h"
@@ -352,15 +353,8 @@ static void wig_pwa_window_open_in_new_tab(GSimpleAction *action, GVariant *para
   wig_application_open_uri_in_browser(wig_application_get(), g_variant_get_string(parameter, NULL));
 }
 
-static void wig_pwa_window_copy_text(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigPwaWindow *self = WIG_PWA_WINDOW(user_data);
-  gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(self)), g_variant_get_string(parameter, NULL));
-}
-
 static const GActionEntry context_menu_actions[] = {
   { "open-in-new-tab", wig_pwa_window_open_in_new_tab, "s" },
-  { "copy-text", wig_pwa_window_copy_text, "s" },
 };
 
 static void wig_pwa_window_finalize(GObject *object)
@@ -452,6 +446,8 @@ static void wig_pwa_window_init(WigPwaWindow *self)
   gtk_widget_set_visible(self->shortcuts_button, FALSE);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(self->header_bar), self->shortcuts_button);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(self->header_bar),
+                          wig_window_base_get_downloads_button(WIG_WINDOW_BASE(self)));
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(self->header_bar),
                           wig_window_base_get_permissions_button(WIG_WINDOW_BASE(self)));
   gtk_window_set_titlebar(GTK_WINDOW(self), self->header_bar);
 }
@@ -471,6 +467,8 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
 
   WigPwaWindow *self = g_object_new(WIG_TYPE_PWA_WINDOW, "application", application, NULL);
   self->id = g_strdup(id);
+  wig_downloads_button_set_web_app(WIG_DOWNLOADS_BUTTON(wig_window_base_get_downloads_button(WIG_WINDOW_BASE(self))),
+                                   id);
   g_set_object(&self->navigation_policy, navigation_policy);
   g_set_object(&self->tab, tab);
   g_signal_connect(self, "notify::loading", G_CALLBACK(wig_pwa_window_loading_changed), NULL);
@@ -488,10 +486,8 @@ WigPwaWindow *wig_pwa_window_new(GtkApplication *application, WPEDisplay *displa
       GTK_SHORTCUT_CONTROLLER(shortcut_controller),
       gtk_shortcut_new(gtk_shortcut_trigger_parse_string("<Primary>q"), gtk_named_action_new("win.close-tab")));
   gtk_widget_add_controller(GTK_WIDGET(self), shortcut_controller);
-  g_autoptr(GSimpleActionGroup) context_menu_action_group = g_simple_action_group_new();
-  g_action_map_add_action_entries(G_ACTION_MAP(context_menu_action_group), context_menu_actions,
+  g_action_map_add_action_entries(wig_window_base_get_context_menu_actions(WIG_WINDOW_BASE(self)), context_menu_actions,
                                   G_N_ELEMENTS(context_menu_actions), self);
-  gtk_widget_insert_action_group(GTK_WIDGET(self), "popup", G_ACTION_GROUP(context_menu_action_group));
   g_autoptr(WPEToplevel) toplevel = wpe_toplevel_gtk_new(WPE_DISPLAY_GTK(display), 0, GTK_WINDOW(self));
   wig_window_base_set_toplevel(WIG_WINDOW_BASE(self), toplevel);
   GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);

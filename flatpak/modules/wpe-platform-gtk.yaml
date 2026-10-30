@@ -8,4 +8,4 @@ config-opts:
 sources:
   - type: git
     url: https://github.com/Igalia/wpe-platform-gtk.git
-    commit: a51d42077044a054df6870acae86f5393f072e91
+    commit: 1c56800412ea61490f88cb1cbe6ca9c60f8b45c6

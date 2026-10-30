@@ -8,5 +8,6 @@
   </gresource>
   <gresource prefix="/com/igalia/wig/history">
     <file alias="history-schema.sql">history/history-schema.sql</file>
+    <file alias="history-web-apps.sql">history/history-web-apps.sql</file>
   </gresource>
 </gresources>

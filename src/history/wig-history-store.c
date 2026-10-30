@@ -149,8 +149,17 @@ static gboolean init_schema(WigHistoryStore *self, GError **error)
   if (version < 0)
     return FALSE;
 
-  if (version < 1)
-    return apply_migration(self, "/com/igalia/wig/history/history-schema.sql", 1, error);
+  if (version < 1 && !apply_migration(self, "/com/igalia/wig/history/history-schema.sql", 1, error))
+    return FALSE;
+
+  if (version < 2) {
+    if (!exec_sql(self, "PRAGMA foreign_keys = OFF", error))
+      return FALSE;
+
+    gboolean migrated = apply_migration(self, "/com/igalia/wig/history/history-web-apps.sql", 2, error);
+    if (!exec_sql(self, "PRAGMA foreign_keys = ON", migrated ? error : NULL) || !migrated)
+      return FALSE;
+  }
 
   return TRUE;
 }
@@ -220,13 +229,50 @@ static void bind_text(sqlite3_stmt *stmt, int index, const char *value)
   sqlite3_bind_text(stmt, index, value ? value : "", -1, SQLITE_TRANSIENT);
 }
 
-static char *lookup_page_id(WigHistoryStore *self, const char *url, GError **error)
+static gint64 lookup_web_app(WigHistoryStore *self, const char *web_app, GError **error)
 {
-  sqlite3_stmt *stmt = prepare_stmt(self, "SELECT id FROM history_pages WHERE url = ?", error);
+  sqlite3_stmt *stmt = prepare_stmt(self, "SELECT id FROM history_web_apps WHERE app_id = ?", error);
+  if (!stmt)
+    return -1;
+
+  bind_text(stmt, 1, web_app);
+  int rc = sqlite3_step(stmt);
+  gint64 id = 0;
+  if (rc == SQLITE_ROW)
+    id = sqlite3_column_int64(stmt, 0);
+  else if (rc != SQLITE_DONE) {
+    set_sqlite_error(error, self->db, "history: lookup web app");
+    id = -1;
+  }
+
+  sqlite3_finalize(stmt);
+  return id;
+}
+
+static gboolean ensure_web_app(WigHistoryStore *self, const char *web_app, GError **error)
+{
+  sqlite3_stmt *stmt = prepare_stmt(self, "INSERT INTO history_web_apps(app_id) VALUES (?) ON CONFLICT DO NOTHING",
+                                    error);
+  if (!stmt)
+    return FALSE;
+
+  bind_text(stmt, 1, web_app);
+  gboolean done = step_done(self, stmt, error);
+  sqlite3_finalize(stmt);
+  return done;
+}
+
+static char *lookup_page_id(WigHistoryStore *self, const char *url, const char *web_app, GError **error)
+{
+  sqlite3_stmt *stmt = prepare_stmt(
+      self,
+      "SELECT id FROM history_pages WHERE url = ? AND web_app IS (SELECT id FROM history_web_apps WHERE app_id = ?)",
+      error);
   if (!stmt)
     return NULL;
 
   bind_text(stmt, 1, url);
+  sqlite3_bind_text(stmt, 2, web_app, -1, SQLITE_TRANSIENT);
   int rc = sqlite3_step(stmt);
   char *id = NULL;
   if (rc == SQLITE_ROW)
@@ -241,7 +287,7 @@ static char *lookup_page_id(WigHistoryStore *self, const char *url, GError **err
 }
 
 void wig_history_store_record_visit(WigHistoryStore *self, const char *url, const char *title, gboolean typed,
-                                    gint64 visit_time, GError **error)
+                                    const char *web_app, gint64 visit_time, GError **error)
 {
   g_assert(url != NULL);
 
@@ -252,31 +298,35 @@ void wig_history_store_record_visit(WigHistoryStore *self, const char *url, cons
   if (!begin_transaction(self, error))
     return;
 
-  sqlite3_stmt *stmt = prepare_stmt(
-      self,
-      "INSERT INTO history_pages(id, url, title, last_visit_time, visit_count, typed_count) "
-      "VALUES (?, ?, ?, ?, 1, ?) "
-      "ON CONFLICT(url) DO UPDATE SET "
-      "  title = CASE WHEN excluded.title != '' THEN excluded.title ELSE history_pages.title END, "
-      "  last_visit_time = excluded.last_visit_time, "
-      "  visit_count = history_pages.visit_count + 1, "
-      "  typed_count = history_pages.typed_count + excluded.typed_count",
-      error);
+  sqlite3_stmt *stmt = NULL;
+  if (web_app && !ensure_web_app(self, web_app, error))
+    goto fail;
+
+  stmt = prepare_stmt(self,
+                      "INSERT INTO history_pages(id, url, web_app, title, last_visit_time, visit_count, typed_count) "
+                      "VALUES (?, ?, (SELECT id FROM history_web_apps WHERE app_id = ?), ?, ?, 1, ?) "
+                      "ON CONFLICT(url, IFNULL(web_app, 0)) DO UPDATE SET "
+                      "  title = CASE WHEN excluded.title != '' THEN excluded.title ELSE history_pages.title END, "
+                      "  last_visit_time = excluded.last_visit_time, "
+                      "  visit_count = history_pages.visit_count + 1, "
+                      "  typed_count = history_pages.typed_count + excluded.typed_count",
+                      error);
   if (!stmt)
     goto fail;
 
   bind_text(stmt, 1, page_id);
   bind_text(stmt, 2, url);
-  bind_text(stmt, 3, title);
-  sqlite3_bind_int64(stmt, 4, visit_time);
-  sqlite3_bind_int(stmt, 5, typed ? 1 : 0);
+  sqlite3_bind_text(stmt, 3, web_app, -1, SQLITE_TRANSIENT);
+  bind_text(stmt, 4, title);
+  sqlite3_bind_int64(stmt, 5, visit_time);
+  sqlite3_bind_int(stmt, 6, typed ? 1 : 0);
   if (!step_done(self, stmt, error)) {
     sqlite3_finalize(stmt);
     goto fail;
   }
   sqlite3_finalize(stmt);
 
-  stored_page_id = lookup_page_id(self, url, error);
+  stored_page_id = lookup_page_id(self, url, web_app, error);
   if (!stored_page_id)
     goto fail;
 
@@ -382,11 +432,28 @@ static WigHistoryItem *item_from_stmt(sqlite3_stmt *stmt)
   return wig_history_item_new(id, url, title, last_visit_time, visit_count, typed_count);
 }
 
-GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gint64 before_time, guint limit,
-                                   gboolean *has_more, GError **error)
+static void bind_web_app(sqlite3_stmt *stmt, int index, gint64 web_app)
+{
+  if (web_app)
+    sqlite3_bind_int64(stmt, index, web_app);
+  else
+    sqlite3_bind_null(stmt, index);
+}
+
+GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, const char *web_app, gint64 before_time,
+                                   guint limit, gboolean *has_more, GError **error)
 {
   if (has_more)
     *has_more = FALSE;
+
+  gint64 web_app_id = 0;
+  if (web_app) {
+    web_app_id = lookup_web_app(self, web_app, error);
+    if (web_app_id < 0)
+      return NULL;
+    if (web_app_id == 0)
+      return g_ptr_array_new_with_free_func(g_object_unref);
+  }
 
   g_autofree char *fts_query = search_to_fts_query(search);
   g_autofree char *like_pattern = search_to_like_pattern(search);
@@ -396,10 +463,11 @@ GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gi
                                 "    SELECT h.rowid, 0 AS source, bm25(history_pages_fts) AS rank "
                                 "    FROM history_pages_fts "
                                 "    JOIN history_pages h ON h.rowid = history_pages_fts.rowid "
-                                "    WHERE history_pages_fts MATCH ? AND (? = 0 OR h.last_visit_time < ?) "
+                                "    WHERE history_pages_fts MATCH ? AND h.web_app IS ? "
+                                "      AND (? = 0 OR h.last_visit_time < ?) "
                                 "    UNION ALL "
                                 "    SELECT rowid, 1 AS source, 0.0 AS rank FROM history_pages "
-                                "    WHERE (url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\') "
+                                "    WHERE (url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\') AND web_app IS ? "
                                 "      AND (? = 0 OR last_visit_time < ?) "
                                 "  ) GROUP BY rowid"
                                 ") AS matches "
@@ -407,7 +475,7 @@ GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gi
                                 "ORDER BY matches.source, matches.rank, h.typed_count DESC, h.visit_count DESC, "
                                 "h.last_visit_time DESC LIMIT ?"
                               : "SELECT id, url, title, last_visit_time, visit_count, typed_count "
-                                "FROM history_pages WHERE (? = 0 OR last_visit_time < ?) "
+                                "FROM history_pages WHERE web_app IS ? AND (? = 0 OR last_visit_time < ?) "
                                 "ORDER BY last_visit_time DESC LIMIT ?";
 
   sqlite3_stmt *stmt = prepare_stmt(self, sql, error);
@@ -418,17 +486,20 @@ GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gi
   guint fetch_limit = bounded_limit + 1;
   if (fts_query) {
     bind_text(stmt, 1, fts_query);
+    bind_web_app(stmt, 2, web_app_id);
+    sqlite3_bind_int64(stmt, 3, before_time);
+    sqlite3_bind_int64(stmt, 4, before_time);
+    bind_text(stmt, 5, like_pattern);
+    bind_text(stmt, 6, like_pattern);
+    bind_web_app(stmt, 7, web_app_id);
+    sqlite3_bind_int64(stmt, 8, before_time);
+    sqlite3_bind_int64(stmt, 9, before_time);
+    sqlite3_bind_int(stmt, 10, (int)fetch_limit);
+  } else {
+    bind_web_app(stmt, 1, web_app_id);
     sqlite3_bind_int64(stmt, 2, before_time);
     sqlite3_bind_int64(stmt, 3, before_time);
-    bind_text(stmt, 4, like_pattern);
-    bind_text(stmt, 5, like_pattern);
-    sqlite3_bind_int64(stmt, 6, before_time);
-    sqlite3_bind_int64(stmt, 7, before_time);
-    sqlite3_bind_int(stmt, 8, (int)fetch_limit);
-  } else {
-    sqlite3_bind_int64(stmt, 1, before_time);
-    sqlite3_bind_int64(stmt, 2, before_time);
-    sqlite3_bind_int(stmt, 3, (int)fetch_limit);
+    sqlite3_bind_int(stmt, 4, (int)fetch_limit);
   }
 
   GPtrArray *items = g_ptr_array_new_with_free_func(g_object_unref);
@@ -455,7 +526,7 @@ GPtrArray *wig_history_store_query_most_typed(WigHistoryStore *self, guint limit
 {
   sqlite3_stmt *stmt = prepare_stmt(self,
                                     "SELECT id, url, title, last_visit_time, visit_count, typed_count "
-                                    "FROM history_pages WHERE typed_count > 0 "
+                                    "FROM history_pages WHERE web_app IS NULL AND typed_count > 0 "
                                     "ORDER BY typed_count DESC, visit_count DESC, last_visit_time DESC LIMIT ?",
                                     error);
   if (!stmt)

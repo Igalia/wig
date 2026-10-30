@@ -32,10 +32,10 @@ G_DECLARE_FINAL_TYPE(WigHistoryStore, wig_history_store, WIG, HISTORY_STORE, GOb
 WigHistoryStore *wig_history_store_new(const char *state_dir, GError **error);
 
 void wig_history_store_record_visit(WigHistoryStore *self, const char *url, const char *title, gboolean typed,
-                                    gint64 visit_time, GError **error);
+                                    const char *web_app, gint64 visit_time, GError **error);
 void wig_history_store_update_title(WigHistoryStore *self, const char *url, const char *title, GError **error);
-GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, gint64 before_time, guint limit,
-                                   gboolean *has_more, GError **error);
+GPtrArray *wig_history_store_query(WigHistoryStore *self, const char *search, const char *web_app, gint64 before_time,
+                                   guint limit, gboolean *has_more, GError **error);
 GPtrArray *wig_history_store_query_most_typed(WigHistoryStore *self, guint limit, GError **error);
 
 G_END_DECLS

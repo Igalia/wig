@@ -12,6 +12,9 @@ build-options:
   strip: false
   no-debuginfo: true
 command: /app/libexec/wpe-webkit-2.0/MiniBrowser
+finish-args:
+  - --env=GIO_EXTRA_MODULES=/app/lib/gio/modules
+  - --env=GIO_USE_TLS=openssl
 
 add-extensions:
   com.igalia.SparkleCDM.Module:
@@ -25,6 +28,7 @@ modules:
   - modules/unifdef.yaml
   - modules/libevent.yaml
   - modules/sparkle-cdm.yaml
+  - modules/glib-networking.yaml
   - modules/libsoup.yaml
   - modules/openxr.yaml
 
@@ -62,4 +66,4 @@ modules:
     sources:
       - type: git
         url: https://github.com/WebKit/WebKit.git
-        commit: 1f67738ad4318bc1a0870cbb2af7790e629bb8e1
+        commit: 4712eb61991c40b5ba3481e7d32544313b079413

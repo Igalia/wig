@@ -47,6 +47,8 @@ typedef struct {
   GtkWidget *permission_request_popover;
   GtkWidget *emoji_chooser;
   GtkWidget *search_bar;
+  WigTab *active_tab;
+  GSimpleActionGroup *context_menu_actions;
   WigPermissionsManager *permissions_manager; /* borrowed from application */
   char *active_origin;
 } WigWindowBasePrivate;
@@ -516,13 +518,8 @@ static void wig_window_base_insert_emoji(GSimpleAction *action, GVariant *parame
 static void wig_window_base_find(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(WIG_WINDOW_BASE(user_data));
-  WigSearchBar *search_bar = WIG_SEARCH_BAR(priv->search_bar);
-  WigTab *tab = wig_search_bar_get_tab(search_bar);
 
-  if (tab && wig_tab_start_search(tab))
-    return;
-
-  wig_search_bar_open(search_bar);
+  wig_search_bar_open(WIG_SEARCH_BAR(priv->search_bar));
 }
 
 static void wig_window_base_find_next(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -542,9 +539,75 @@ static void wig_window_base_find_previous(GSimpleAction *action, GVariant *param
 /* The find bar took the keyboard away from the page; hand it back. */
 static void wig_window_base_search_bar_closed(WigSearchBar *search_bar, WigWindowBase *self)
 {
-  WigTab *tab = wig_search_bar_get_tab(search_bar);
-  if (tab)
-    gtk_widget_grab_focus(wig_tab_get_widget(tab));
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  if (priv->active_tab)
+    gtk_widget_grab_focus(wig_tab_get_widget(priv->active_tab));
+}
+
+static void wig_window_base_toggle_inspector(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
+  if (web_view)
+    webkit_web_view_toggle_inspector(web_view);
+}
+
+static void wig_window_base_show_downloads(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigApplication *app = wig_application_get();
+  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
+
+  wig_application_show_downloads(app, GTK_WIDGET(user_data),
+                                 web_view ? wig_application_get_web_app_for_web_view(app, web_view) : NULL);
+}
+
+static void wig_window_base_show_history(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigApplication *app = wig_application_get();
+  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
+
+  wig_application_show_history(app, GTK_WIDGET(user_data),
+                               web_view ? wig_application_get_web_app_for_web_view(app, web_view) : NULL);
+}
+
+static void wig_window_base_show_bookmarks(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_show_bookmarks(wig_application_get(), GTK_WIDGET(user_data));
+}
+
+static void wig_window_base_show_settings(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_show_settings(wig_application_get(), GTK_WIDGET(user_data));
+}
+
+static void wig_window_base_copy_text(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(user_data)), g_variant_get_string(parameter, NULL));
+}
+
+static void wig_window_base_copy_selection(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
+  if (web_view)
+    webkit_web_view_execute_editing_command(web_view, WEBKIT_EDITING_COMMAND_COPY);
+}
+
+static const GActionEntry context_menu_actions[] = {
+  { "copy-text", wig_window_base_copy_text, "s" },
+  { "copy-selection", wig_window_base_copy_selection },
+};
+
+static void wig_window_base_on_mouse_target_changed(WigWindowBase *self, WebKitHitTestResult *hit_test_result,
+                                                    guint modifiers, WebKitWebView *web_view)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  if (!priv->active_tab)
+    return;
+
+  const char *uri = NULL;
+  if (webkit_hit_test_result_context_is_link(hit_test_result))
+    uri = webkit_hit_test_result_get_link_uri(hit_test_result);
+
+  wig_tab_set_hovered_link(priv->active_tab, uri, priv->active_origin);
 }
 
 static const GActionEntry actions[] = {
@@ -561,6 +624,11 @@ static const GActionEntry actions[] = {
   { "find", wig_window_base_find },
   { "find-next", wig_window_base_find_next },
   { "find-previous", wig_window_base_find_previous },
+  { "toggle-inspector", wig_window_base_toggle_inspector },
+  { "show-downloads", wig_window_base_show_downloads },
+  { "show-history", wig_window_base_show_history },
+  { "show-bookmarks", wig_window_base_show_bookmarks },
+  { "show-settings", wig_window_base_show_settings },
 };
 
 static void wig_window_base_update_navigation_actions(WigWindowBase *self)
@@ -890,6 +958,8 @@ static void wig_window_base_dispose(GObject *object)
   g_clear_object(&priv->permissions_popover);
   g_clear_object(&priv->permission_request_popover);
   g_clear_object(&priv->search_bar);
+  g_clear_weak_pointer(&priv->active_tab);
+  g_clear_object(&priv->context_menu_actions);
   g_clear_pointer(&priv->active_origin, g_free);
 
   G_OBJECT_CLASS(wig_window_base_parent_class)->dispose(object);
@@ -927,6 +997,9 @@ static void wig_window_base_init(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
 
+  g_autoptr(GtkWindowGroup) group = gtk_window_group_new();
+  gtk_window_group_add_window(group, GTK_WINDOW(self));
+
   GtkGestureClick *click = GTK_GESTURE_CLICK(gtk_gesture_click_new());
   gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
@@ -946,6 +1019,11 @@ static void wig_window_base_init(WigWindowBase *self)
   g_signal_connect_object(priv->search_bar, "closed", G_CALLBACK(wig_window_base_search_bar_closed), self,
                           G_CONNECT_DEFAULT);
 
+  priv->context_menu_actions = g_simple_action_group_new();
+  g_action_map_add_action_entries(G_ACTION_MAP(priv->context_menu_actions), context_menu_actions,
+                                  G_N_ELEMENTS(context_menu_actions), self);
+  gtk_widget_insert_action_group(GTK_WIDGET(self), "popup", G_ACTION_GROUP(priv->context_menu_actions));
+
   g_signal_connect_swapped(priv->permissions_popover, "notify::has-permissions",
                            G_CALLBACK(update_permissions_button_visibility), self);
   g_signal_connect_swapped(priv->permission_request_popover, "notify::prompting",
@@ -959,6 +1037,8 @@ static void wig_window_base_init(WigWindowBase *self)
   g_signal_group_connect_swapped(priv->active_web_view_signals, "leave-fullscreen",
                                  G_CALLBACK(wig_window_base_on_leave_fullscreen), self);
   g_signal_group_connect_swapped(priv->active_web_view_signals, "notify::uri", G_CALLBACK(active_uri_changed), self);
+  g_signal_group_connect_swapped(priv->active_web_view_signals, "mouse-target-changed",
+                                 G_CALLBACK(wig_window_base_on_mouse_target_changed), self);
   priv->back_forward_list_signals = g_signal_group_new(WEBKIT_TYPE_BACK_FORWARD_LIST);
   g_signal_group_connect_swapped(priv->back_forward_list_signals, "changed",
                                  G_CALLBACK(wig_window_base_on_back_forward_list_changed), self);
@@ -1067,7 +1147,14 @@ WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self)
 void wig_window_base_set_active_tab(WigWindowBase *self, WigTab *tab)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  g_set_weak_pointer(&priv->active_tab, tab);
   wig_search_bar_set_tab(WIG_SEARCH_BAR(priv->search_bar), tab);
+}
+
+GActionMap *wig_window_base_get_context_menu_actions(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  return G_ACTION_MAP(priv->context_menu_actions);
 }
 
 GtkWidget *wig_window_base_get_search_bar(WigWindowBase *self)
@@ -1194,6 +1281,7 @@ static void selected_text_ready(GObject *source, GAsyncResult *result, gpointer 
 gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMenu *context_menu,
                                            WebKitHitTestResult *hit_test_result)
 {
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   WebKitWebView *web_view = get_active_web_view(self);
   if (!web_view)
     return FALSE;
@@ -1202,7 +1290,8 @@ gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMen
    * proposed has to be taken now, before the page is asked for the selection. */
   g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
   g_autoptr(GMenu) search_section = NULL;
-  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, hit_test_result, &search_section);
+  g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, G_ACTION_GROUP(priv->context_menu_actions),
+                                                 hit_test_result, &search_section);
 
   GdkRectangle target = { 0, 0, 1, 1 };
   gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);

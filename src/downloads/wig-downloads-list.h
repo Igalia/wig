@@ -32,6 +32,7 @@ G_DECLARE_FINAL_TYPE(WigDownloadsList, wig_downloads_list, WIG, DOWNLOADS_LIST, 
 GtkWidget *wig_downloads_list_new(void);
 
 void wig_downloads_list_sync(WigDownloadsList *self);
+void wig_downloads_list_set_web_app(WigDownloadsList *self, const char *web_app);
 void wig_downloads_list_set_max_height(WigDownloadsList *self, int height);
 void wig_downloads_list_set_terms(WigDownloadsList *self, const char *terms);
 void wig_downloads_list_clear_error(WigDownloadsList *self);

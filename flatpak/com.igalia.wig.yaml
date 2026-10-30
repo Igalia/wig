@@ -17,6 +17,8 @@ finish-args:
   - --socket=fallback-x11
   - --socket=pulseaudio
   - --socket=wayland
+  - --env=GIO_EXTRA_MODULES=/app/lib/gio/modules
+  - --env=GIO_USE_TLS=openssl
 
 cleanup:
   - /include

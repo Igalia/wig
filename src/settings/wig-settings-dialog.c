@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-#include "wig-settings-page.h"
+#include "wig-settings-dialog.h"
 
 #include "wig-application.h"
 #include "wig-settings-features.h"
@@ -35,101 +35,24 @@
 #include "wig-settings-web-apps.h"
 #include "wig-settings-website-data.h"
 
-#include <adwaita.h>
+#define WIG_SETTINGS_DIALOG_TITLE "Settings"
 
-struct _WigSettingsPage {
-  WigNativePage parent;
+struct _WigSettingsDialog {
+  AdwDialog parent;
 
-  /* Holds the one page for now, and is what a settings row drills into. */
-  GtkWidget *navigation;
+  GtkWidget *split;
+  AdwNavigationPage *content_page;
   GtkWidget *stack;
   GtkWidget *content;
   GtkWidget *search;
   GtkWidget *search_bar;
-  /* Set while an address is choosing the pane, so the pane it lands on does not
-   * rewrite the address that asked for it. */
-  gboolean applying_uri;
 };
 
-G_DEFINE_FINAL_TYPE(WigSettingsPage, wig_settings_page, WIG_TYPE_NATIVE_PAGE)
-
-/* Returns where the pane name starts within the path, empty for the settings
- * page as a whole, or NULL if the path is not the settings page at all. */
-static const char *settings_path_pane(const char *path)
-{
-  if (!g_str_has_prefix(path, "settings"))
-    return NULL;
-
-  const char *rest = path + strlen("settings");
-  if (!*rest)
-    return rest;
-
-  return *rest == '/' ? rest + 1 : NULL;
-}
-
-static const char *settings_uri_pane(const char *uri, GUri **parsed)
-{
-  if (!uri)
-    return NULL;
-
-  *parsed = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
-  if (!*parsed || g_strcmp0(g_uri_get_scheme(*parsed), "wig") != 0)
-    return NULL;
-
-  return settings_path_pane(g_uri_get_path(*parsed));
-}
-
-gboolean uri_is_settings_page(const char *uri)
-{
-  g_autoptr(GUri) parsed = NULL;
-  return settings_uri_pane(uri, &parsed) != NULL;
-}
-
-/* The feature lists used to be pages of their own, and the addresses they were
- * reached by are kept working. */
-char *wig_settings_page_moved_uri(const char *uri)
-{
-  static const struct {
-    const char *from;
-    const char *to;
-  } moved[] = {
-    { "wig:features", WIG_SETTINGS_PAGE_URI "/features" },
-    { "wig:developer-features", WIG_SETTINGS_PAGE_URI "/developer-features" },
-    { "wig:content-filters", WIG_SETTINGS_PAGE_URI "/content-filters" },
-    { "wig:memory-pressure", WIG_SETTINGS_PAGE_URI "/memory-limits" },
-    { "wig:website-data", WIG_SETTINGS_PAGE_URI "/website-data" },
-    { "wig:user-scripts", WIG_SETTINGS_PAGE_URI "/user-scripts" },
-    { "wig:user-styles", WIG_SETTINGS_PAGE_URI "/user-styles" },
-    { "wig:mcp", WIG_SETTINGS_PAGE_URI "/mcp" },
-  };
-
-  if (!uri)
-    return NULL;
-
-  g_autoptr(GUri) parsed = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
-  if (!parsed || g_strcmp0(g_uri_get_scheme(parsed), "wig") != 0)
-    return NULL;
-
-  for (guint i = 0; i < G_N_ELEMENTS(moved); i++) {
-    /* The path alone, so a query left over from the old page is dropped. */
-    if (g_str_equal(g_uri_get_path(parsed), moved[i].from + strlen("wig:")))
-      return g_strdup(moved[i].to);
-  }
-
-  return NULL;
-}
-
-static char *wig_settings_page_pane_for_uri(const char *uri)
-{
-  g_autoptr(GUri) parsed = NULL;
-  const char *pane = settings_uri_pane(uri, &parsed);
-
-  return pane && *pane ? g_strdup(pane) : NULL;
-}
+G_DEFINE_FINAL_TYPE(WigSettingsDialog, wig_settings_dialog, ADW_TYPE_DIALOG)
 
 /* What a row needs to be put somewhere and found again. */
 typedef struct {
-  WigSettingsPage *page;
+  WigSettingsDialog *dialog;
   AdwPreferencesGroup *group;
   const char *name;
   const char *title;
@@ -138,12 +61,12 @@ typedef struct {
 /* Each pane is a page of its own in the switcher, so the group inside it carries
  * no title of its own until there is a second one to tell apart. A switcher
  * button falls back to the broken image icon, so every pane names one. */
-static void wig_settings_page_new_pane(WigSettingsPage *self, Pane *pane, const char *name, const char *title,
-                                       const char *icon_name)
+static void wig_settings_dialog_new_pane(WigSettingsDialog *self, Pane *pane, const char *name, const char *title,
+                                         const char *icon_name)
 {
   AdwPreferencesPage *page = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
 
-  pane->page = self;
+  pane->dialog = self;
   pane->group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   pane->name = name;
   pane->title = title;
@@ -158,7 +81,7 @@ static void pane_index(Pane *pane, GtkWidget *row)
 {
   const char *description = ADW_IS_ACTION_ROW(row) ? adw_action_row_get_subtitle(ADW_ACTION_ROW(row)) : NULL;
 
-  wig_settings_search_add(WIG_SETTINGS_SEARCH(pane->page->search),
+  wig_settings_search_add(WIG_SETTINGS_SEARCH(pane->dialog->search),
                           adw_preferences_row_get_title(ADW_PREFERENCES_ROW(row)), description, pane->name,
                           pane->title);
 }
@@ -169,7 +92,7 @@ static void pane_add(Pane *pane, GtkWidget *row)
   pane_index(pane, row);
 }
 
-static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings *settings)
+static void wig_settings_dialog_add_browsing_pane(WigSettingsDialog *self, GSettings *settings)
 {
   static const char *tab_layout_nicks[] = { "horizontal", "vertical", NULL };
   static const char *const tab_layout_labels[] = { "Tab Bar", "Sidebar", NULL };
@@ -179,7 +102,7 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
   };
 
   Pane pane;
-  wig_settings_page_new_pane(self, &pane, "browser", "Browsing", "web-browser-symbolic");
+  wig_settings_dialog_new_pane(self, &pane, "browser", "Browsing", "web-browser-symbolic");
 
   pane_add(&pane,
            wig_settings_switch_row_new(settings, "restore-tabs", "Restore Tabs on Startup",
@@ -222,10 +145,10 @@ static void wig_settings_page_add_browsing_pane(WigSettingsPage *self, GSettings
   pane_add(&pane, wig_settings_entry_row_new(settings, "user-agent", "User Agent"));
 }
 
-static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings *settings)
+static void wig_settings_dialog_add_content_pane(WigSettingsDialog *self, GSettings *settings)
 {
   Pane pane;
-  wig_settings_page_new_pane(self, &pane, "content", "Page Content", "text-x-generic-symbolic");
+  wig_settings_dialog_new_pane(self, &pane, "content", "Page Content", "text-x-generic-symbolic");
 
   pane_add(&pane,
            wig_settings_switch_row_new(settings, "enable-javascript", "JavaScript", "Run the scripts a page carries."));
@@ -267,8 +190,8 @@ static void wig_settings_page_add_content_pane(WigSettingsPage *self, GSettings 
 
 /* The feature lists are pages of their own rather than rows in a group, so they
  * go in beside the panes rather than through one. */
-static void wig_settings_page_add_features_pane(WigSettingsPage *self, WigFeaturesKind kind, const char *name,
-                                                const char *title, const char *icon_name)
+static void wig_settings_dialog_add_features_pane(WigSettingsDialog *self, WigFeaturesKind kind, const char *name,
+                                                  const char *title, const char *icon_name)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_features_new(kind), name, title,
                                       icon_name);
@@ -276,28 +199,28 @@ static void wig_settings_page_add_features_pane(WigSettingsPage *self, WigFeatur
   wig_settings_features_index(kind, WIG_SETTINGS_SEARCH(self->search), name, title);
 }
 
-static void wig_settings_page_add_features_panes(WigSettingsPage *self)
+static void wig_settings_dialog_add_features_panes(WigSettingsDialog *self)
 {
-  wig_settings_page_add_features_pane(self, WIG_FEATURES_EXPERIMENTAL, "features", "Experimental Features",
-                                      "applications-science-symbolic");
-  wig_settings_page_add_features_pane(self, WIG_FEATURES_DEVELOPMENT, "developer-features", "Developer Features",
-                                      "applications-engineering-symbolic");
+  wig_settings_dialog_add_features_pane(self, WIG_FEATURES_EXPERIMENTAL, "features", "Experimental Features",
+                                        "applications-science-symbolic");
+  wig_settings_dialog_add_features_pane(self, WIG_FEATURES_DEVELOPMENT, "developer-features", "Developer Features",
+                                        "applications-engineering-symbolic");
 }
 
-static void wig_settings_page_add_memory_pane(WigSettingsPage *self)
+static void wig_settings_dialog_add_memory_pane(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_memory_new(), "memory-limits",
                                       "Memory Limits", "memory-symbolic");
   wig_settings_memory_index(WIG_SETTINGS_SEARCH(self->search), "memory-limits", "Memory Limits");
 }
 
-static void wig_settings_page_add_filters_pane(WigSettingsPage *self)
+static void wig_settings_dialog_add_filters_pane(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_filters_new(), "content-filters",
                                       "Content Filters", "security-high-symbolic");
 }
 
-static void wig_settings_page_add_user_content_panes(WigSettingsPage *self)
+static void wig_settings_dialog_add_user_content_panes(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack),
                                       wig_settings_user_content_new(WIG_USER_CONTENT_SCRIPTS), "user-scripts",
@@ -307,217 +230,120 @@ static void wig_settings_page_add_user_content_panes(WigSettingsPage *self)
                                       "User Styles", "preferences-desktop-appearance-symbolic");
 }
 
-static void wig_settings_page_add_permissions_pane(WigSettingsPage *self)
+static void wig_settings_dialog_add_permissions_pane(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_permissions_new(), "permissions",
                                       "Permissions", "channel-secure-symbolic");
   wig_settings_permissions_index(WIG_SETTINGS_SEARCH(self->search), "permissions", "Permissions");
 }
 
-static void wig_settings_page_add_proxies_pane(WigSettingsPage *self)
+static void wig_settings_dialog_add_proxies_pane(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_proxies_new(), "proxies", "Proxies",
                                       "network-server-symbolic");
   wig_settings_proxies_index(WIG_SETTINGS_SEARCH(self->search), "proxies", "Proxies");
 }
 
-static void wig_settings_page_add_web_apps_pane(WigSettingsPage *self)
+static void wig_settings_dialog_add_web_apps_pane(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_web_apps_new(), "web-apps", "Web Apps",
                                       "view-app-grid-symbolic");
   wig_settings_web_apps_index(WIG_SETTINGS_SEARCH(self->search), "web-apps", "Web Apps");
 }
 
-static void wig_settings_page_add_website_data_pane(WigSettingsPage *self)
+static void wig_settings_dialog_add_website_data_pane(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_website_data_new(), "website-data",
                                       "Website Data", "drive-harddisk-symbolic");
   wig_settings_website_data_index(WIG_SETTINGS_SEARCH(self->search), "website-data", "Website Data");
 }
 
-static void wig_settings_page_add_mcp_pane(WigSettingsPage *self)
+static void wig_settings_dialog_add_mcp_pane(WigSettingsDialog *self)
 {
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(self->stack), wig_settings_mcp_new(), "mcp", "MCP Server",
                                       "network-transmit-receive-symbolic");
   wig_settings_mcp_index(WIG_SETTINGS_SEARCH(self->search), "mcp", "MCP Server");
 }
 
-static char *wig_settings_page_first_pane(WigSettingsPage *self)
+static void wig_settings_dialog_visible_pane_changed(WigSettingsDialog *self)
 {
-  g_autoptr(GtkSelectionModel) pages = adw_view_stack_get_pages(ADW_VIEW_STACK(self->stack));
-  g_autoptr(AdwViewStackPage) first = g_list_model_get_item(G_LIST_MODEL(pages), 0);
-
-  return first ? g_strdup(adw_view_stack_page_get_name(first)) : NULL;
-}
-
-/* The address the page is at decides the pane, so a bare wig:settings keeps the
- * address it was asked for and simply shows the first one. */
-static void wig_settings_page_uri_changed(WigSettingsPage *self)
-{
-  g_autofree char *pane = wig_settings_page_pane_for_uri(wig_native_page_get_uri(WIG_NATIVE_PAGE(self)));
-  g_autofree char *first = NULL;
-
-  if (!pane) {
-    first = wig_settings_page_first_pane(self);
-    pane = g_steal_pointer(&first);
-  }
-
-  /* An address naming a pane that is not there still opens the settings. */
-  if (!pane || !adw_view_stack_get_child_by_name(ADW_VIEW_STACK(self->stack), pane)) {
-    g_debug("settings: no pane named '%s'", pane ? pane : "(null)");
-    return;
-  }
-
-  self->applying_uri = TRUE;
-  adw_view_stack_set_visible_child_name(ADW_VIEW_STACK(self->stack), pane);
-  self->applying_uri = FALSE;
-}
-
-static void wig_settings_page_visible_pane_changed(WigSettingsPage *self)
-{
-  if (self->applying_uri)
+  GtkWidget *child = adw_view_stack_get_visible_child(ADW_VIEW_STACK(self->stack));
+  if (!child)
     return;
 
-  const char *pane = adw_view_stack_get_visible_child_name(ADW_VIEW_STACK(self->stack));
-  if (!pane)
-    return;
-
-  g_autofree char *uri = g_strconcat(WIG_SETTINGS_PAGE_URI "/", pane, NULL);
-  wig_native_page_set_uri(WIG_NATIVE_PAGE(self), uri);
+  AdwViewStackPage *page = adw_view_stack_get_page(ADW_VIEW_STACK(self->stack), child);
+  adw_navigation_page_set_title(self->content_page, adw_view_stack_page_get_title(page));
 }
 
-static void wig_settings_page_set_searching(WigSettingsPage *self, gboolean searching)
+static void wig_settings_dialog_set_searching(WigSettingsDialog *self, gboolean searching)
 {
   gtk_stack_set_visible_child_name(GTK_STACK(self->content), searching ? "search" : "panes");
 }
 
-static void wig_settings_page_search_changed(WigSettingsPage *self, GtkSearchEntry *entry)
+static void wig_settings_dialog_search_changed(WigSettingsDialog *self, GtkSearchEntry *entry)
 {
   const char *terms = gtk_editable_get_text(GTK_EDITABLE(entry));
 
   /* An empty search is the settings as they were, not a search with everything
    * in it. */
-  wig_settings_page_set_searching(self, *terms != '\0');
+  wig_settings_dialog_set_searching(self, *terms != '\0');
   wig_settings_search_set_terms(WIG_SETTINGS_SEARCH(self->search), terms);
 }
 
-static void wig_settings_page_search_mode_changed(WigSettingsPage *self)
+static void wig_settings_dialog_search_mode_changed(WigSettingsDialog *self)
 {
-  if (!gtk_search_bar_get_search_mode(GTK_SEARCH_BAR(self->search_bar)))
-    wig_settings_page_set_searching(self, FALSE);
+  if (gtk_search_bar_get_search_mode(GTK_SEARCH_BAR(self->search_bar)))
+    adw_navigation_split_view_set_show_content(ADW_NAVIGATION_SPLIT_VIEW(self->split), TRUE);
+  else
+    wig_settings_dialog_set_searching(self, FALSE);
 }
 
 /* A result stands for a row in a pane, so following one goes to the pane and
  * leaves the search behind. */
-static void wig_settings_page_search_activated(WigSettingsPage *self, const char *pane)
+static void wig_settings_dialog_search_activated(WigSettingsDialog *self, const char *pane)
 {
   gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(self->search_bar), FALSE);
   adw_view_stack_set_visible_child_name(ADW_VIEW_STACK(self->stack), pane);
 }
 
-static void sidebar_row_setup(GtkSignalListItemFactory *factory, GtkListItem *item)
+static void wig_settings_dialog_sidebar_activated(WigSettingsDialog *self)
 {
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-  GtkWidget *icon = gtk_image_new();
-  GtkWidget *label = gtk_label_new(NULL);
-
-  gtk_label_set_xalign(GTK_LABEL(label), 0.0);
-  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
-  gtk_box_append(GTK_BOX(box), icon);
-  gtk_box_append(GTK_BOX(box), label);
-  gtk_list_item_set_child(item, box);
+  gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(self->search_bar), FALSE);
+  adw_navigation_split_view_set_show_content(ADW_NAVIGATION_SPLIT_VIEW(self->split), TRUE);
 }
 
-static void sidebar_row_bind(GtkSignalListItemFactory *factory, GtkListItem *item)
+static gboolean wig_settings_dialog_start_search(GtkWidget *widget, GVariant *args, gpointer user_data)
 {
-  AdwViewStackPage *page = gtk_list_item_get_item(item);
-  GtkWidget *box = gtk_list_item_get_child(item);
-
-  gtk_image_set_from_icon_name(GTK_IMAGE(gtk_widget_get_first_child(box)), adw_view_stack_page_get_icon_name(page));
-  gtk_label_set_label(GTK_LABEL(gtk_widget_get_last_child(box)), adw_view_stack_page_get_title(page));
-}
-
-/* The stack's own page model is a selection model, so what the sidebar has
- * selected and what the stack is showing are one thing rather than two kept in
- * step. */
-static GtkWidget *wig_settings_page_build_sidebar(WigSettingsPage *self)
-{
-  GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
-
-  g_signal_connect(factory, "setup", G_CALLBACK(sidebar_row_setup), NULL);
-  g_signal_connect(factory, "bind", G_CALLBACK(sidebar_row_bind), NULL);
-
-  GtkWidget *list = gtk_list_view_new(adw_view_stack_get_pages(ADW_VIEW_STACK(self->stack)), factory);
-  gtk_widget_add_css_class(list, "navigation-sidebar");
-
-  GtkWidget *scroller = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), list);
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-
-  return scroller;
-}
-
-static gboolean wig_settings_page_start_search(WigNativePage *page)
-{
-  WigSettingsPage *self = WIG_SETTINGS_PAGE(page);
+  WigSettingsDialog *self = WIG_SETTINGS_DIALOG(widget);
 
   gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(self->search_bar), TRUE);
   return TRUE;
 }
 
-static void wig_settings_page_dispose(GObject *object)
+static AdwNavigationPage *wig_settings_dialog_build_sidebar(WigSettingsDialog *self, GtkWidget *sidebar)
 {
-  WigSettingsPage *self = WIG_SETTINGS_PAGE(object);
-
-  g_clear_pointer(&self->navigation, gtk_widget_unparent);
-
-  G_OBJECT_CLASS(wig_settings_page_parent_class)->dispose(object);
-}
-
-static void wig_settings_page_class_init(WigSettingsPageClass *klass)
-{
-  GObjectClass *object_class = G_OBJECT_CLASS(klass);
-  GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
-
-  object_class->dispose = wig_settings_page_dispose;
-  WIG_NATIVE_PAGE_CLASS(klass)->start_search = wig_settings_page_start_search;
-
-  gtk_widget_class_set_css_name(widget_class, "wig-settings-page");
-}
-
-static void wig_settings_page_init(WigSettingsPage *self)
-{
-  GSettings *settings = wig_application_get_settings(wig_application_get());
-
-  self->search = wig_settings_search_new();
-  g_signal_connect_object(self->search, "activated", G_CALLBACK(wig_settings_page_search_activated), self,
+  adw_view_switcher_sidebar_set_stack(ADW_VIEW_SWITCHER_SIDEBAR(sidebar), ADW_VIEW_STACK(self->stack));
+  g_signal_connect_object(sidebar, "activated", G_CALLBACK(wig_settings_dialog_sidebar_activated), self,
                           G_CONNECT_SWAPPED);
 
-  GtkWidget *stack = adw_view_stack_new();
-  self->stack = stack;
-  wig_settings_page_add_browsing_pane(self, settings);
-  wig_settings_page_add_content_pane(self, settings);
-  wig_settings_page_add_features_panes(self);
-  wig_settings_page_add_filters_pane(self);
-  wig_settings_page_add_user_content_panes(self);
-  wig_settings_page_add_permissions_pane(self);
-  wig_settings_page_add_proxies_pane(self);
-  wig_settings_page_add_web_apps_pane(self);
-  wig_settings_page_add_website_data_pane(self);
-  wig_settings_page_add_memory_pane(self);
-  wig_settings_page_add_mcp_pane(self);
-  g_signal_connect_object(stack, "notify::visible-child-name", G_CALLBACK(wig_settings_page_visible_pane_changed), self,
-                          G_CONNECT_SWAPPED);
+  GtkWidget *toolbar = adw_toolbar_view_new();
+  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), adw_header_bar_new());
+  adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), sidebar);
 
+  return adw_navigation_page_new(toolbar, WIG_SETTINGS_DIALOG_TITLE);
+}
+
+static AdwNavigationPage *wig_settings_dialog_build_content(WigSettingsDialog *self)
+{
   /* Searching takes the place of the panes rather than sitting beside them, so
    * what is on screen is either everything or what was asked for. */
   self->content = gtk_stack_new();
-  gtk_stack_add_named(GTK_STACK(self->content), stack, "panes");
+  gtk_stack_add_named(GTK_STACK(self->content), self->stack, "panes");
   gtk_stack_add_named(GTK_STACK(self->content), self->search, "search");
 
   GtkWidget *entry = gtk_search_entry_new();
   gtk_widget_set_hexpand(entry, TRUE);
-  g_signal_connect_object(entry, "search-changed", G_CALLBACK(wig_settings_page_search_changed), self,
+  g_signal_connect_object(entry, "search-changed", G_CALLBACK(wig_settings_dialog_search_changed), self,
                           G_CONNECT_SWAPPED);
 
   /* The rows are held to a readable width by a clamp of their own, and the
@@ -528,35 +354,79 @@ static void wig_settings_page_init(WigSettingsPage *self)
   self->search_bar = gtk_search_bar_new();
   gtk_search_bar_set_child(GTK_SEARCH_BAR(self->search_bar), entry_clamp);
   gtk_search_bar_connect_entry(GTK_SEARCH_BAR(self->search_bar), GTK_EDITABLE(entry));
-  /* Typing anywhere in the page starts a search, the way the preferences dialog
-   * wig cannot use does. */
   gtk_search_bar_set_key_capture_widget(GTK_SEARCH_BAR(self->search_bar), GTK_WIDGET(self));
   g_signal_connect_object(self->search_bar, "notify::search-mode-enabled",
-                          G_CALLBACK(wig_settings_page_search_mode_changed), self, G_CONNECT_SWAPPED);
+                          G_CALLBACK(wig_settings_dialog_search_mode_changed), self, G_CONNECT_SWAPPED);
+
+  GtkWidget *search_button = gtk_toggle_button_new();
+  gtk_button_set_icon_name(GTK_BUTTON(search_button), "edit-find-symbolic");
+  gtk_widget_set_tooltip_text(search_button, "Search");
+  g_object_bind_property(search_button, "active", self->search_bar, "search-mode-enabled",
+                         G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
+
+  GtkWidget *header = adw_header_bar_new();
+  adw_header_bar_pack_end(ADW_HEADER_BAR(header), search_button);
 
   GtkWidget *toolbar = adw_toolbar_view_new();
-  adw_toolbar_view_set_top_bar_style(ADW_TOOLBAR_VIEW(toolbar), ADW_TOOLBAR_FLAT);
+  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), header);
   adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), self->search_bar);
   adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), self->content);
 
-  GtkWidget *split = adw_navigation_split_view_new();
-  adw_navigation_split_view_set_sidebar(
-      ADW_NAVIGATION_SPLIT_VIEW(split),
-      adw_navigation_page_new(wig_settings_page_build_sidebar(self), WIG_SETTINGS_PAGE_TITLE));
-  adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(split),
-                                        adw_navigation_page_new(toolbar, WIG_SETTINGS_PAGE_TITLE));
-
-  AdwNavigationPage *root = adw_navigation_page_new(split, WIG_SETTINGS_PAGE_TITLE);
-
-  self->navigation = adw_navigation_view_new();
-  adw_navigation_view_add(ADW_NAVIGATION_VIEW(self->navigation), root);
-  gtk_widget_set_parent(self->navigation, GTK_WIDGET(self));
-
-  wig_native_page_set_title(WIG_NATIVE_PAGE(self), WIG_SETTINGS_PAGE_TITLE);
-  g_signal_connect(self, "notify::uri", G_CALLBACK(wig_settings_page_uri_changed), NULL);
+  self->content_page = adw_navigation_page_new(toolbar, WIG_SETTINGS_DIALOG_TITLE);
+  return self->content_page;
 }
 
-GtkWidget *wig_settings_page_new(const char *uri)
+static void wig_settings_dialog_class_init(WigSettingsDialogClass *klass)
 {
-  return g_object_new(WIG_TYPE_SETTINGS_PAGE, "uri", uri, NULL);
+  GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
+
+  gtk_widget_class_add_binding(widget_class, GDK_KEY_f, GDK_CONTROL_MASK, wig_settings_dialog_start_search, NULL);
+}
+
+static void wig_settings_dialog_init(WigSettingsDialog *self)
+{
+  GSettings *settings = wig_application_get_settings(wig_application_get());
+
+  self->search = wig_settings_search_new();
+  g_signal_connect_object(self->search, "activated", G_CALLBACK(wig_settings_dialog_search_activated), self,
+                          G_CONNECT_SWAPPED);
+
+  self->stack = adw_view_stack_new();
+  wig_settings_dialog_add_browsing_pane(self, settings);
+  wig_settings_dialog_add_content_pane(self, settings);
+  wig_settings_dialog_add_features_panes(self);
+  wig_settings_dialog_add_filters_pane(self);
+  wig_settings_dialog_add_user_content_panes(self);
+  wig_settings_dialog_add_permissions_pane(self);
+  wig_settings_dialog_add_proxies_pane(self);
+  wig_settings_dialog_add_web_apps_pane(self);
+  wig_settings_dialog_add_website_data_pane(self);
+  wig_settings_dialog_add_memory_pane(self);
+  wig_settings_dialog_add_mcp_pane(self);
+  g_signal_connect_object(self->stack, "notify::visible-child", G_CALLBACK(wig_settings_dialog_visible_pane_changed),
+                          self, G_CONNECT_SWAPPED);
+
+  GtkWidget *sidebar = adw_view_switcher_sidebar_new();
+  self->split = adw_navigation_split_view_new();
+  adw_navigation_split_view_set_sidebar(ADW_NAVIGATION_SPLIT_VIEW(self->split),
+                                        wig_settings_dialog_build_sidebar(self, sidebar));
+  adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(self->split),
+                                        wig_settings_dialog_build_content(self));
+  wig_settings_dialog_visible_pane_changed(self);
+
+  AdwBreakpoint *breakpoint = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 600sp"));
+  adw_breakpoint_add_setters(breakpoint, G_OBJECT(self->split), "collapsed", TRUE, G_OBJECT(sidebar), "mode",
+                             ADW_SIDEBAR_MODE_PAGE, NULL);
+  adw_dialog_add_breakpoint(ADW_DIALOG(self), breakpoint);
+
+  adw_dialog_set_title(ADW_DIALOG(self), WIG_SETTINGS_DIALOG_TITLE);
+  adw_dialog_set_content_width(ADW_DIALOG(self), 900);
+  adw_dialog_set_content_height(ADW_DIALOG(self), 640);
+  gtk_widget_set_size_request(GTK_WIDGET(self), 360, 294);
+  adw_dialog_set_child(ADW_DIALOG(self), self->split);
+}
+
+AdwDialog *wig_settings_dialog_new(void)
+{
+  return g_object_new(WIG_TYPE_SETTINGS_DIALOG, NULL);
 }

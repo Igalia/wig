@@ -28,11 +28,8 @@ typedef struct {
 } WigNativePagePrivate;
 
 /* A page wig draws itself in place of a document. It carries the title and the
- * address the document would have had, and keeps them up to date as the user
- * moves around inside it; the tab showing it follows both.
- *
- * The address is what the view navigates to, so a page that answers to more than
- * one of them says which it is at rather than being built again for each. */
+ * address the document would have had, and the tab showing it follows the
+ * title. */
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE(WigNativePage, wig_native_page, GTK_TYPE_WIDGET)
 
 enum {
@@ -66,21 +63,6 @@ const char *wig_native_page_get_uri(WigNativePage *self)
   return priv->uri;
 }
 
-void wig_native_page_set_uri(WigNativePage *self, const char *uri)
-{
-  WigNativePagePrivate *priv = wig_native_page_get_instance_private(self);
-
-  if (g_set_str(&priv->uri, uri))
-    g_object_notify_by_pspec(G_OBJECT(self), props[PROP_URI]);
-}
-
-gboolean wig_native_page_start_search(WigNativePage *self)
-{
-  WigNativePageClass *klass = WIG_NATIVE_PAGE_GET_CLASS(self);
-
-  return klass->start_search ? klass->start_search(self) : FALSE;
-}
-
 static void wig_native_page_get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
   WigNativePage *self = WIG_NATIVE_PAGE(object);
@@ -99,11 +81,11 @@ static void wig_native_page_get_property(GObject *object, guint prop_id, GValue 
 
 static void wig_native_page_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
-  WigNativePage *self = WIG_NATIVE_PAGE(object);
+  WigNativePagePrivate *priv = wig_native_page_get_instance_private(WIG_NATIVE_PAGE(object));
 
   switch (prop_id) {
   case PROP_URI:
-    wig_native_page_set_uri(self, g_value_get_string(value));
+    g_set_str(&priv->uri, g_value_get_string(value));
     break;
   default:
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
@@ -131,7 +113,8 @@ static void wig_native_page_class_init(WigNativePageClass *klass)
   /* Only the page knows what it is called, so the title is read and watched
    * rather than handed to it. */
   props[PROP_TITLE] = g_param_spec_string("title", NULL, NULL, NULL, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
-  props[PROP_URI] = g_param_spec_string("uri", NULL, NULL, NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[PROP_URI] = g_param_spec_string("uri", NULL, NULL, NULL,
+                                        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
   g_object_class_install_properties(object_class, N_PROPS, props);
 
   /* Every page so far is one widget filling the tab. */

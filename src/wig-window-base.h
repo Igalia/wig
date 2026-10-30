@@ -48,6 +48,7 @@ void wig_window_base_detach_web_view(WigWindowBase *self, WebKitWebView *web_vie
 void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web_view);
 WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self);
 void wig_window_base_set_active_tab(WigWindowBase *self, WigTab *tab);
+GActionMap *wig_window_base_get_context_menu_actions(WigWindowBase *self);
 GtkWidget *wig_window_base_get_search_bar(WigWindowBase *self);
 gboolean wig_window_base_get_loading(WigWindowBase *self);
 void wig_window_base_set_loading(WigWindowBase *self, gboolean loading);

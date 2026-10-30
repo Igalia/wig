@@ -1,0 +1,13 @@
+name: glib-networking
+buildsystem: meson
+config-opts:
+  - --buildtype=release
+  - -Dopenssl=enabled
+  - -Dgnutls=disabled
+  - -Dlibproxy=disabled
+  - -Dgnome_proxy=disabled
+  - -Dtests=false
+sources:
+  - type: git
+    url: https://gitlab.gnome.org/GNOME/glib-networking.git
+    commit: e23c430a41a47884064449c76a7927eafdba0d08

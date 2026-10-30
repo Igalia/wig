@@ -25,16 +25,18 @@
 #include <errno.h>
 
 #include "mcp/wig-mcp-server.h"
+#include "wig-bookmarks-dialog.h"
+#include "wig-downloads-dialog.h"
 #include "wig-downloads-manager.h"
 #include "wig-flatpak.h"
-#include "wig-history-page.h"
+#include "wig-history-dialog.h"
 #include "wig-new-tab-page.h"
 #include "wig-pwa-launch-handler.h"
 #include "wig-pwa-window.h"
+#include "wig-settings-dialog.h"
 #include "wig-settings-features.h"
 #include "wig-settings-filters.h"
 #include "wig-settings-memory.h"
-#include "wig-settings-page.h"
 #include "wig-settings.h"
 #include "wig-tab.h"
 #include "wig-window.h"
@@ -80,6 +82,10 @@ struct _WigApplication {
   guint unload_unused_tabs_id;
   WigMcpServer *mcp_server;
   WigPwaManager *pwa_manager;
+  AdwDialog *settings_dialog;
+  AdwDialog *bookmarks_dialog;
+  GHashTable *downloads_dialogs; /* char* web app, "" for the browser -> AdwDialog* (unowned) */
+  GHashTable *history_dialogs; /* char* web app, "" for the browser -> AdwDialog* (unowned) */
 };
 
 G_DEFINE_FINAL_TYPE(WigApplication, wig_application, ADW_TYPE_APPLICATION)
@@ -121,12 +127,6 @@ static void wig_application_add_new_tab_with_uri(WigApplication *app, WigWindow 
   webkit_web_view_load_uri(web_view, uri);
 }
 
-static WebKitWebView *wig_application_focus_internal_page_in_window(WigWindow *win, const char *uri,
-                                                                    WebKitWebView *ignore, gboolean reload)
-{
-  return wig_window_focus_tab_by_site(win, uri, ignore, reload);
-}
-
 static WigWindow *wig_application_find_browser_window(WigApplication *app)
 {
   GtkWindow *active = gtk_application_get_active_window(GTK_APPLICATION(app));
@@ -165,48 +165,137 @@ gboolean wig_application_open_uri(WigApplication *app, GtkWindow *win, const cha
   return TRUE;
 }
 
-gboolean wig_application_focus_internal_page(WigApplication *app, const char *uri, WebKitWebView *ignore)
+static void wig_application_raise_dialog(AdwDialog *dialog)
 {
-  if (uri_is_new_tab_page(uri))
-    return FALSE;
+  gtk_window_present(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))));
+}
 
-  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
-    if (!WIG_IS_WINDOW(l->data))
-      continue;
+static void wig_application_present_dialog(AdwDialog *dialog, GtkWidget *parent)
+{
+  adw_dialog_present(dialog, parent);
+  gtk_window_set_modal(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))), FALSE);
+}
 
-    if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, ignore, FALSE)) {
-      gtk_window_present(GTK_WINDOW(l->data));
-      return TRUE;
-    }
+static void wig_application_dialog_closed(WigApplication *app, AdwDialog *dialog)
+{
+  if (app->settings_dialog == dialog)
+    g_clear_weak_pointer(&app->settings_dialog);
+  if (app->bookmarks_dialog == dialog)
+    g_clear_weak_pointer(&app->bookmarks_dialog);
+}
+
+static void wig_application_dialog_open_uri(WigApplication *app, const char *uri, gboolean background,
+                                            AdwDialog *dialog)
+{
+  GtkWindow *parent = gtk_window_get_transient_for(GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(dialog))));
+  WigWindow *win = WIG_IS_WINDOW(parent) ? WIG_WINDOW(parent) : wig_application_find_browser_window(app);
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
+
+  g_debug("application: opening %s from %s%s", uri, G_OBJECT_TYPE_NAME(dialog),
+          background ? " in a background tab" : "");
+
+  gboolean created = !win;
+
+  if (created)
+    win = wig_window_new(app);
+
+  if (background)
+    wig_window_add_web_view_in_background(win, web_view);
+  else
+    wig_window_add_web_view(win, web_view);
+  webkit_web_view_load_uri(web_view, uri);
+
+  if (GTK_WINDOW(win) != parent && (!background || created))
+    gtk_window_present(GTK_WINDOW(win));
+}
+
+void wig_application_show_settings(WigApplication *app, GtkWidget *parent)
+{
+  if (app->settings_dialog) {
+    wig_application_raise_dialog(app->settings_dialog);
+    return;
   }
 
-  return FALSE;
+  AdwDialog *dialog = wig_settings_dialog_new();
+  g_set_weak_pointer(&app->settings_dialog, dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_dialog_closed), app, G_CONNECT_SWAPPED);
+  wig_application_present_dialog(dialog, parent);
+}
+
+void wig_application_show_bookmarks(WigApplication *app, GtkWidget *parent)
+{
+  if (app->bookmarks_dialog) {
+    wig_application_raise_dialog(app->bookmarks_dialog);
+    return;
+  }
+
+  AdwDialog *dialog = wig_bookmarks_dialog_new();
+  g_set_weak_pointer(&app->bookmarks_dialog, dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_dialog_closed), app, G_CONNECT_SWAPPED);
+  g_signal_connect_object(dialog, "open-uri", G_CALLBACK(wig_application_dialog_open_uri), app, G_CONNECT_SWAPPED);
+  wig_application_present_dialog(dialog, parent);
+}
+
+static gboolean web_app_dialog_is(gpointer key, gpointer value, gpointer user_data)
+{
+  return value == user_data;
+}
+
+static void wig_application_web_app_dialog_closed(WigApplication *app, AdwDialog *dialog)
+{
+  g_hash_table_foreach_remove(app->downloads_dialogs, web_app_dialog_is, dialog);
+  g_hash_table_foreach_remove(app->history_dialogs, web_app_dialog_is, dialog);
+}
+
+static AdwDialog *wig_application_raise_web_app_dialog(GHashTable *dialogs, const char *web_app)
+{
+  AdwDialog *dialog = g_hash_table_lookup(dialogs, web_app ? web_app : "");
+
+  if (dialog)
+    wig_application_raise_dialog(dialog);
+
+  return dialog;
+}
+
+static void wig_application_present_web_app_dialog(WigApplication *app, GHashTable *dialogs, AdwDialog *dialog,
+                                                   GtkWidget *parent, const char *web_app)
+{
+  g_hash_table_insert(dialogs, g_strdup(web_app ? web_app : ""), dialog);
+  g_signal_connect_object(dialog, "closed", G_CALLBACK(wig_application_web_app_dialog_closed), app, G_CONNECT_SWAPPED);
+  wig_application_present_dialog(dialog, parent);
+}
+
+void wig_application_show_downloads(WigApplication *app, GtkWidget *parent, const char *web_app)
+{
+  if (wig_application_raise_web_app_dialog(app->downloads_dialogs, web_app))
+    return;
+
+  wig_application_present_web_app_dialog(app, app->downloads_dialogs, wig_downloads_dialog_new(web_app), parent,
+                                         web_app);
+}
+
+void wig_application_show_history(WigApplication *app, GtkWidget *parent, const char *web_app)
+{
+  AdwDialog *dialog = wig_application_raise_web_app_dialog(app->history_dialogs, web_app);
+
+  if (dialog) {
+    wig_history_dialog_reload(WIG_HISTORY_DIALOG(dialog));
+    return;
+  }
+
+  dialog = wig_history_dialog_new(web_app);
+  g_signal_connect_object(dialog, "open-uri", G_CALLBACK(wig_application_dialog_open_uri), app, G_CONNECT_SWAPPED);
+  wig_application_present_web_app_dialog(app, app->history_dialogs, dialog, parent, web_app);
 }
 
 void wig_application_open_internal_page(WigApplication *app, GtkWindow *win, const char *uri)
 {
-  if (!uri_is_new_tab_page(uri)) {
-    if (WIG_IS_WINDOW(win) && wig_application_focus_internal_page_in_window(WIG_WINDOW(win), uri, NULL, TRUE))
-      return;
-
-    for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
-      if (l->data == win)
-        continue;
-      if (!WIG_IS_WINDOW(l->data))
-        continue;
-
-      if (wig_application_focus_internal_page_in_window(WIG_WINDOW(l->data), uri, NULL, TRUE)) {
-        gtk_window_present(GTK_WINDOW(l->data));
-        return;
-      }
-    }
+  if (!WIG_IS_WINDOW(win)) {
+    wig_application_open_uri_in_browser(app, uri);
+    return;
   }
 
-  if (!WIG_IS_WINDOW(win))
-    win = GTK_WINDOW(wig_application_find_browser_window(app));
-
-  if (win)
-    wig_application_add_new_tab_with_uri(app, WIG_WINDOW(win), uri);
+  wig_application_add_new_tab_with_uri(app, WIG_WINDOW(win), uri);
 }
 
 static gboolean uri_should_be_recorded(const char *uri)
@@ -229,6 +318,16 @@ static void history_web_view_finalized(gpointer data, GObject *web_view)
   g_hash_table_remove(app->history_suppressions, web_view);
 }
 
+const char *wig_application_get_web_app_for_web_view(WigApplication *app, WebKitWebView *web_view)
+{
+  for (GList *l = gtk_application_get_windows(GTK_APPLICATION(app)); l; l = l->next) {
+    if (WIG_IS_PWA_WINDOW(l->data) && wig_window_base_get_active_web_view(WIG_WINDOW_BASE(l->data)) == web_view)
+      return wig_pwa_window_get_id(WIG_PWA_WINDOW(l->data));
+  }
+
+  return NULL;
+}
+
 static void record_history_visit(WigApplication *app, WebKitWebView *web_view, gboolean typed)
 {
   if (!app->history_store)
@@ -240,7 +339,9 @@ static void record_history_visit(WigApplication *app, WebKitWebView *web_view, g
 
   const char *title = webkit_web_view_get_title(web_view);
   g_autoptr(GError) error = NULL;
-  wig_history_store_record_visit(app->history_store, uri, title ? title : "", typed, g_get_real_time() / 1000, &error);
+  wig_history_store_record_visit(app->history_store, uri, title ? title : "", typed,
+                                 wig_application_get_web_app_for_web_view(app, web_view), g_get_real_time() / 1000,
+                                 &error);
   if (error)
     g_warning("history: record visit: %s", error->message);
 }
@@ -376,9 +477,8 @@ static void wig_application_download_update_action(GSimpleAction *action, GVaria
 /* Nothing here is about the update: the helper waits for wig to let go of its
  * name and then asks for it back, which is a restart whatever the reason for
  * one. Tabs are put back so restarting costs the session nothing. */
-static void wig_application_restart_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+void wig_application_restart(WigApplication *app)
 {
-  WigApplication *app = WIG_APPLICATION(user_data);
   g_autoptr(GError) error = NULL;
 
   if (!wig_update_monitor_spawn_restart_helper(&error)) {
@@ -388,6 +488,11 @@ static void wig_application_restart_action(GSimpleAction *action, GVariant *para
 
   wig_session_set_restore_on_next_start(app->session);
   g_application_quit(G_APPLICATION(app));
+}
+
+static void wig_application_restart_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  wig_application_restart(WIG_APPLICATION(user_data));
 }
 
 static const GActionEntry app_actions[] = {
@@ -462,6 +567,8 @@ static void wig_application_init(WigApplication *app)
 
   app->typed_navigations = g_hash_table_new(g_direct_hash, g_direct_equal);
   app->internal_navigations = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
+  app->downloads_dialogs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  app->history_dialogs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   app->history_suppressions = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
   app->user_scripts = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_script_record_free);
   app->user_style_sheets = g_ptr_array_new_with_free_func((GDestroyNotify)wig_user_style_sheet_record_free);
@@ -745,6 +852,10 @@ static void wig_application_mcp_enabled_changed(WigApplication *app)
 
 static void wig_application_record_history(WigApplication *app, WebKitWebView *web_view)
 {
+  if (g_signal_handler_find(web_view, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, on_web_view_load_changed,
+                            app))
+    return;
+
   g_signal_connect(web_view, "load-changed", G_CALLBACK(on_web_view_load_changed), app);
   g_signal_connect(web_view, "notify::title", G_CALLBACK(on_history_title_changed), app);
   g_object_weak_ref(G_OBJECT(web_view), history_web_view_finalized, app);
@@ -975,6 +1086,10 @@ static void wig_application_shutdown(GApplication *application)
   g_clear_object(&app->network_monitor);
   g_clear_handle_id(&app->unload_unused_tabs_id, g_source_remove);
   g_clear_object(&app->pwa_manager);
+  g_clear_weak_pointer(&app->settings_dialog);
+  g_clear_weak_pointer(&app->bookmarks_dialog);
+  g_clear_pointer(&app->downloads_dialogs, g_hash_table_unref);
+  g_clear_pointer(&app->history_dialogs, g_hash_table_unref);
 
   G_APPLICATION_CLASS(wig_application_parent_class)->shutdown(application);
 }
@@ -1107,8 +1222,7 @@ static int wig_application_command_line(GApplication *application, GApplicationC
   GVariantDict *options = g_application_command_line_get_options_dict(command_line);
   if (g_variant_dict_contains(options, "mcp-stdio")) {
     if (!g_settings_get_boolean(app->settings, "enable-mcp")) {
-      g_application_command_line_printerr(command_line,
-                                          "MCP is disabled. Turn on MCP Server in wig:settings/mcp to use it.\n");
+      g_application_command_line_printerr(command_line, "MCP is disabled. Turn on MCP Server in Settings to use it.\n");
       return 1;
     }
 
@@ -1239,24 +1353,18 @@ static gboolean on_web_view_decide_policy(WebKitWebView *web_view, WebKitPolicyD
   return TRUE;
 }
 
-static WebKitWebView *wig_application_create_web_view_internal(WigApplication *app, gboolean record_history)
+WebKitWebView *wig_application_create_web_view(WigApplication *app)
 {
+  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
+
   WebKitWebView *web_view = WEBKIT_WEB_VIEW(g_object_new(
       WEBKIT_TYPE_WEB_VIEW, "display", app->display, "web-context", app->web_context, "network-session",
       app->network_session, "settings", app->web_settings, "user-content-manager", app->user_content_manager, NULL));
   g_signal_connect(web_view, "decide-policy", G_CALLBACK(on_web_view_decide_policy), app);
   g_signal_connect(web_view, "load-failed", G_CALLBACK(on_load_failed), app);
-  if (record_history)
-    wig_application_record_history(app, web_view);
+  wig_application_record_history(app, web_view);
 
   return web_view;
-}
-
-WebKitWebView *wig_application_create_web_view(WigApplication *app)
-{
-  g_return_val_if_fail(WIG_IS_APPLICATION(app), NULL);
-
-  return wig_application_create_web_view_internal(app, TRUE);
 }
 
 void wig_application_open_uri_in_browser(WigApplication *app, const char *uri)
@@ -1310,7 +1418,7 @@ static gboolean wig_application_open_web_app_in_new_window(WigApplication *app, 
   if (!wig_application_get_pwa_window_configuration(app, id, &navigation_policy, &background_color, &shortcuts, error))
     return FALSE;
 
-  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view_internal(app, FALSE);
+  g_autoptr(WebKitWebView) web_view = wig_application_create_web_view(app);
   g_autoptr(WigTab) tab = wig_tab_new(web_view);
   WigPwaWindow *window = wig_pwa_window_new(GTK_APPLICATION(app), app->display, id, navigation_policy, shortcuts,
                                             background_color, tab);
@@ -1411,13 +1519,6 @@ gboolean wig_application_adopt_web_app(WigApplication *app, const char *id, WebK
     g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Web view is no longer in a browser tab");
     return FALSE;
   }
-
-  WebKitWebView *adopted_web_view = wig_tab_get_web_view(adopted_tab);
-  guint history_handlers = g_signal_handlers_disconnect_by_func(adopted_web_view, on_web_view_load_changed, app);
-  history_handlers += g_signal_handlers_disconnect_by_func(adopted_web_view, on_history_title_changed, app);
-  if (history_handlers)
-    g_object_weak_unref(G_OBJECT(adopted_web_view), history_web_view_finalized, app);
-  g_hash_table_remove(app->typed_navigations, adopted_web_view);
 
   WigPwaWindow *window = wig_pwa_window_new(GTK_APPLICATION(app), app->display, id, navigation_policy, shortcuts,
                                             background_color, adopted_tab);

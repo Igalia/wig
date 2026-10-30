@@ -22,18 +22,13 @@
 
 #pragma once
 
-#include "wig-native-page.h"
+#include <adwaita.h>
 
 G_BEGIN_DECLS
 
-#define WIG_HISTORY_PAGE_URI "wig:history"
-#define WIG_HISTORY_PAGE_TITLE "History"
+#define WIG_TYPE_SETTINGS_DIALOG (wig_settings_dialog_get_type())
+G_DECLARE_FINAL_TYPE(WigSettingsDialog, wig_settings_dialog, WIG, SETTINGS_DIALOG, AdwDialog)
 
-#define WIG_TYPE_HISTORY_PAGE (wig_history_page_get_type())
-G_DECLARE_FINAL_TYPE(WigHistoryPage, wig_history_page, WIG, HISTORY_PAGE, WigNativePage)
-
-GtkWidget *wig_history_page_new(const char *uri);
-
-gboolean uri_is_history_page(const char *uri);
+AdwDialog *wig_settings_dialog_new(void);
 
 G_END_DECLS

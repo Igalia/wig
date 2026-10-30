@@ -31,7 +31,6 @@
 #include "wig-pwa-icon.h"
 #include "wig-pwa-synthetic-manifest.h"
 #include "wig-pwa-util.h"
-#include "wig-settings-page.h"
 #include "wig-tab-bar.h"
 #include "wig-tab-list.h"
 #include "wig-tab-sidebar.h"
@@ -75,7 +74,6 @@ struct _WigWindow {
   gboolean suppress_entry_completion;
   gboolean url_entry_focused;
   gboolean url_entry_edited;
-  GActionGroup *context_menu_action_group;
   GtkWidget *tab_view_context_menu;
   GPtrArray *closing_tabs;
   GSignalGroup *active_web_view_signals;
@@ -263,53 +261,6 @@ static void wig_window_web_view_closed(WigWindow *win, WebKitWebView *web_view)
   g_debug("tab %u: the page is done with, closing it", wig_tab_get_id(tab));
   wig_tab_set_closing(tab, TRUE);
   wig_tab_list_close(win->tab_list, tab);
-}
-
-WebKitWebView *wig_window_focus_tab_by_site(WigWindow *win, const char *uri, WebKitWebView *ignore, gboolean reload)
-{
-  g_autoptr(GUri) lookup = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
-  if (!lookup)
-    return NULL;
-
-  const char *lookup_scheme = g_uri_get_scheme(lookup);
-  const char *lookup_host = g_uri_get_host(lookup);
-  const char *lookup_path = g_uri_get_path(lookup);
-
-  guint n = wig_tab_list_get_n_tabs(win->tab_list);
-  for (guint i = 0; i < n; i++) {
-    WigTab *tab = wig_tab_list_get_nth(win->tab_list, i);
-    WebKitWebView *web_view = wig_tab_get_web_view(tab);
-    if (web_view == ignore)
-      continue;
-
-    const char *tab_uri = wig_tab_get_uri(tab);
-    if (!tab_uri)
-      continue;
-
-    g_autoptr(GUri) parsed = g_uri_parse(tab_uri, G_URI_FLAGS_NONE, NULL);
-    if (!parsed)
-      continue;
-
-    const char *tab_scheme = g_uri_get_scheme(parsed);
-    const char *tab_host = g_uri_get_host(parsed);
-
-    gboolean match;
-    if (lookup_host && *lookup_host)
-      match = g_str_equal(lookup_scheme, tab_scheme) && tab_host && g_ascii_strcasecmp(lookup_host, tab_host) == 0;
-    else
-      match = g_str_equal(lookup_scheme, tab_scheme)
-          && wig_util_paths_are_same_page(lookup_path, g_uri_get_path(parsed));
-
-    if (match) {
-      gboolean discarded = wig_tab_get_discarded(tab);
-      wig_tab_list_set_active(win->tab_list, tab);
-      wig_tab_load_discarded(tab);
-      if (reload && !discarded)
-        webkit_web_view_reload(web_view);
-      return web_view;
-    }
-  }
-  return NULL;
 }
 
 static void wig_window_close_install_web_app_popover(WigWindow *win)
@@ -693,16 +644,6 @@ static void wig_window_focus_entry(GSimpleAction *action, GVariant *parameter, g
   gtk_editable_select_region(GTK_EDITABLE(win->url_entry), 0, -1);
 }
 
-static void wig_window_show_downloads(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:downloads");
-}
-
-static void wig_window_show_history(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:history");
-}
-
 static void wig_window_bookmark_page(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
   WigWindow *win = WIG_WINDOW(user_data);
@@ -711,25 +652,6 @@ static void wig_window_bookmark_page(GSimpleAction *action, GVariant *parameter,
     return;
 
   gtk_menu_button_popup(GTK_MENU_BUTTON(win->bookmark_button));
-}
-
-static void wig_window_show_bookmarks(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:bookmarks");
-}
-
-static void wig_window_show_settings(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  wig_application_open_internal_page(wig_application_get(), GTK_WINDOW(user_data), "wig:settings");
-}
-
-static void wig_window_toggle_inspector(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-
-  WebKitWebView *web_view = wig_window_active_web_view(win);
-  if (web_view)
-    webkit_web_view_toggle_inspector(web_view);
 }
 
 static void wig_window_close_tab_action(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -1035,12 +957,7 @@ static const GActionEntry actions[] = {
   { "next-tab", wig_window_next_tab },
   { "prev-tab", wig_window_prev_tab },
   { "focus-entry", wig_window_focus_entry },
-  { "show-downloads", wig_window_show_downloads },
-  { "show-history", wig_window_show_history },
-  { "show-bookmarks", wig_window_show_bookmarks },
   { "bookmark-page", wig_window_bookmark_page },
-  { "show-settings", wig_window_show_settings },
-  { "toggle-inspector", wig_window_toggle_inspector },
   { "close-tab", wig_window_close_tab_action },
   { "undo-close-tab", wig_window_undo_close_tab },
   { "restore-closed", wig_window_restore_closed, "u" },
@@ -1100,28 +1017,10 @@ static void wig_window_bookmark_uri(GSimpleAction *action, GVariant *parameter, 
   gtk_popover_popup(GTK_POPOVER(popover));
 }
 
-static void wig_window_copy_text(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(win)), g_variant_get_string(parameter, NULL));
-}
-
-static void wig_window_copy_selection(GSimpleAction *action, GVariant *parameter, gpointer user_data)
-{
-  WigWindow *win = WIG_WINDOW(user_data);
-  WebKitWebView *web_view = wig_window_active_web_view(win);
-  if (!web_view)
-    return;
-
-  webkit_web_view_execute_editing_command(web_view, WEBKIT_EDITING_COMMAND_COPY);
-}
-
 static const GActionEntry context_menu_actions[] = {
   { "open-in-new-tab", wig_window_open_in_new_tab, "s" },
   { "open-in-background-tab", wig_window_open_in_background_tab, "s" },
   { "bookmark-uri", wig_window_bookmark_uri, "(ss)" },
-  { "copy-text", wig_window_copy_text, "s" },
-  { "copy-selection", wig_window_copy_selection },
 };
 
 static void wig_window_tab_reload(WigTabList *list, guint tab_id, WigWindow *win)
@@ -1394,7 +1293,7 @@ static void wig_window_update_entry_completion(WigWindow *win)
 
   gboolean has_more = FALSE;
   g_autoptr(GError) error = NULL;
-  g_autoptr(GPtrArray) history_items = wig_history_store_query(store, text, 0, 10, &has_more, &error);
+  g_autoptr(GPtrArray) history_items = wig_history_store_query(store, text, NULL, 0, 10, &has_more, &error);
   if (!history_items) {
     g_warning("entry-completion: history query failed: %s", error->message);
     gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
@@ -1570,12 +1469,6 @@ static const char *wig_navigation_type_name(WebKitNavigationType type)
   }
 }
 
-static const char *wig_web_view_get_committed_uri(WebKitWebView *web_view)
-{
-  WebKitWebResource *resource = webkit_web_view_get_main_resource(web_view);
-  return resource ? webkit_web_resource_get_uri(resource) : NULL;
-}
-
 static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *decision,
                                          WebKitPolicyDecisionType decision_type, WebKitWebView *web_view)
 {
@@ -1605,14 +1498,6 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
 
   const char *target_scheme = request_uri ? g_uri_peek_scheme(request_uri) : NULL;
 
-  g_autofree char *moved_uri = wig_settings_page_moved_uri(request_uri);
-  if (moved_uri) {
-    g_debug("wig: '%s' now lives at '%s'", request_uri, moved_uri);
-    webkit_policy_decision_ignore(decision);
-    webkit_web_view_load_uri(web_view, moved_uri);
-    return TRUE;
-  }
-
   if (g_strcmp0(target_scheme, "wig") == 0
       && !wig_application_take_internal_navigation(wig_application_get(), web_view, request_uri)) {
     const char *current_uri = webkit_web_view_get_uri(web_view);
@@ -1622,14 +1507,6 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
       webkit_policy_decision_ignore(decision);
       return TRUE;
     }
-  }
-
-  if (g_strcmp0(target_scheme, "wig") == 0
-      && !wig_util_uris_are_same_page(wig_web_view_get_committed_uri(web_view), request_uri)
-      && wig_application_focus_internal_page(wig_application_get(), request_uri, web_view)) {
-    g_debug("wig: focusing the page that is already open instead of '%s'", request_uri);
-    webkit_policy_decision_ignore(decision);
-    return TRUE;
   }
 
   /* Ctrl + primary-clicking and middle-clicking a link opens it in a
@@ -1860,20 +1737,6 @@ static gboolean wig_window_web_view_context_menu(WigWindow *win, WebKitContextMe
   webkit_context_menu_get_position(context_menu, &win->context_menu_target.x, &win->context_menu_target.y);
 
   return wig_window_base_show_context_menu(WIG_WINDOW_BASE(win), context_menu, hit_test_result);
-}
-
-static void wig_window_on_mouse_target_changed(WigWindow *win, WebKitHitTestResult *hit_test_result, guint modifiers,
-                                               WebKitWebView *web_view)
-{
-  WigTab *tab = wig_tab_list_get_active(win->tab_list);
-  if (!tab)
-    return;
-
-  const char *uri = NULL;
-  if (webkit_hit_test_result_context_is_link(hit_test_result))
-    uri = webkit_hit_test_result_get_link_uri(hit_test_result);
-
-  wig_tab_set_hovered_link(tab, uri, wig_window_base_get_active_origin(WIG_WINDOW_BASE(win)));
 }
 
 static void wig_window_update_state_changed(WigWindow *win, GParamSpec *pspec, WigUpdateMonitor *monitor)
@@ -2179,10 +2042,8 @@ static void wig_window_constructed(GObject *object)
   WigWindow *win = WIG_WINDOW(object);
   g_action_map_add_action_entries(G_ACTION_MAP(win), actions, G_N_ELEMENTS(actions), win);
 
-  win->context_menu_action_group = G_ACTION_GROUP(g_simple_action_group_new());
-  g_action_map_add_action_entries(G_ACTION_MAP(win->context_menu_action_group), context_menu_actions,
+  g_action_map_add_action_entries(wig_window_base_get_context_menu_actions(WIG_WINDOW_BASE(win)), context_menu_actions,
                                   G_N_ELEMENTS(context_menu_actions), win);
-  gtk_widget_insert_action_group(GTK_WIDGET(win), "popup", win->context_menu_action_group);
 
   g_signal_connect(win, "notify::fullscreened", G_CALLBACK(wig_window_fullscreen_changed), NULL);
 
@@ -2417,14 +2278,6 @@ static void wig_window_dispose(GObject *object)
   G_OBJECT_CLASS(wig_window_parent_class)->dispose(object);
 }
 
-static void wig_window_finalize(GObject *object)
-{
-  WigWindow *win = WIG_WINDOW(object);
-  g_clear_object(&win->context_menu_action_group);
-
-  G_OBJECT_CLASS(wig_window_parent_class)->finalize(object);
-}
-
 static void wig_window_init(WigWindow *win)
 {
   win->unshown_web_views = g_ptr_array_new_with_free_func(g_object_unref);
@@ -2434,8 +2287,6 @@ static void wig_window_init(WigWindow *win)
                                  G_CALLBACK(wig_window_load_progress_changed), win);
   g_signal_group_connect_swapped(win->active_web_view_signals, "context-menu",
                                  G_CALLBACK(wig_window_web_view_context_menu), win);
-  g_signal_group_connect_swapped(win->active_web_view_signals, "mouse-target-changed",
-                                 G_CALLBACK(wig_window_on_mouse_target_changed), win);
   win->active_tab_signals = g_signal_group_new(WIG_TYPE_TAB);
   g_signal_group_connect_swapped(win->active_tab_signals, "notify::page-uri", G_CALLBACK(wig_window_update_url), win);
   g_signal_group_connect_swapped(win->active_tab_signals, "notify::title",
@@ -2473,7 +2324,6 @@ static void wig_window_class_init(WigWindowClass *klass)
   GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
   gobject_class->constructed = wig_window_constructed;
   gobject_class->dispose = wig_window_dispose;
-  gobject_class->finalize = wig_window_finalize;
   gobject_class->get_property = wig_window_get_property;
   gobject_class->set_property = wig_window_set_property;
 

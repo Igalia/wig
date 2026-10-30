@@ -12,7 +12,7 @@ Wig instance, so the tools act on the browser windows that are already open. If
 Wig is not running yet, the command starts it.
 
 MCP is off by default. It is turned on with the MCP Server switch in
-`wig:settings/mcp` (the `enable-mcp` setting); until then `--mcp-stdio` exits
+Settings (the `enable-mcp` setting); until then `--mcp-stdio` exits
 with an error, and turning it off again disconnects every session.
 
 While a client is connected:
@@ -23,8 +23,7 @@ While a client is connected:
 - console and network instrumentation is installed in every tab, and removed
   again once no session is active.
 
-Connected sessions are listed/managed in the MCP Server pane of the settings
-page, `wig:settings/mcp`.
+Connected sessions are listed/managed in the MCP Server pane of Settings.
 Internal `wig:` pages themselves cannot be loaded or inspected
 by a client.
 

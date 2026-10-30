@@ -18,7 +18,7 @@ wpe_web_process_extension_dep = dependency(
     'wpe-web-process-extension-2.0',
     version: '>= 2.51.3',
 )
-adw_dep = dependency('libadwaita-1', version: '>= 1.6')
+adw_dep = dependency('libadwaita-1', version: '>= 1.9')
 libpsl_dep = dependency('libpsl')
 sqlite_dep = dependency('sqlite3')
 libsoup_dep = dependency('libsoup-3.0')
