@@ -534,6 +534,8 @@ WigTab *wig_pwa_window_take_tab(WigPwaWindow *self)
   wig_window_base_set_active_web_view(WIG_WINDOW_BASE(self), NULL);
   wig_window_base_set_active_tab(WIG_WINDOW_BASE(self), NULL);
   wig_window_base_detach_web_view(WIG_WINDOW_BASE(self), wig_tab_get_web_view(self->tab));
+  GtkWidget *tab_widget = wig_tab_get_widget(self->tab);
+  gtk_box_remove(GTK_BOX(gtk_widget_get_parent(tab_widget)), tab_widget);
   gtk_window_set_child(GTK_WINDOW(self), NULL);
   return g_steal_pointer(&self->tab);
 }
