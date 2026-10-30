@@ -5,6 +5,16 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+    inputs:
+      wpe-master:
+        description: Build the WPE master base app
+        type: boolean
+        default: true
+      wpe-2-54:
+        description: Build the WPE 2.54 base app
+        type: boolean
+        default: true
 
 jobs:
   check-wpe-inputs:
@@ -12,12 +22,13 @@ jobs:
     outputs:
       oci-repository: ${{ steps.repository.outputs.oci-repository }}
       pages-url: ${{ steps.repository.outputs.pages-url }}
-      wpe-master: ${{ steps.filter.outputs.wpe-master }}
-      wpe-2.54: ${{ steps.filter.outputs['wpe-2.54'] }}
+      wpe-master: ${{ github.event_name == 'workflow_dispatch' && inputs.wpe-master || steps.filter.outputs.wpe-master }}
+      wpe-2.54: ${{ github.event_name == 'workflow_dispatch' && inputs.wpe-2-54 || steps.filter.outputs['wpe-2.54'] }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             wpe-shared: &wpe-shared
@@ -73,7 +84,7 @@ jobs:
     if: >-
       (needs.check-wpe-inputs.outputs.wpe-master == 'true' ||
        needs.check-wpe-inputs.outputs['wpe-2.54'] == 'true') &&
-      (github.event_name == 'push' ||
+      (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
@@ -241,7 +252,8 @@ jobs:
       - build-wig-flatpak
     if: >-
       !cancelled() &&
-      github.event_name == 'push' &&
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
       needs.build-wig-flatpak.result == 'success'
     permissions:
       contents: read
