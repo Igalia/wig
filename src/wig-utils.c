@@ -48,10 +48,103 @@ static psl_ctx_t *get_psl_context(void)
 {
   static psl_ctx_t *psl = NULL;
 
-  if (!psl)
+  // Tests load a list of their own, as what the system's list says changes over time.
+  if (!psl) {
+#ifdef WIG_PSL_FILE
+    psl = psl_load_file(WIG_PSL_FILE);
+#else
     psl = psl_latest(NULL);
+#endif
+  }
 
   return psl;
+}
+
+/* Returns a lower case version of the hostname in the URL, if any, along
+ * with optionally a pointer to the end of the hostname part of the URL. */
+static char *get_hostname(const char *url, const char **host_end)
+{
+  const char *end = url + strcspn(url, "/:?#");
+  if (host_end)
+    *host_end = end;
+
+  return g_utf8_strdown(url, end - url);
+}
+
+static gboolean is_hostname_like(const char *host)
+{
+  if (!*host)
+    return FALSE;
+
+  g_auto(GStrv) url_parts = g_strsplit(host, ".", -1);
+  gboolean all_numeric = TRUE;
+  for (guint i = 0; url_parts[i]; i++) {
+    const char *part = url_parts[i];
+    gsize length = strlen(part);
+    if (!length || part[0] == '-' || part[length - 1] == '-')
+      return FALSE;
+    for (const char *p = part; *p; p++) {
+      if (!g_ascii_isalnum(*p) && *p != '-')
+        return FALSE;
+      if (!g_ascii_isdigit(*p))
+        all_numeric = FALSE;
+    }
+  }
+
+  // Dotted numbers are an IP address, or part of it.
+  return !all_numeric || !strchr(host, '.');
+}
+
+static gboolean hostname_has_tld(const char *host)
+{
+  const char *dot = strrchr(host, '.');
+  if (!dot)
+    return FALSE;
+
+  const char *tld = dot + 1;
+  return array_contains(special_use_tlds, G_N_ELEMENTS(special_use_tlds), tld)
+      || psl_is_public_suffix2(get_psl_context(), tld, PSL_TYPE_ANY | PSL_TYPE_NO_STAR_RULE);
+}
+
+// After a host there can only be a port, then a path, query or fragment. Anything
+// else after a colon, like the "pass@" in "user:pass@example.com", hides another host.
+static gboolean is_host_end(const char *host_end)
+{
+  const char *after_port = host_end;
+  if (*host_end == ':') {
+    gsize port_length = strspn(host_end + 1, "0123456789");
+    if (!port_length)
+      return FALSE;
+    after_port = host_end + 1 + port_length;
+  }
+
+  return !*after_port || strchr("/?#", *after_port);
+}
+
+static char *complete_uri_as(const char *url, WigUtilUriCompletionType type, const char *search_engine)
+{
+  switch (type) {
+  case WIG_UTIL_URI_COMPLETION_PASSTHROUGH: {
+    const char *scheme = g_uri_peek_scheme(url);
+
+    // We can't override about so just rewrite them.
+    if (g_strcmp0(scheme, "about") == 0 && g_strcmp0(url, "about:blank") != 0)
+      return g_strconcat("wig:", url + strlen("about:"), NULL);
+
+    return g_strdup(url);
+  }
+
+  case WIG_UTIL_URI_COMPLETION_HTTPS:
+    return g_strconcat("https://", url, NULL);
+
+  case WIG_UTIL_URI_COMPLETION_HTTP:
+    return g_strconcat("http://", url, NULL);
+
+  case WIG_UTIL_URI_COMPLETION_SEARCH:
+    return wig_util_search_uri(url ? url : "", search_engine);
+  }
+
+  g_assert_not_reached();
 }
 
 /**
@@ -68,16 +161,26 @@ WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url)
   if (scheme && array_contains(valid_schemes, G_N_ELEMENTS(valid_schemes), scheme))
     return WIG_UTIL_URI_COMPLETION_PASSTHROUGH;
 
-  const char *host_end = url + strcspn(url, "/:");
-  g_autofree char *hostname = g_strndup(url, (gsize)(host_end - url));
+  g_autofree char *hostname = get_hostname(url, NULL);
+
+  // No host has spaces in it, but a search string can contain one.
+  if (strpbrk(hostname, " \t\n\r\f\v"))
+    return WIG_UTIL_URI_COMPLETION_SEARCH;
 
   if (g_strcmp0(hostname, "localhost") == 0 || g_hostname_is_ip_address(hostname))
     return WIG_UTIL_URI_COMPLETION_HTTP;
 
   psl_ctx_t *psl = get_psl_context();
   const char *domain = psl_registrable_domain(psl, hostname);
-  if (!domain)
+  if (!domain) {
+    // A name that is a public suffix itself, like "github.io", has no
+    // registrable domain but still refers to a site. Only those in the
+    // private section do: a registry's own suffix, like "co.uk", has none.
+    if (strchr(hostname, '.') && psl_is_public_suffix2(psl, hostname, PSL_TYPE_PRIVATE | PSL_TYPE_NO_STAR_RULE))
+      return WIG_UTIL_URI_COMPLETION_HTTPS;
+
     return WIG_UTIL_URI_COMPLETION_SEARCH;
+  }
 
   const char *dot = strchr(domain, '.');
   const char *suffix = dot ? dot + 1 : domain;
@@ -103,28 +206,30 @@ WigUtilUriCompletionType wig_util_get_uri_completion_type(const char *url)
  */
 char *wig_util_complete_uri(const char *url, const char *search_engine)
 {
-  switch (wig_util_get_uri_completion_type(url)) {
-  case WIG_UTIL_URI_COMPLETION_PASSTHROUGH: {
-    const char *scheme = g_uri_peek_scheme(url);
+  return complete_uri_as(url, wig_util_get_uri_completion_type(url), search_engine);
+}
 
-    // We can't override about so just rewrite them.
-    if (g_strcmp0(scheme, "about") == 0 && g_strcmp0(url, "about:blank") != 0)
-      return g_strconcat("wig:", url + strlen("about:"), NULL);
+char *wig_util_complete_uri_dot_com(const char *url, const char *search_engine)
+{
+  // Only what would otherwise be searched for is missing its TLD: a URL
+  // typed with its scheme, a site or a local address are loaded as they are.
+  WigUtilUriCompletionType type = wig_util_get_uri_completion_type(url);
+  if (type != WIG_UTIL_URI_COMPLETION_SEARCH)
+    return complete_uri_as(url, type, search_engine);
 
-    return g_strdup(url);
+  const char *url_text = url ? url : "";
+  const char *host_end;
+  g_autofree char *host = get_hostname(url_text, &host_end);
+  g_autofree char *ascii_host = g_hostname_to_ascii(host);
+
+  // A name that already has a TLD, like "co.uk", is a search, not a site.
+  if (!ascii_host || !is_hostname_like(ascii_host)
+      || hostname_has_tld(ascii_host) || !is_host_end(host_end)) {
+    return complete_uri_as(url, type, search_engine);
   }
 
-  case WIG_UTIL_URI_COMPLETION_HTTPS:
-    return g_strconcat("https://", url, NULL);
-
-  case WIG_UTIL_URI_COMPLETION_HTTP:
-    return g_strconcat("http://", url, NULL);
-
-  case WIG_UTIL_URI_COMPLETION_SEARCH:
-    return wig_util_search_uri(url ? url : "", search_engine);
-  }
-
-  g_assert_not_reached();
+  const char *www_prefix = (g_str_has_prefix(host, "www.") || g_strcmp0(host, "www") == 0) ? "" : "www.";
+  return g_strconcat("https://", www_prefix, host, ".com", host_end, NULL);
 }
 
 char *wig_util_search_uri(const char *terms, const char *search_engine)

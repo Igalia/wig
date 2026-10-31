@@ -1131,6 +1131,20 @@ static void wig_window_prepare_bookmark_popover(GtkMenuButton *button, gpointer 
   wig_bookmark_popover_ensure_bookmarked(WIG_BOOKMARK_POPOVER(win->bookmark_popover));
 }
 
+static void wig_window_show_url(WigWindow *win, const char *url)
+{
+  /* A tab with nothing in it has no address worth showing, and an entry left
+   * holding "about:blank" is something to be deleted before the address the
+   * user opened the tab to type. */
+  if (g_strcmp0(url, "about:blank") == 0 || uri_is_new_tab_page(url))
+    url = NULL;
+
+  win->suppress_entry_completion = TRUE;
+  gtk_editable_set_text(GTK_EDITABLE(win->url_entry), url ? url : "");
+  win->suppress_entry_completion = FALSE;
+  win->url_entry_edited = FALSE;
+}
+
 static void wig_window_update_url(WigWindow *win)
 {
   wig_window_update_bookmark_button(win);
@@ -1154,16 +1168,7 @@ static void wig_window_update_url(WigWindow *win)
       url = wig_tab_get_page_uri(tab);
   }
 
-  /* A tab with nothing in it has no address worth showing, and an entry left
-   * holding "about:blank" is something to be deleted before the address the
-   * user opened the tab to type. */
-  if (g_strcmp0(url, "about:blank") == 0 || uri_is_new_tab_page(url))
-    url = NULL;
-
-  win->suppress_entry_completion = TRUE;
-  gtk_editable_set_text(GTK_EDITABLE(win->url_entry), url ? url : "");
-  win->suppress_entry_completion = FALSE;
-  win->url_entry_edited = FALSE;
+  wig_window_show_url(win, url);
 }
 
 static void wig_window_reset_url_entry(WigWindow *win)
@@ -1229,23 +1234,32 @@ static void wig_window_load_uri(WigWindow *win, const char *uri)
     gtk_widget_grab_focus(wig_tab_get_widget(selected));
 }
 
-static void wig_window_load_url(WigWindow *win)
+static void wig_window_load_url_completed_with(WigWindow *win, char *(*complete)(const char *, const char *))
 {
+  gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+
+  /* Ignore an empty entry, otherwise strip surrounding spaces. */
+  g_autofree char *text = g_strstrip(g_strdup(gtk_editable_get_text(GTK_EDITABLE(win->url_entry))));
+  if (!*text || !wig_window_active_web_view(win))
+    return;
+
   WigApplication *app = WIG_APPLICATION(gtk_window_get_application(GTK_WINDOW(win)));
   g_autofree char *search_engine = g_settings_get_string(wig_application_get_settings(app), "search-engine");
-  g_autofree char *complete_uri = wig_util_complete_uri(gtk_editable_get_text(GTK_EDITABLE(win->url_entry)),
-                                                        search_engine);
-  gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
+  g_autofree char *complete_uri = complete(text, search_engine);
+
+  wig_window_show_url(win, complete_uri);
   wig_window_load_uri(win, complete_uri);
+}
+
+static void wig_window_load_url(WigWindow *win)
+{
+  wig_window_load_url_completed_with(win, wig_util_complete_uri);
 }
 
 static void wig_window_entry_completion_popover_activate(WigEntryCompletionPopover *popover, const char *uri,
                                                          WigWindow *win)
 {
-  win->suppress_entry_completion = TRUE;
-  gtk_editable_set_text(GTK_EDITABLE(win->url_entry), uri);
-  win->suppress_entry_completion = FALSE;
-
+  wig_window_show_url(win, uri);
   gtk_popover_popdown(GTK_POPOVER(popover));
   wig_window_load_uri(win, uri);
 }
@@ -1324,6 +1338,12 @@ static void wig_window_url_entry_changed(GtkEditable *editable, WigWindow *win)
 static gboolean wig_window_url_entry_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode,
                                                  GdkModifierType state, WigWindow *win)
 {
+  if ((state & gtk_accelerator_get_default_mod_mask()) == GDK_CONTROL_MASK
+      && (keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter || keyval == GDK_KEY_ISO_Enter)) {
+    wig_window_load_url_completed_with(win, wig_util_complete_uri_dot_com);
+    return TRUE;
+  }
+
   if (!GTK_IS_POPOVER(win->entry_completion_popover) || !gtk_widget_get_visible(win->entry_completion_popover)
       || wig_entry_completion_popover_get_n_items(WIG_ENTRY_COMPLETION_POPOVER(win->entry_completion_popover)) == 0)
     return FALSE;

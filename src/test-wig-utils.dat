@@ -1,0 +1,26 @@
+// A small public suffix list for test-wig-utils, so that its results do not
+// depend on the list installed on the system. It uses the same format as
+// https://publicsuffix.org/list/public_suffix_list.dat, which it is cut from.
+
+// ===BEGIN ICANN DOMAINS===
+
+app
+au
+com.au
+com
+co.uk
+de
+foo
+gov.uk
+io
+jp
+or.jp
+uk
+
+// ===END ICANN DOMAINS===
+// ===BEGIN PRIVATE DOMAINS===
+
+blogspot.com
+github.io
+
+// ===END PRIVATE DOMAINS===
