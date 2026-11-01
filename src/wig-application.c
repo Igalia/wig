@@ -1022,6 +1022,7 @@ static void wig_application_startup(GApplication *application)
     { "win.focus-entry", { "<Primary>l", NULL } },
     { "win.new-tab", { "<Primary>t", NULL } },
     { "app.new-window", { "<Primary>n", NULL } },
+    { "win.open-file", { "<Primary>o", NULL } },
     { "app.quit-browser", { "<Primary>q", NULL } },
     { "win.close-tab", { "<Primary>w", NULL } },
     { "win.next-tab", { "<Primary>Page_Down", NULL } },
