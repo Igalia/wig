@@ -952,6 +952,33 @@ static void wig_window_duplicate_active_tab(GSimpleAction *action, GVariant *par
   wig_window_tab_duplicate(win->tab_list, wig_tab_get_id(tab), win);
 }
 
+static void wig_window_load_uri(WigWindow *win, const char *uri);
+
+static void wig_window_open_file_done(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(WigWindow) win = user_data;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GFile) file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, &error);
+
+  if (!file) {
+    if (!g_error_matches(error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED))
+      g_warning("open-file: could not open the file: %s", error->message);
+    return;
+  }
+
+  g_autofree char *uri = g_file_get_uri(file);
+  wig_window_load_uri(win, uri);
+}
+
+static void wig_window_open_file(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+  WigWindow *win = WIG_WINDOW(user_data);
+  g_autoptr(GtkFileDialog) dialog = gtk_file_dialog_new();
+
+  gtk_file_dialog_set_title(dialog, "Open File");
+  gtk_file_dialog_open(dialog, GTK_WINDOW(win), NULL, wig_window_open_file_done, g_object_ref(win));
+}
+
 static const GActionEntry actions[] = {
   { "new-tab", wig_window_new_tab },
   { "next-tab", wig_window_next_tab },
@@ -963,6 +990,7 @@ static const GActionEntry actions[] = {
   { "restore-closed", wig_window_restore_closed, "u" },
   { "duplicate-active-tab", wig_window_duplicate_active_tab },
   { "install-as-web-app", wig_window_install_as_web_app },
+  { "open-file", wig_window_open_file },
 };
 
 static void wig_window_open_uri_in_new_tab(WigWindow *win, GVariant *parameter, gboolean background)
@@ -2142,6 +2170,7 @@ static void wig_window_constructed(GObject *object)
   g_menu_append_section(menu, NULL, G_MENU_MODEL(pages_section));
 
   g_autoptr(GMenu) page_section = g_menu_new();
+  g_menu_append(page_section, "Open File…", "win.open-file");
   g_menu_append(page_section, "Install as Web Application", "win.install-as-web-app");
   g_menu_append_section(menu, NULL, G_MENU_MODEL(page_section));
 
