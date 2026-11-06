@@ -41,6 +41,7 @@ modules:
       - -DCMAKE_C_COMPILER=clang
       - -DCMAKE_CXX_COMPILER=clang++
       - -DCMAKE_LINKER_TYPE=LLD
+      - -DLTO_MODE=thin
       - -DPORT=WPE
 
       - -DENABLE_WPE_LEGACY_API=OFF
