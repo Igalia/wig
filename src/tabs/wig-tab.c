@@ -39,6 +39,7 @@
 #include "wpe-view-gtk.h"
 
 #define WIG_TAB_UNRESPONSIVE_TIMEOUT_SECONDS 60
+#define WIG_TAB_EXTERNAL_LAUNCH_INTERVAL_US G_USEC_PER_SEC
 
 struct _WigTab {
   GObject parent;
@@ -54,6 +55,7 @@ struct _WigTab {
   gboolean unresponsive;
   GtkWidget *external_uri_dialog;
   char *external_uri_page;
+  gint64 last_external_launch;
   GtkWidget *status_label;
   GIcon *icon;
   char *title;
@@ -269,21 +271,41 @@ static void wig_tab_external_uri_launched(GObject *source, GAsyncResult *result,
   }
 }
 
+static void wig_tab_launch_external_uri(WigTab *self, const char *uri)
+{
+  g_debug("tab %u: opening %s externally", self->id, uri);
+  self->last_external_launch = g_get_monotonic_time();
+
+  g_autoptr(GdkAppLaunchContext) context = gdk_display_get_app_launch_context(
+      gtk_widget_get_display(self->view_overlay));
+  g_app_info_launch_default_for_uri_async(uri, G_APP_LAUNCH_CONTEXT(context), NULL, wig_tab_external_uri_launched,
+                                          NULL);
+}
+
+static char *wig_tab_uri_origin(const char *uri)
+{
+  g_autoptr(WebKitSecurityOrigin) origin = uri ? webkit_security_origin_new_for_uri(uri) : NULL;
+  return origin ? webkit_security_origin_to_string(origin) : NULL;
+}
+
 static void wig_tab_external_uri_response(WigExternalUriResponse response, const char *uri, gpointer user_data)
 {
   WigTab *self = user_data;
 
-  if (response != WIG_EXTERNAL_URI_RESPONSE_OPEN) {
+  if (response == WIG_EXTERNAL_URI_RESPONSE_CANCEL) {
     g_debug("tab %u: not opening %s externally", self->id, uri);
     wig_tab_dismiss_external_uri_dialog(self);
     return;
   }
 
-  g_debug("tab %u: opening %s externally", self->id, uri);
-  g_autoptr(GdkAppLaunchContext) context = gdk_display_get_app_launch_context(
-      gtk_widget_get_display(self->view_overlay));
-  g_app_info_launch_default_for_uri_async(uri, G_APP_LAUNCH_CONTEXT(context), NULL, wig_tab_external_uri_launched,
-                                          NULL);
+  if (response == WIG_EXTERNAL_URI_RESPONSE_OPEN_ALWAYS) {
+    WigPermissionsManager *manager = wig_application_get_permissions_manager(wig_application_get());
+    g_autofree char *origin = wig_tab_uri_origin(self->external_uri_page);
+    if (origin)
+      wig_permissions_manager_allow_external_scheme(manager, origin, g_uri_peek_scheme(uri));
+  }
+
+  wig_tab_launch_external_uri(self, uri);
   wig_tab_dismiss_external_uri_dialog(self);
 }
 
@@ -294,11 +316,25 @@ void wig_tab_ask_to_open_external_uri(WigTab *self, const char *uri)
     return;
   }
 
+  WigPermissionsManager *manager = wig_application_get_permissions_manager(wig_application_get());
+  const char *page_uri = webkit_web_view_get_uri(self->web_view);
+  gboolean can_remember = page_uri && wig_util_uri_is_potentially_trustworthy(page_uri);
+  g_autofree char *origin = can_remember ? wig_tab_uri_origin(page_uri) : NULL;
+  if (origin && wig_permissions_manager_get_external_scheme_allowed(manager, origin, g_uri_peek_scheme(uri))) {
+    if (g_get_monotonic_time() - self->last_external_launch < WIG_TAB_EXTERNAL_LAUNCH_INTERVAL_US) {
+      g_debug("tab %u: %s may open %s, but only once in a while", self->id, origin, uri);
+      return;
+    }
+
+    wig_tab_launch_external_uri(self, uri);
+    return;
+  }
+
   g_debug("tab %u: asking whether to open %s externally", self->id, uri);
 
-  self->external_uri_page = g_strdup(webkit_web_view_get_uri(self->web_view));
+  self->external_uri_page = g_strdup(page_uri);
   self->external_uri_dialog = wig_external_uri_dialog_show(GTK_OVERLAY(self->view_overlay), self->external_uri_page,
-                                                           uri, wig_tab_external_uri_response, self);
+                                                           uri, origin != NULL, wig_tab_external_uri_response, self);
   g_signal_connect_object(self->external_uri_dialog, "destroy", G_CALLBACK(wig_tab_external_uri_dialog_destroyed), self,
                           G_CONNECT_SWAPPED);
 }

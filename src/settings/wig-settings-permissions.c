@@ -96,8 +96,15 @@ struct _WigSettingsPermissions {
   PolicyRow https_navigation;
 #endif
   PolicyRow user_agent;
+  PolicyRow external_schemes;
   guint sync_idle_id;
 };
+
+typedef struct {
+  WigSettingsPermissions *pane; /* borrowed */
+  char *site;
+  char *scheme;
+} ExternalSchemeRule;
 
 G_DEFINE_FINAL_TYPE(WigSettingsPermissions, wig_settings_permissions, GTK_TYPE_WIDGET)
 
@@ -332,6 +339,7 @@ static void kind_row_sync(KindRow *kind_row)
 
 static void choice_row_sync(PolicyRow *policy);
 static void user_agent_row_sync(WigSettingsPermissions *self);
+static void external_schemes_row_sync(WigSettingsPermissions *self);
 
 static void wig_settings_permissions_sync(WigSettingsPermissions *self)
 {
@@ -343,6 +351,7 @@ static void wig_settings_permissions_sync(WigSettingsPermissions *self)
   choice_row_sync(&self->https_navigation);
 #endif
   user_agent_row_sync(self);
+  external_schemes_row_sync(self);
 }
 
 static gboolean wig_settings_permissions_sync_idle(gpointer user_data)
@@ -617,6 +626,74 @@ static void user_agent_row_sync(WigSettingsPermissions *self)
   section_finish_sync(self, policy->row, policy->status, policy->rules->len, summary);
 }
 
+static void external_scheme_rule_free(gpointer data, GClosure *closure)
+{
+  ExternalSchemeRule *rule = data;
+
+  g_free(rule->site);
+  g_free(rule->scheme);
+  g_free(rule);
+}
+
+static void external_scheme_rule_removed(GtkButton *button, ExternalSchemeRule *rule)
+{
+  wig_permissions_manager_forget_external_scheme(rule->pane->manager, rule->site, rule->scheme);
+}
+
+static GtkWidget *external_scheme_rule_row(WigSettingsPermissions *self, const char *site, const char *scheme)
+{
+  GtkWidget *row = adw_action_row_new();
+  adw_preferences_row_set_use_markup(ADW_PREFERENCES_ROW(row), FALSE);
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), site);
+  g_autofree char *subtitle = g_strdup_printf("“%s:” links", scheme);
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(row), subtitle);
+
+  ExternalSchemeRule *rule = g_new0(ExternalSchemeRule, 1);
+  rule->pane = self;
+  rule->site = g_strdup(site);
+  rule->scheme = g_strdup(scheme);
+
+  GtkWidget *remove = gtk_button_new_from_icon_name("user-trash-symbolic");
+  gtk_widget_set_tooltip_text(remove, "Ask Again");
+  gtk_widget_set_valign(remove, GTK_ALIGN_CENTER);
+  gtk_widget_add_css_class(remove, "flat");
+  g_signal_connect_data(remove, "clicked", G_CALLBACK(external_scheme_rule_removed), rule, external_scheme_rule_free,
+                        0);
+  adw_action_row_add_suffix(ADW_ACTION_ROW(row), remove);
+
+  return row;
+}
+
+static void external_schemes_row_sync(WigSettingsPermissions *self)
+{
+  PolicyRow *policy = &self->external_schemes;
+
+  for (guint i = 0; i < policy->rules->len; i++)
+    adw_expander_row_remove(policy->row, g_ptr_array_index(policy->rules, i));
+
+  g_ptr_array_set_size(policy->rules, 0);
+
+  GList *sites = wig_permissions_manager_list_external_scheme_sites(self->manager);
+  guint total = g_list_length(sites);
+
+  for (GList *l = sites; l; l = l->next) {
+    if (section_hides_site(self, l->data))
+      continue;
+
+    const char *const *schemes = wig_permissions_manager_get_external_schemes(self->manager, l->data);
+    for (guint i = 0; schemes && schemes[i]; i++) {
+      GtkWidget *row = external_scheme_rule_row(self, l->data, schemes[i]);
+      adw_expander_row_add_row(policy->row, row);
+      g_ptr_array_add(policy->rules, row);
+    }
+  }
+
+  g_list_free_full(sites, g_free);
+
+  g_autofree char *summary = policy_summary(total);
+  section_finish_sync(self, policy->row, policy->status, policy->rules->len, summary);
+}
+
 static void choice_add_clicked(GtkButton *button, PolicyRow *policy)
 {
   g_autofree char *site = permissions_site_for_text(gtk_editable_get_text(GTK_EDITABLE(policy->site_entry)));
@@ -687,6 +764,7 @@ static void wig_settings_permissions_search_changed(WigSettingsPermissions *self
     &self->https_navigation,
 #endif
     &self->user_agent,
+    &self->external_schemes,
   };
 
   if (!was_searching && self->filter) {
@@ -829,6 +907,18 @@ static void wig_settings_permissions_build_user_agent_row(WigSettingsPermissions
   policy_row_finish(policy);
 }
 
+static void wig_settings_permissions_build_external_schemes_row(WigSettingsPermissions *self,
+                                                                AdwPreferencesGroup *group)
+{
+  PolicyRow *policy = &self->external_schemes;
+
+  policy_row_build(policy, group, "Links to Other Apps", "adw-external-link-symbolic");
+  policy->pane = self;
+  gtk_widget_set_visible(policy->new_button, FALSE);
+
+  policy_row_finish(policy);
+}
+
 /* The sites under a permission are answers rather than settings, so only the
  * permissions themselves are worth finding from the settings search. */
 void wig_settings_permissions_index(WigSettingsSearch *search, const char *pane, const char *pane_title)
@@ -853,6 +943,7 @@ static void wig_settings_permissions_dispose(GObject *object)
   g_clear_pointer(&self->https_navigation.rules, g_ptr_array_unref);
 #endif
   g_clear_pointer(&self->user_agent.rules, g_ptr_array_unref);
+  g_clear_pointer(&self->external_schemes.rules, g_ptr_array_unref);
 
   G_OBJECT_CLASS(wig_settings_permissions_parent_class)->dispose(object);
 }
@@ -898,6 +989,7 @@ static void wig_settings_permissions_init(WigSettingsPermissions *self)
                                             (guint)WEBKIT_UPGRADE_TO_HTTPS_POLICY_ERROR_ON_FAILURE);
 #endif
   wig_settings_permissions_build_user_agent_row(self, policies);
+  wig_settings_permissions_build_external_schemes_row(self, policies);
 
   adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), policies);
 

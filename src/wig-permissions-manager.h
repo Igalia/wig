@@ -58,6 +58,13 @@ GList *wig_permissions_manager_list_https_navigation_sites(WigPermissionsManager
 const char *wig_permissions_manager_get_user_agent(WigPermissionsManager *self, const char *origin);
 void wig_permissions_manager_set_user_agent(WigPermissionsManager *self, const char *origin, const char *user_agent);
 GList *wig_permissions_manager_list_user_agent_sites(WigPermissionsManager *self);
+gboolean wig_permissions_manager_get_external_scheme_allowed(WigPermissionsManager *self, const char *origin,
+                                                             const char *scheme);
+const char *const *wig_permissions_manager_get_external_schemes(WigPermissionsManager *self, const char *origin);
+void wig_permissions_manager_allow_external_scheme(WigPermissionsManager *self, const char *origin, const char *scheme);
+void wig_permissions_manager_forget_external_scheme(WigPermissionsManager *self, const char *origin,
+                                                    const char *scheme);
+GList *wig_permissions_manager_list_external_scheme_sites(WigPermissionsManager *self);
 GList *wig_permissions_manager_list_origins(WigPermissionsManager *self, WigPermissionKind kind,
                                             WebKitPermissionState state);
 void wig_permissions_manager_save(WigPermissionsManager *self);

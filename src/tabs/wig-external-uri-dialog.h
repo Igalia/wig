@@ -29,12 +29,14 @@ G_BEGIN_DECLS
 typedef enum {
   WIG_EXTERNAL_URI_RESPONSE_CANCEL,
   WIG_EXTERNAL_URI_RESPONSE_OPEN,
+  WIG_EXTERNAL_URI_RESPONSE_OPEN_ALWAYS,
 } WigExternalUriResponse;
 
 typedef void (*WigExternalUriDialogResponseFunc)(WigExternalUriResponse response, const char *uri, gpointer user_data);
 
 GtkWidget *wig_external_uri_dialog_show(GtkOverlay *overlay, const char *page_uri, const char *uri,
-                                        WigExternalUriDialogResponseFunc on_response, gpointer user_data);
+                                        gboolean can_remember, WigExternalUriDialogResponseFunc on_response,
+                                        gpointer user_data);
 
 void wig_external_uri_dialog_dismiss(GtkOverlay *overlay, GtkWidget *dialog);
 

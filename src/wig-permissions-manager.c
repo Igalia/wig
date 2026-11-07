@@ -48,6 +48,7 @@ typedef struct {
   WebKitUpgradeToHTTPSPolicy https_navigation;
 #endif
   char *user_agent;
+  GStrv external_schemes;
   gint64 last_visited;
   gulong notify_id;
 } WigPermissionOrigin;
@@ -111,7 +112,7 @@ static gboolean permission_origin_has_policies(WigPermissionOrigin *record)
     return TRUE;
 #endif
 
-  return record->has_autoplay || record->user_agent != NULL;
+  return record->has_autoplay || record->user_agent != NULL || record->external_schemes != NULL;
 }
 
 static gboolean permission_origin_has_data(WigPermissionOrigin *record)
@@ -125,6 +126,7 @@ static void permission_origin_free(WigPermissionOrigin *record)
     g_signal_handler_disconnect(record->permissions, record->notify_id);
   g_clear_object(&record->permissions);
   g_free(record->user_agent);
+  g_strfreev(record->external_schemes);
   g_free(record->origin);
   g_free(record);
 }
@@ -388,6 +390,10 @@ gboolean wig_permissions_manager_load(WigPermissionsManager *self, GError **erro
     if (record->user_agent && !*record->user_agent)
       g_clear_pointer(&record->user_agent, g_free);
 
+    record->external_schemes = g_key_file_get_string_list(key_file, groups[i], "external-schemes", NULL, NULL);
+    if (record->external_schemes && !*record->external_schemes)
+      g_clear_pointer(&record->external_schemes, g_strfreev);
+
     if (!permission_origin_has_data(record)) {
       permission_origin_free(record);
       continue;
@@ -451,6 +457,9 @@ void wig_permissions_manager_save(WigPermissionsManager *self)
 #endif
     if (record->user_agent)
       g_key_file_set_string(key_file, group, "user-agent", record->user_agent);
+    if (record->external_schemes)
+      g_key_file_set_string_list(key_file, group, "external-schemes", (const char *const *)record->external_schemes,
+                                 g_strv_length(record->external_schemes));
 
     saved++;
   }
@@ -700,6 +709,72 @@ void wig_permissions_manager_set_user_agent(WigPermissionsManager *self, const c
 
   g_debug("permissions: user agent for %s is now '%s'", origin, user_agent ? user_agent : "(the usual one)");
   wig_permissions_manager_policy_changed(self, origin);
+}
+
+gboolean wig_permissions_manager_get_external_scheme_allowed(WigPermissionsManager *self, const char *origin,
+                                                             const char *scheme)
+{
+  WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
+  return record && record->external_schemes && g_strv_contains((const char *const *)record->external_schemes, scheme);
+}
+
+const char *const *wig_permissions_manager_get_external_schemes(WigPermissionsManager *self, const char *origin)
+{
+  WigPermissionOrigin *record = origin ? g_hash_table_lookup(self->origins, origin) : NULL;
+  return record ? (const char *const *)record->external_schemes : NULL;
+}
+
+void wig_permissions_manager_allow_external_scheme(WigPermissionsManager *self, const char *origin, const char *scheme)
+{
+  WigPermissionOrigin *record = permission_origin_ensure(self, origin);
+  if (record->external_schemes && g_strv_contains((const char *const *)record->external_schemes, scheme))
+    return;
+
+  g_autoptr(GStrvBuilder) builder = g_strv_builder_new();
+  for (guint i = 0; record->external_schemes && record->external_schemes[i]; i++)
+    g_strv_builder_add(builder, record->external_schemes[i]);
+  g_strv_builder_add(builder, scheme);
+  g_strfreev(record->external_schemes);
+  record->external_schemes = g_strv_builder_end(builder);
+
+  g_debug("permissions: %s may now open %s: links in other apps without asking", origin, scheme);
+  wig_permissions_manager_policy_changed(self, origin);
+}
+
+void wig_permissions_manager_forget_external_scheme(WigPermissionsManager *self, const char *origin, const char *scheme)
+{
+  WigPermissionOrigin *record = g_hash_table_lookup(self->origins, origin);
+  if (!record || !record->external_schemes || !g_strv_contains((const char *const *)record->external_schemes, scheme))
+    return;
+
+  g_autoptr(GStrvBuilder) builder = g_strv_builder_new();
+  for (guint i = 0; record->external_schemes[i]; i++) {
+    if (g_strcmp0(record->external_schemes[i], scheme) != 0)
+      g_strv_builder_add(builder, record->external_schemes[i]);
+  }
+  g_strfreev(record->external_schemes);
+  record->external_schemes = g_strv_builder_end(builder);
+  if (!*record->external_schemes)
+    g_clear_pointer(&record->external_schemes, g_strfreev);
+
+  g_debug("permissions: %s has to ask again before opening %s: links in other apps", origin, scheme);
+  wig_permissions_manager_policy_changed(self, origin);
+}
+
+GList *wig_permissions_manager_list_external_scheme_sites(WigPermissionsManager *self)
+{
+  GList *sites = NULL;
+
+  GHashTableIter iter;
+  gpointer value;
+  g_hash_table_iter_init(&iter, self->origins);
+  while (g_hash_table_iter_next(&iter, NULL, &value)) {
+    WigPermissionOrigin *record = value;
+    if (record->external_schemes)
+      sites = g_list_prepend(sites, g_strdup(record->origin));
+  }
+
+  return g_list_sort(sites, (GCompareFunc)g_strcmp0);
 }
 
 GList *wig_permissions_manager_list_autoplay_sites(WigPermissionsManager *self, WebKitAutoplayPolicy autoplay)

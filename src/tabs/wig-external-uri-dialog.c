@@ -28,6 +28,7 @@
 
 typedef struct {
   char *uri;
+  GtkWidget *remember; /* borrowed */
   WigExternalUriDialogResponseFunc on_response;
   gpointer user_data;
 } ExternalUriDialogData;
@@ -52,7 +53,10 @@ static void wig_external_uri_dialog_cancel_clicked(GtkButton *button, ExternalUr
 
 static void wig_external_uri_dialog_open_clicked(GtkButton *button, ExternalUriDialogData *data)
 {
-  data->on_response(WIG_EXTERNAL_URI_RESPONSE_OPEN, data->uri, data->user_data);
+  gboolean remember = data->remember && gtk_check_button_get_active(GTK_CHECK_BUTTON(data->remember));
+
+  data->on_response(remember ? WIG_EXTERNAL_URI_RESPONSE_OPEN_ALWAYS : WIG_EXTERNAL_URI_RESPONSE_OPEN, data->uri,
+                    data->user_data);
 }
 
 static gboolean wig_external_uri_dialog_enable_open(gpointer user_data)
@@ -83,7 +87,8 @@ static GtkWidget *external_uri_dialog_label(const char *text)
 }
 
 GtkWidget *wig_external_uri_dialog_show(GtkOverlay *overlay, const char *page_uri, const char *uri,
-                                        WigExternalUriDialogResponseFunc on_response, gpointer user_data)
+                                        gboolean can_remember, WigExternalUriDialogResponseFunc on_response,
+                                        gpointer user_data)
 {
   ExternalUriDialogData *data = g_new0(ExternalUriDialogData, 1);
   data->uri = g_strdup(uri);
@@ -111,6 +116,13 @@ GtkWidget *wig_external_uri_dialog_show(GtkOverlay *overlay, const char *page_ur
   gtk_widget_add_css_class(uri_label, "dim-label");
   gtk_widget_add_css_class(uri_label, "monospace");
   gtk_box_append(GTK_BOX(card), uri_label);
+
+  if (can_remember) {
+    g_autofree char *remember_text = g_strdup_printf("Always allow %s to open “%s:” links", host ? host : "this site",
+                                                     g_uri_peek_scheme(uri));
+    data->remember = gtk_check_button_new_with_label(remember_text);
+    gtk_box_append(GTK_BOX(card), data->remember);
+  }
 
   GtkWidget *button_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_widget_set_halign(button_row, GTK_ALIGN_END);
