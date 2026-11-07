@@ -1557,6 +1557,13 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
   }
 
   if (target != TARGET_THIS_WINDOW) {
+    const char *current_uri = webkit_web_view_get_uri(web_view);
+    if (!wig_util_page_can_open_uri(current_uri, request_uri)) {
+      g_debug("wig: rejecting new view for '%s' from '%s'", request_uri, current_uri ? current_uri : "(null)");
+      webkit_policy_decision_ignore(decision);
+      return TRUE;
+    }
+
     g_autoptr(WebKitWebView) new_view = wig_application_create_web_view(wig_application_get());
     if (target == TARGET_NEW_WINDOW) {
       WigWindow *new_win = wig_window_new(wig_application_get());

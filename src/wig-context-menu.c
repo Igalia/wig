@@ -29,6 +29,7 @@
 #define SELECTION_SNIPPET_MAX_CHARS 32
 
 typedef struct {
+  const char *page_uri;
   WebKitHitTestResult *hit_test_result;
   GActionGroup *popup_actions;
   GMenu *image_section;
@@ -113,13 +114,15 @@ static gboolean append_new_tab_items(const BuildContext *context, WebKitContextM
     return FALSE;
   }
 
-  if (g_action_group_has_action(context->popup_actions, "open-in-new-tab")) {
+  gboolean can_open = wig_util_page_can_open_uri(context->page_uri, uri);
+
+  if (can_open && g_action_group_has_action(context->popup_actions, "open-in-new-tab")) {
     g_autofree char *new_tab_label = g_strdup_printf("Open %s in New Tab", subject);
     g_autoptr(GMenuItem) new_tab_item = build_uri_item(new_tab_label, "popup.open-in-new-tab", uri);
     g_menu_append_item(section, new_tab_item);
   }
 
-  if (g_action_group_has_action(context->popup_actions, "open-in-background-tab")) {
+  if (can_open && g_action_group_has_action(context->popup_actions, "open-in-background-tab")) {
     g_autofree char *background_label = g_strdup_printf("Open %s in Background Tab", subject);
     g_autoptr(GMenuItem) background_item = build_uri_item(background_label, "popup.open-in-background-tab", uri);
     g_menu_append_item(section, background_item);
@@ -282,9 +285,10 @@ static GMenu *build_items(GList *items, GSimpleActionGroup *action_group, BuildC
 }
 
 GMenu *wig_context_menu_build(WebKitContextMenu *context_menu, GSimpleActionGroup *action_group,
-                              GActionGroup *popup_actions, WebKitHitTestResult *hit_test_result, GMenu **search_section)
+                              GActionGroup *popup_actions, const char *page_uri, WebKitHitTestResult *hit_test_result,
+                              GMenu **search_section)
 {
-  BuildContext context = { .hit_test_result = hit_test_result, .popup_actions = popup_actions };
+  BuildContext context = { .page_uri = page_uri, .hit_test_result = hit_test_result, .popup_actions = popup_actions };
   g_autoptr(GMenu) menu = build_items(webkit_context_menu_get_items(context_menu), action_group, &context);
   flush_pending_items(&context, menu);
 

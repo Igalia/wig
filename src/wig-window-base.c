@@ -1364,7 +1364,7 @@ gboolean wig_window_base_show_context_menu(WigWindowBase *self, WebKitContextMen
   g_autoptr(GSimpleActionGroup) action_group = g_simple_action_group_new();
   g_autoptr(GMenu) search_section = NULL;
   g_autoptr(GMenu) menu = wig_context_menu_build(context_menu, action_group, G_ACTION_GROUP(priv->context_menu_actions),
-                                                 hit_test_result, &search_section);
+                                                 webkit_web_view_get_uri(web_view), hit_test_result, &search_section);
 
   GdkRectangle target = { 0, 0, 1, 1 };
   gboolean has_position = webkit_context_menu_get_position(context_menu, &target.x, &target.y);

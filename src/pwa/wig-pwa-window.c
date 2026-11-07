@@ -117,6 +117,10 @@ static void open_external_uri(WigPwaWindow *self, const char *uri)
     wig_application_open_uri_in_browser(wig_application_get(), uri);
     return;
   }
+  if (!scheme || g_strcmp0(scheme, "file") == 0 || g_strcmp0(scheme, "wig") == 0) {
+    g_warning("pwa: refusing to open '%s' externally", uri);
+    return;
+  }
   g_app_info_launch_default_for_uri_async(uri, NULL, NULL, external_uri_opened, NULL);
 }
 

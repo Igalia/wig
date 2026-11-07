@@ -137,6 +137,19 @@ char *wig_util_search_uri(const char *terms, const char *search_engine)
   }
   return g_string_free(g_steal_pointer(&search_string), FALSE);
 }
+
+gboolean wig_util_page_can_open_uri(const char *page_uri, const char *uri)
+{
+  const char *scheme = uri ? g_uri_peek_scheme(uri) : NULL;
+  if (g_strcmp0(scheme, "data") == 0)
+    return FALSE;
+  if (g_strcmp0(scheme, "file") == 0 || g_strcmp0(scheme, "wig") == 0) {
+    const char *page_scheme = page_uri ? g_uri_peek_scheme(page_uri) : NULL;
+    return g_strcmp0(page_scheme, scheme) == 0;
+  }
+  return TRUE;
+}
+
 // FIXME: We should have a real name along with the URL for the search engine setting.
 char *wig_util_search_engine_name(const char *search_engine)
 {

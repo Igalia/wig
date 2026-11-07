@@ -25,7 +25,7 @@
 #include <wpe/webkit.h>
 
 GMenu *wig_context_menu_build(WebKitContextMenu *context_menu, GSimpleActionGroup *action_group,
-                              GActionGroup *popup_actions, WebKitHitTestResult *hit_test_result,
+                              GActionGroup *popup_actions, const char *page_uri, WebKitHitTestResult *hit_test_result,
                               GMenu **search_section);
 
 void wig_context_menu_add_search_item(GMenu *search_section, const char *selected_text, const char *search_engine);
