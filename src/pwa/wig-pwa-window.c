@@ -98,30 +98,22 @@ static void wig_pwa_window_pwa_manager_changed(WigPwaWindow *self, const char *i
   wig_pwa_window_update_scope_chrome(self);
 }
 
-static void external_uri_opened(GObject *source, GAsyncResult *result, gpointer user_data)
-{
-  g_autoptr(GError) error = NULL;
-  if (!g_app_info_launch_default_for_uri_finish(result, &error)) {
-    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED)
-        || g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
-      g_debug("pwa: no handler for external URI: %s", error->message);
-    else
-      g_warning("pwa: failed to open external URI: %s", error->message);
-  }
-}
-
 static void open_external_uri(WigPwaWindow *self, const char *uri)
 {
+  static const char *const denied_schemes[] = {
+    "about", "blob", "data", "file", "javascript", "view-source", "wig", NULL,
+  };
+
   const char *scheme = g_uri_peek_scheme(uri);
   if (g_strcmp0(scheme, "https") == 0 || g_strcmp0(scheme, "http") == 0) {
     wig_application_open_uri_in_browser(wig_application_get(), uri);
     return;
   }
-  if (!scheme || g_strcmp0(scheme, "file") == 0 || g_strcmp0(scheme, "wig") == 0) {
-    g_warning("pwa: refusing to open '%s' externally", uri);
+  if (!scheme || g_strv_contains(denied_schemes, scheme)) {
+    g_debug("pwa: refusing to open '%s' externally", uri);
     return;
   }
-  g_app_info_launch_default_for_uri_async(uri, NULL, NULL, external_uri_opened, NULL);
+  wig_tab_ask_to_open_external_uri(self->tab, uri);
 }
 
 static gboolean wig_pwa_window_decide_policy(WigPwaWindow *self, WebKitPolicyDecision *decision,

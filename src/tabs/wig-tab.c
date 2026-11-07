@@ -26,6 +26,7 @@
 #include "wig-blank-page.h"
 #include "wig-crash-page.h"
 #include "wig-error-page.h"
+#include "wig-external-uri-dialog.h"
 #include "wig-favicon.h"
 #include "wig-mcp-server.h"
 #include "wig-new-tab-page.h"
@@ -51,6 +52,8 @@ struct _WigTab {
   GtkWidget *unresponsive_dialog;
   guint unresponsive_timeout_id;
   gboolean unresponsive;
+  GtkWidget *external_uri_dialog;
+  char *external_uri_page;
   GtkWidget *status_label;
   GIcon *icon;
   char *title;
@@ -233,6 +236,71 @@ static void wig_tab_dismiss_unresponsive_dialog(WigTab *self)
     return;
 
   wig_unresponsive_dialog_dismiss(GTK_OVERLAY(self->view_overlay), dialog);
+}
+
+static void wig_tab_external_uri_dialog_destroyed(WigTab *self, GtkWidget *dialog)
+{
+  if (self->external_uri_dialog != dialog)
+    return;
+
+  self->external_uri_dialog = NULL;
+  g_clear_pointer(&self->external_uri_page, g_free);
+}
+
+static void wig_tab_dismiss_external_uri_dialog(WigTab *self)
+{
+  GtkWidget *dialog = g_steal_pointer(&self->external_uri_dialog);
+  if (!dialog)
+    return;
+
+  g_clear_pointer(&self->external_uri_page, g_free);
+  wig_external_uri_dialog_dismiss(GTK_OVERLAY(self->view_overlay), dialog);
+}
+
+static void wig_tab_external_uri_launched(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  g_autoptr(GError) error = NULL;
+  if (!g_app_info_launch_default_for_uri_finish(result, &error)) {
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED)
+        || g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
+      g_debug("tab: no handler for external URI: %s", error->message);
+    else
+      g_warning("tab: failed to open external URI: %s", error->message);
+  }
+}
+
+static void wig_tab_external_uri_response(WigExternalUriResponse response, const char *uri, gpointer user_data)
+{
+  WigTab *self = user_data;
+
+  if (response != WIG_EXTERNAL_URI_RESPONSE_OPEN) {
+    g_debug("tab %u: not opening %s externally", self->id, uri);
+    wig_tab_dismiss_external_uri_dialog(self);
+    return;
+  }
+
+  g_debug("tab %u: opening %s externally", self->id, uri);
+  g_autoptr(GdkAppLaunchContext) context = gdk_display_get_app_launch_context(
+      gtk_widget_get_display(self->view_overlay));
+  g_app_info_launch_default_for_uri_async(uri, G_APP_LAUNCH_CONTEXT(context), NULL, wig_tab_external_uri_launched,
+                                          NULL);
+  wig_tab_dismiss_external_uri_dialog(self);
+}
+
+void wig_tab_ask_to_open_external_uri(WigTab *self, const char *uri)
+{
+  if (!self->web_view || self->external_uri_dialog) {
+    g_debug("tab %u: already asking about an external URI, dropping %s", self->id, uri);
+    return;
+  }
+
+  g_debug("tab %u: asking whether to open %s externally", self->id, uri);
+
+  self->external_uri_page = g_strdup(webkit_web_view_get_uri(self->web_view));
+  self->external_uri_dialog = wig_external_uri_dialog_show(GTK_OVERLAY(self->view_overlay), self->external_uri_page,
+                                                           uri, wig_tab_external_uri_response, self);
+  g_signal_connect_object(self->external_uri_dialog, "destroy", G_CALLBACK(wig_tab_external_uri_dialog_destroyed), self,
+                          G_CONNECT_SWAPPED);
 }
 
 static void wig_tab_terminate_web_process(WigTab *self)
@@ -437,6 +505,7 @@ static void wig_tab_on_web_process_terminated(WigTab *self, WebKitWebProcessTerm
   /* The dead process cannot report itself responsive again. */
   wig_tab_set_unresponsive(self, FALSE);
   wig_tab_dismiss_unresponsive_dialog(self);
+  wig_tab_dismiss_external_uri_dialog(self);
 
   GtkWidget *page = wig_crash_page_new(self->web_view, reason, self->id);
   g_signal_connect_object(page, "reload", G_CALLBACK(wig_tab_error_page_reload), self, G_CONNECT_SWAPPED);
@@ -546,6 +615,8 @@ static void wig_tab_dispose(GObject *object)
   g_clear_object(&self->icon);
   g_clear_handle_id(&self->unresponsive_timeout_id, g_source_remove);
   g_clear_pointer(&self->option_menu, gtk_widget_unparent);
+  if (self->view_overlay)
+    wig_tab_dismiss_external_uri_dialog(self);
   if (self->web_view)
     g_signal_handlers_disconnect_by_data(self->web_view, self);
   g_clear_object(&self->web_view);
@@ -559,6 +630,7 @@ static void wig_tab_finalize(GObject *object)
   WigTab *self = WIG_TAB(object);
   g_free(self->title);
   g_free(self->uri);
+  g_free(self->external_uri_page);
   g_clear_pointer(&self->session_state, webkit_web_view_session_state_unref);
   G_OBJECT_CLASS(wig_tab_parent_class)->finalize(object);
 }
@@ -658,6 +730,7 @@ static void wig_tab_show_native_page(WigTab *self, GtkWidget *page)
 {
   /* One page at a time: a page left in the overlay would stay on screen. */
   wig_tab_clear_native_page(self);
+  wig_tab_dismiss_external_uri_dialog(self);
 
   self->native_page = page;
 
@@ -837,6 +910,9 @@ static void wig_tab_on_load_changed(WigTab *self, WebKitLoadEvent load_event)
   self->has_committed = TRUE;
 
   const char *uri = webkit_web_view_get_uri(self->web_view);
+
+  if (self->external_uri_dialog && !wig_util_uris_are_same_site(self->external_uri_page, uri))
+    wig_tab_dismiss_external_uri_dialog(self);
 
   if (wig_tab_show_internal_page(self, uri)) {
     self->page_is_early = FALSE;
@@ -1173,6 +1249,7 @@ void wig_tab_discard(WigTab *self)
    * being thrown away. */
   wig_tab_clear_native_page(self);
   wig_tab_dismiss_unresponsive_dialog(self);
+  wig_tab_dismiss_external_uri_dialog(self);
   self->unresponsive = FALSE;
   g_clear_handle_id(&self->unresponsive_timeout_id, g_source_remove);
 

@@ -172,6 +172,25 @@ gboolean wig_util_page_can_open_uri(const char *page_uri, const char *uri)
   return TRUE;
 }
 
+gboolean wig_util_uris_are_same_site(const char *a, const char *b)
+{
+  g_autoptr(GUri) uri_a = a ? g_uri_parse(a, G_URI_FLAGS_NONE, NULL) : NULL;
+  g_autoptr(GUri) uri_b = b ? g_uri_parse(b, G_URI_FLAGS_NONE, NULL) : NULL;
+  const char *host_a = uri_a ? g_uri_get_host(uri_a) : NULL;
+  const char *host_b = uri_b ? g_uri_get_host(uri_b) : NULL;
+  if (!host_a || !*host_a || !host_b || !*host_b)
+    return FALSE;
+  if (g_strcmp0(host_a, host_b) == 0)
+    return TRUE;
+  if (g_hostname_is_ip_address(host_a) || g_hostname_is_ip_address(host_b))
+    return FALSE;
+
+  psl_ctx_t *psl = get_psl_context();
+  const char *domain_a = psl_registrable_domain(psl, host_a);
+  const char *domain_b = psl_registrable_domain(psl, host_b);
+  return domain_a && g_strcmp0(domain_a, domain_b) == 0;
+}
+
 // FIXME: We should have a real name along with the URL for the search engine setting.
 char *wig_util_search_engine_name(const char *search_engine)
 {

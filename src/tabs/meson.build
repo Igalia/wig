@@ -3,6 +3,7 @@ wig_tab_sources = files(
     'wig-blank-page.c',
     'wig-crash-page.c',
     'wig-error-page.c',
+    'wig-external-uri-dialog.c',
     'wig-modal-dialog.c',
     'wig-native-page.c',
     'wig-new-tab-page.c',

@@ -83,5 +83,6 @@ void wig_tab_set_search_active(WigTab *self, gboolean search_active);
 guint wig_tab_get_search_match_count(WigTab *self);
 void wig_tab_set_search_match_count(WigTab *self, guint match_count);
 void wig_tab_set_hovered_link(WigTab *self, const char *uri, const char *page_origin);
+void wig_tab_ask_to_open_external_uri(WigTab *self, const char *uri);
 
 G_END_DECLS
