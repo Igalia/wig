@@ -36,8 +36,8 @@ modules:
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
-      - -DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG
-      - -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG
+      - -DCMAKE_C_FLAGS_RELWITHDEBINFO=-O3 -g1 -DNDEBUG
+      - -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O3 -g1 -DNDEBUG
       - -DCMAKE_C_COMPILER=clang
       - -DCMAKE_CXX_COMPILER=clang++
       - -DCMAKE_LINKER_TYPE=LLD
