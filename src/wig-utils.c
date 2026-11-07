@@ -172,6 +172,20 @@ gboolean wig_util_page_can_open_uri(const char *page_uri, const char *uri)
   return TRUE;
 }
 
+gboolean wig_util_scheme_loads_in_browser(const char *scheme)
+{
+  static const char *const browser_schemes[] = {
+    "about", "blob", "data", "file", "http", "https", "javascript", "webkit", "wig", NULL,
+  };
+
+  return scheme && g_strv_contains(browser_schemes, scheme);
+}
+
+gboolean wig_util_scheme_opens_in_another_app(const char *scheme)
+{
+  return scheme && !wig_util_scheme_loads_in_browser(scheme) && g_strcmp0(scheme, "view-source") != 0;
+}
+
 gboolean wig_util_uris_are_same_site(const char *a, const char *b)
 {
   g_autoptr(GUri) uri_a = a ? g_uri_parse(a, G_URI_FLAGS_NONE, NULL) : NULL;

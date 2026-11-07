@@ -40,6 +40,8 @@ char *wig_util_complete_uri(const char *url, const char *search_engine);
 char *wig_util_search_uri(const char *terms, const char *search_engine);
 char *wig_util_search_engine_name(const char *search_engine);
 gboolean wig_util_page_can_open_uri(const char *page_uri, const char *uri);
+gboolean wig_util_scheme_loads_in_browser(const char *scheme);
+gboolean wig_util_scheme_opens_in_another_app(const char *scheme);
 gboolean wig_util_uris_are_same_site(const char *a, const char *b);
 #if HAVE_FAVICON_SUPPORT
 GIcon *wig_util_best_page_icon(WebKitImageList *icons, int min_size);

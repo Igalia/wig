@@ -25,6 +25,7 @@
 #include "wig-application.h"
 #include "wig-downloads-button.h"
 #include "wig-tab.h"
+#include "wig-utils.h"
 #include "wpe-display-gtk.h"
 #include "wpe-toplevel-gtk.h"
 
@@ -100,16 +101,12 @@ static void wig_pwa_window_pwa_manager_changed(WigPwaWindow *self, const char *i
 
 static void open_external_uri(WigPwaWindow *self, const char *uri)
 {
-  static const char *const denied_schemes[] = {
-    "about", "blob", "data", "file", "javascript", "view-source", "wig", NULL,
-  };
-
   const char *scheme = g_uri_peek_scheme(uri);
   if (g_strcmp0(scheme, "https") == 0 || g_strcmp0(scheme, "http") == 0) {
     wig_application_open_uri_in_browser(wig_application_get(), uri);
     return;
   }
-  if (!scheme || g_strv_contains(denied_schemes, scheme)) {
+  if (!wig_util_scheme_opens_in_another_app(scheme)) {
     g_debug("pwa: refusing to open '%s' externally", uri);
     return;
   }

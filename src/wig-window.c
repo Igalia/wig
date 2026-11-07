@@ -1412,6 +1412,24 @@ static void wig_window_click_pressed(GtkGestureClick *gesture, int n_press, doub
   gtk_popover_popdown(GTK_POPOVER(win->entry_completion_popover));
 }
 
+static void wig_window_ask_to_open_in_another_app(WigWindow *win, WebKitWebView *web_view,
+                                                  WebKitNavigationAction *action)
+{
+  const char *uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(action));
+  if (!wig_util_scheme_opens_in_another_app(g_uri_peek_scheme(uri))) {
+    g_debug("wig: refusing to open '%s' in another app", uri);
+    return;
+  }
+  if (!webkit_navigation_action_is_user_gesture(action)) {
+    g_debug("wig: blocked '%s' for another app without user gesture", uri);
+    return;
+  }
+
+  g_autoptr(WigTab) tab = wig_window_get_tab_for_web_view(win, web_view);
+  if (tab)
+    wig_tab_ask_to_open_external_uri(tab, uri);
+}
+
 static gboolean wig_window_open_link_in_pwa(WigWindow *win, WebKitNavigationAction *action)
 {
   if (webkit_navigation_action_get_navigation_type(action) != WEBKIT_NAVIGATION_TYPE_LINK_CLICKED
@@ -1515,6 +1533,12 @@ static gboolean wig_window_decide_policy(WigWindow *win, WebKitPolicyDecision *d
       webkit_policy_decision_ignore(decision);
       return TRUE;
     }
+  }
+
+  if (target_scheme && !wig_util_scheme_loads_in_browser(target_scheme)) {
+    webkit_policy_decision_ignore(decision);
+    wig_window_ask_to_open_in_another_app(win, web_view, action);
+    return TRUE;
   }
 
   /* Ctrl + primary-clicking and middle-clicking a link opens it in a
@@ -1721,6 +1745,11 @@ static WebKitWebView *wig_window_web_view_create(WigWindow *win, WebKitNavigatio
 
   const char *target_uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(navigation));
   const char *target_scheme = g_uri_peek_scheme(target_uri);
+  if (target_scheme && !wig_util_scheme_loads_in_browser(target_scheme)) {
+    wig_window_ask_to_open_in_another_app(win, opener, navigation);
+    return NULL;
+  }
+
   if (g_strcmp0(target_scheme, "wig") == 0) {
     const char *current_uri = webkit_web_view_get_uri(opener);
     const char *current_scheme = current_uri ? g_uri_peek_scheme(current_uri) : NULL;
