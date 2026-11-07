@@ -23,6 +23,7 @@
 #include "wig-pwa-protocol-handlers.h"
 
 #include "wig-pwa-util.h"
+#include "wig-utils.h"
 
 #include <gio/gio.h>
 #include <wpe/webkit.h>
@@ -159,29 +160,6 @@ static char *normalize_handler_url_path(const char *url)
   return g_string_free(g_steal_pointer(&result), FALSE);
 }
 
-static gboolean uri_is_potentially_trustworthy(const char *url)
-{
-  g_autoptr(WebKitSecurityOrigin) security_origin = webkit_security_origin_new_for_uri(url);
-  g_autofree char *origin = webkit_security_origin_to_string(security_origin);
-  g_autoptr(GError) error = NULL;
-  g_autoptr(GUri) uri = g_uri_parse(origin, G_URI_FLAGS_PARSE_RELAXED | G_URI_FLAGS_SCHEME_NORMALIZE, &error);
-  if (!uri)
-    return FALSE;
-
-  const char *scheme = g_uri_get_scheme(uri);
-  if (g_strcmp0(scheme, "https") == 0)
-    return TRUE;
-  if (g_strcmp0(scheme, "http") != 0)
-    return FALSE;
-
-  const char *host = g_uri_get_host(uri);
-  g_autofree char *lower_host = g_ascii_strdown(host, -1);
-  if (g_str_equal(lower_host, "localhost") || g_str_has_suffix(lower_host, ".localhost"))
-    return TRUE;
-  g_autoptr(GInetAddress) address = g_inet_address_new_from_string(host);
-  return address && g_inet_address_get_is_loopback(address);
-}
-
 static char *handler_protocol(GVariant *handler)
 {
   const char *protocol = wig_pwa_variant_lookup_string(handler, "protocol");
@@ -210,7 +188,7 @@ static char *resolve_handler_template(GVariant *handler, const char *manifest_ur
   g_autoptr(GUri) uri = g_uri_parse(resolved, G_URI_FLAGS_PARSE_RELAXED | G_URI_FLAGS_SCHEME_NORMALIZE, &error);
   const char *scheme = uri ? g_uri_get_scheme(uri) : NULL;
   if (!scheme || (g_strcmp0(scheme, "https") != 0 && g_strcmp0(scheme, "http") != 0) || !g_uri_get_host(uri)
-      || strstr(g_uri_get_host(uri), placeholder) || !uri_is_potentially_trustworthy(resolved)
+      || strstr(g_uri_get_host(uri), placeholder) || !wig_util_uri_is_potentially_trustworthy(resolved)
       || wig_pwa_navigation_policy_match(navigation_policy, resolved) != WIG_PWA_SCOPE_MATCH_PRIMARY)
     return NULL;
 

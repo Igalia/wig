@@ -30,11 +30,13 @@ test('pwa-launch-handler', pwa_launch_handler_test)
 pwa_protocol_handlers_test = executable(
     'test-pwa-protocol-handlers',
     sources: files(
+        '../wig-utils.c',
         'test-pwa-protocol-handlers.c',
         'wig-pwa-navigation-policy.c',
         'wig-pwa-protocol-handlers.c',
     ),
-    dependencies: [wpe_webkit_dep, json_glib_dep],
+    include_directories: include_directories('..'),
+    dependencies: [wpe_webkit_dep, json_glib_dep, adw_dep, libpsl_dep],
 )
 test('pwa-protocol-handlers', pwa_protocol_handlers_test)
 

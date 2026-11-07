@@ -172,6 +172,29 @@ gboolean wig_util_page_can_open_uri(const char *page_uri, const char *uri)
   return TRUE;
 }
 
+gboolean wig_util_uri_is_potentially_trustworthy(const char *url)
+{
+  g_autoptr(WebKitSecurityOrigin) security_origin = webkit_security_origin_new_for_uri(url);
+  g_autofree char *origin = webkit_security_origin_to_string(security_origin);
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GUri) uri = g_uri_parse(origin, G_URI_FLAGS_PARSE_RELAXED | G_URI_FLAGS_SCHEME_NORMALIZE, &error);
+  if (!uri)
+    return FALSE;
+
+  const char *scheme = g_uri_get_scheme(uri);
+  if (g_strcmp0(scheme, "https") == 0)
+    return TRUE;
+  if (g_strcmp0(scheme, "http") != 0)
+    return FALSE;
+
+  const char *host = g_uri_get_host(uri);
+  g_autofree char *lower_host = g_ascii_strdown(host, -1);
+  if (g_str_equal(lower_host, "localhost") || g_str_has_suffix(lower_host, ".localhost"))
+    return TRUE;
+  g_autoptr(GInetAddress) address = g_inet_address_new_from_string(host);
+  return address && g_inet_address_get_is_loopback(address);
+}
+
 gboolean wig_util_scheme_loads_in_browser(const char *scheme)
 {
   static const char *const browser_schemes[] = {
