@@ -2124,6 +2124,7 @@ static void wig_window_constructed(GObject *object)
   gtk_widget_add_css_class(entry_box, "linked");
   gtk_box_append(GTK_BOX(entry_box), wig_window_base_get_permissions_button(WIG_WINDOW_BASE(win)));
   gtk_box_append(GTK_BOX(entry_box), win->url_entry);
+  gtk_box_append(GTK_BOX(entry_box), wig_window_base_get_zoom_button(WIG_WINDOW_BASE(win)));
 #if HAVE_APPLICATION_MANIFEST_SUPPORT
   win->pwa_button = gtk_button_new_from_icon_name("system-software-install-symbolic");
   gtk_widget_add_css_class(win->pwa_button, "flat");

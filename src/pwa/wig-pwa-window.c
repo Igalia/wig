@@ -449,6 +449,7 @@ static void wig_pwa_window_init(WigPwaWindow *self)
                           wig_window_base_get_downloads_button(WIG_WINDOW_BASE(self)));
   gtk_header_bar_pack_end(GTK_HEADER_BAR(self->header_bar),
                           wig_window_base_get_permissions_button(WIG_WINDOW_BASE(self)));
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(self->header_bar), wig_window_base_get_zoom_button(WIG_WINDOW_BASE(self)));
   gtk_window_set_titlebar(GTK_WINDOW(self), self->header_bar);
 }
 

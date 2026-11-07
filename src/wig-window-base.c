@@ -29,7 +29,10 @@
 #include "wig-favicon.h"
 #include "wig-permissions-popover.h"
 #include "wig-search-bar.h"
+#include "wig-zoom-popover.h"
 #include "wpe-view-gtk.h"
+
+#include <math.h>
 
 typedef struct {
   guint id;
@@ -45,6 +48,7 @@ typedef struct {
   GtkWidget *downloads_button;
   GtkWidget *permissions_popover;
   GtkWidget *permission_request_popover;
+  GtkWidget *zoom_button;
   GtkWidget *emoji_chooser;
   GtkWidget *search_bar;
   WigTab *active_tab;
@@ -209,6 +213,50 @@ static void update_permissions(WigWindowBase *self)
   if (priv->active_origin)
     permissions = wig_permissions_manager_lookup(priv->permissions_manager, priv->active_origin);
   wig_permissions_popover_set_permissions(WIG_PERMISSIONS_POPOVER(priv->permissions_popover), permissions);
+}
+
+static int zoom_percent(WebKitWebView *web_view)
+{
+  return web_view ? (int)round(webkit_web_view_get_zoom_level(web_view) * 100) : 100;
+}
+
+static void update_zoom_button_visibility(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  gtk_widget_set_visible(priv->zoom_button,
+                         zoom_percent(priv->active_web_view) != 100
+                             || gtk_menu_button_get_active(GTK_MENU_BUTTON(priv->zoom_button)));
+}
+
+static void update_zoom_button(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  GtkMenuButton *button = GTK_MENU_BUTTON(priv->zoom_button);
+  GtkWidget *popover = GTK_WIDGET(gtk_menu_button_get_popover(button));
+  int percent = zoom_percent(priv->active_web_view);
+
+  g_autofree char *label = g_strdup_printf("%d%%", percent);
+  gtk_label_set_label(GTK_LABEL(gtk_menu_button_get_child(button)), label);
+  wig_zoom_popover_set_percent(WIG_ZOOM_POPOVER(popover), percent);
+  gtk_widget_set_sensitive(popover, priv->active_web_view != NULL);
+  update_zoom_button_visibility(self);
+}
+
+static void zoom_percent_selected(WigWindowBase *self, int percent, WigZoomPopover *popover)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  if (priv->active_web_view)
+    webkit_web_view_set_zoom_level(priv->active_web_view, percent / 100.0);
+}
+
+static void active_zoom_level_changed(WigWindowBase *self, GParamSpec *pspec, WebKitWebView *web_view)
+{
+  update_zoom_button(self);
+}
+
+static void zoom_button_active_changed(WigWindowBase *self, GParamSpec *pspec, GtkMenuButton *button)
+{
+  update_zoom_button_visibility(self);
 }
 
 static void active_uri_changed(WigWindowBase *self, GParamSpec *pspec, WebKitWebView *web_view)
@@ -440,18 +488,24 @@ static void wig_window_base_toggle_fullscreen(GSimpleAction *action, GVariant *p
     gtk_window_fullscreen(window);
 }
 
+static void step_zoom(WigWindowBase *self, int delta)
+{
+  WebKitWebView *web_view = get_active_web_view(self);
+  if (!web_view)
+    return;
+
+  int percent = CLAMP(zoom_percent(web_view) + delta, WIG_ZOOM_MIN_PERCENT, WIG_ZOOM_MAX_PERCENT);
+  webkit_web_view_set_zoom_level(web_view, percent / 100.0);
+}
+
 static void wig_window_base_zoom_in(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
-  if (web_view)
-    webkit_web_view_set_zoom_level(web_view, webkit_web_view_get_zoom_level(web_view) + 0.1);
+  step_zoom(WIG_WINDOW_BASE(user_data), WIG_ZOOM_STEP_PERCENT);
 }
 
 static void wig_window_base_zoom_out(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-  WebKitWebView *web_view = get_active_web_view(WIG_WINDOW_BASE(user_data));
-  if (web_view)
-    webkit_web_view_set_zoom_level(web_view, webkit_web_view_get_zoom_level(web_view) - 0.1);
+  step_zoom(WIG_WINDOW_BASE(user_data), -WIG_ZOOM_STEP_PERCENT);
 }
 
 static void wig_window_base_zoom_reset(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -1013,6 +1067,15 @@ static void wig_window_base_init(WigWindowBase *self)
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(priv->permissions_button), "sliders-horizontal-symbolic");
   gtk_menu_button_set_popover(GTK_MENU_BUTTON(priv->permissions_button), priv->permissions_popover);
 
+  GtkWidget *zoom_popover = wig_zoom_popover_new();
+  g_signal_connect_object(zoom_popover, "percent-selected", G_CALLBACK(zoom_percent_selected), self, G_CONNECT_SWAPPED);
+  priv->zoom_button = gtk_menu_button_new();
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(priv->zoom_button), gtk_label_new(NULL));
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(priv->zoom_button), zoom_popover);
+  gtk_widget_set_tooltip_text(priv->zoom_button, "Zoom");
+  gtk_widget_set_focusable(priv->zoom_button, FALSE);
+  g_signal_connect_swapped(priv->zoom_button, "notify::active", G_CALLBACK(zoom_button_active_changed), self);
+
   priv->downloads_button = wig_downloads_button_new();
 
   priv->search_bar = g_object_ref_sink(wig_search_bar_new());
@@ -1030,8 +1093,11 @@ static void wig_window_base_init(WigWindowBase *self)
                            G_CALLBACK(permission_request_prompting_changed), self);
   g_signal_connect_swapped(priv->permission_request_popover, "closed", G_CALLBACK(permission_request_closed), self);
   update_permissions_button_visibility(self);
+  update_zoom_button(self);
 
   priv->active_web_view_signals = g_signal_group_new(WEBKIT_TYPE_WEB_VIEW);
+  g_signal_group_connect_swapped(priv->active_web_view_signals, "notify::zoom-level",
+                                 G_CALLBACK(active_zoom_level_changed), self);
   g_signal_group_connect_swapped(priv->active_web_view_signals, "enter-fullscreen",
                                  G_CALLBACK(wig_window_base_on_enter_fullscreen), self);
   g_signal_group_connect_swapped(priv->active_web_view_signals, "leave-fullscreen",
@@ -1137,6 +1203,7 @@ void wig_window_base_set_active_web_view(WigWindowBase *self, WebKitWebView *web
   g_set_object(&priv->active_web_view, web_view);
   wig_window_base_update_navigation_actions(self);
   update_permissions(self);
+  update_zoom_button(self);
 }
 
 WebKitWebView *wig_window_base_get_active_web_view(WigWindowBase *self)
@@ -1184,6 +1251,12 @@ GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self)
 {
   WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
   return priv->permissions_button;
+}
+
+GtkWidget *wig_window_base_get_zoom_button(WigWindowBase *self)
+{
+  WigWindowBasePrivate *priv = wig_window_base_get_instance_private(self);
+  return priv->zoom_button;
 }
 
 GtkWidget *wig_window_base_get_downloads_button(WigWindowBase *self)

@@ -53,6 +53,7 @@ GtkWidget *wig_window_base_get_search_bar(WigWindowBase *self);
 gboolean wig_window_base_get_loading(WigWindowBase *self);
 void wig_window_base_set_loading(WigWindowBase *self, gboolean loading);
 GtkWidget *wig_window_base_get_permissions_button(WigWindowBase *self);
+GtkWidget *wig_window_base_get_zoom_button(WigWindowBase *self);
 GtkWidget *wig_window_base_get_downloads_button(WigWindowBase *self);
 const char *wig_window_base_get_active_origin(WigWindowBase *self);
 #if HAVE_APPLICATION_MANIFEST_SUPPORT
