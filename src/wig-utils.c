@@ -138,11 +138,33 @@ char *wig_util_search_uri(const char *terms, const char *search_engine)
   return g_string_free(g_steal_pointer(&search_string), FALSE);
 }
 
+static gboolean data_uri_is_raster_image(const char *uri)
+{
+  static const char *const raster_types[] = {
+    "image/apng", "image/avif", "image/bmp",    "image/gif",  "image/jpeg",
+    "image/jxl",  "image/png",  "image/x-icon", "image/webp", NULL,
+  };
+
+  const char *media_type = strchr(uri, ':') + 1;
+  while (g_ascii_isspace(*media_type))
+    media_type++;
+
+  gsize length = strcspn(media_type, ";,");
+  while (length > 0 && g_ascii_isspace(media_type[length - 1]))
+    length--;
+
+  for (guint i = 0; raster_types[i]; i++) {
+    if (strlen(raster_types[i]) == length && g_ascii_strncasecmp(media_type, raster_types[i], length) == 0)
+      return TRUE;
+  }
+  return FALSE;
+}
+
 gboolean wig_util_page_can_open_uri(const char *page_uri, const char *uri)
 {
   const char *scheme = uri ? g_uri_peek_scheme(uri) : NULL;
   if (g_strcmp0(scheme, "data") == 0)
-    return FALSE;
+    return data_uri_is_raster_image(uri);
   if (g_strcmp0(scheme, "file") == 0 || g_strcmp0(scheme, "wig") == 0) {
     const char *page_scheme = page_uri ? g_uri_peek_scheme(page_uri) : NULL;
     return g_strcmp0(page_scheme, scheme) == 0;
