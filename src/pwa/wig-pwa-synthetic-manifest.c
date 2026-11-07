@@ -39,8 +39,7 @@ static GUri *parse_installable_url(const char *page_url, GError **error)
 
   const char *scheme = g_uri_get_scheme(uri);
   const char *host = g_uri_get_host(uri);
-  if (!scheme || (g_ascii_strcasecmp(scheme, "https") != 0 && g_ascii_strcasecmp(scheme, "http") != 0) || !host
-      || !*host) {
+  if (!scheme || (g_strcmp0(scheme, "https") != 0 && g_strcmp0(scheme, "http") != 0) || !host || !*host) {
     g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "'%s' is not a web page that can be installed",
                 page_url);
     return NULL;

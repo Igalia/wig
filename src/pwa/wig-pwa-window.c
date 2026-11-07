@@ -113,7 +113,7 @@ static void external_uri_opened(GObject *source, GAsyncResult *result, gpointer 
 static void open_external_uri(WigPwaWindow *self, const char *uri)
 {
   const char *scheme = g_uri_peek_scheme(uri);
-  if (scheme && (g_ascii_strcasecmp(scheme, "https") == 0 || g_ascii_strcasecmp(scheme, "http") == 0)) {
+  if (g_strcmp0(scheme, "https") == 0 || g_strcmp0(scheme, "http") == 0) {
     wig_application_open_uri_in_browser(wig_application_get(), uri);
     return;
   }
@@ -136,9 +136,8 @@ static gboolean wig_pwa_window_decide_policy(WigPwaWindow *self, WebKitPolicyDec
       WEBKIT_NAVIGATION_POLICY_DECISION(decision));
   const char *uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(action));
   const char *scheme = uri ? g_uri_peek_scheme(uri) : NULL;
-  if (!scheme || g_ascii_strcasecmp(scheme, "https") == 0 || g_ascii_strcasecmp(scheme, "http") == 0
-      || g_ascii_strcasecmp(scheme, "about") == 0 || g_ascii_strcasecmp(scheme, "blob") == 0
-      || g_ascii_strcasecmp(scheme, "data") == 0 || g_ascii_strcasecmp(scheme, "javascript") == 0) {
+  if (!scheme || g_strcmp0(scheme, "https") == 0 || g_strcmp0(scheme, "http") == 0 || g_strcmp0(scheme, "about") == 0
+      || g_strcmp0(scheme, "blob") == 0 || g_strcmp0(scheme, "data") == 0 || g_strcmp0(scheme, "javascript") == 0) {
     g_debug("pwa: allowing navigation to %s (redirect=%d)", uri ? uri : "(null)",
             webkit_navigation_action_is_redirect(action));
     return FALSE;

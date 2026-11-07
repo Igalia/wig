@@ -352,8 +352,7 @@ static char *normalize_https_origin(const char *url)
 {
   g_autoptr(GError) error = NULL;
   g_autoptr(GUri) uri = g_uri_parse(url, G_URI_FLAGS_PARSE_RELAXED | G_URI_FLAGS_SCHEME_NORMALIZE, &error);
-  if (!uri || !g_uri_get_scheme(uri) || g_ascii_strcasecmp(g_uri_get_scheme(uri), "https") != 0 || !g_uri_get_host(uri)
-      || g_uri_get_userinfo(uri))
+  if (!uri || g_strcmp0(g_uri_get_scheme(uri), "https") != 0 || !g_uri_get_host(uri) || g_uri_get_userinfo(uri))
     return NULL;
 
   g_autoptr(WebKitSecurityOrigin) origin = webkit_security_origin_new_for_uri(url);

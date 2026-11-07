@@ -91,8 +91,7 @@ static Scope *scope_new(const char *url, GError **error)
     return NULL;
 
   const char *scheme = g_uri_get_scheme(uri);
-  if (!scheme || (g_ascii_strcasecmp(scheme, "https") != 0 && g_ascii_strcasecmp(scheme, "http") != 0)
-      || !g_uri_get_host(uri)) {
+  if (!scheme || (g_strcmp0(scheme, "https") != 0 && g_strcmp0(scheme, "http") != 0) || !g_uri_get_host(uri)) {
     g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Invalid web app scope '%s'", url);
     return NULL;
   }

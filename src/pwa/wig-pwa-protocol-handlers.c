@@ -169,9 +169,9 @@ static gboolean uri_is_potentially_trustworthy(const char *url)
     return FALSE;
 
   const char *scheme = g_uri_get_scheme(uri);
-  if (g_ascii_strcasecmp(scheme, "https") == 0)
+  if (g_strcmp0(scheme, "https") == 0)
     return TRUE;
-  if (g_ascii_strcasecmp(scheme, "http") != 0)
+  if (g_strcmp0(scheme, "http") != 0)
     return FALSE;
 
   const char *host = g_uri_get_host(uri);
@@ -209,8 +209,8 @@ static char *resolve_handler_template(GVariant *handler, const char *manifest_ur
   g_autoptr(GError) error = NULL;
   g_autoptr(GUri) uri = g_uri_parse(resolved, G_URI_FLAGS_PARSE_RELAXED | G_URI_FLAGS_SCHEME_NORMALIZE, &error);
   const char *scheme = uri ? g_uri_get_scheme(uri) : NULL;
-  if (!scheme || (g_ascii_strcasecmp(scheme, "https") != 0 && g_ascii_strcasecmp(scheme, "http") != 0)
-      || !g_uri_get_host(uri) || strstr(g_uri_get_host(uri), placeholder) || !uri_is_potentially_trustworthy(resolved)
+  if (!scheme || (g_strcmp0(scheme, "https") != 0 && g_strcmp0(scheme, "http") != 0) || !g_uri_get_host(uri)
+      || strstr(g_uri_get_host(uri), placeholder) || !uri_is_potentially_trustworthy(resolved)
       || wig_pwa_navigation_policy_match(navigation_policy, resolved) != WIG_PWA_SCOPE_MATCH_PRIMARY)
     return NULL;
 
@@ -242,7 +242,7 @@ char *wig_pwa_protocol_handlers_resolve(GVariant *manifest, const char *manifest
   for (gsize i = 0; i < length; i++) {
     g_autoptr(GVariant) handler = wig_pwa_variant_array_get_dict(handlers, i);
     g_autofree char *protocol = handler ? handler_protocol(handler) : NULL;
-    if (!protocol || g_ascii_strcasecmp(protocol, input_scheme) != 0)
+    if (g_strcmp0(protocol, input_scheme) != 0)
       continue;
 
     g_autofree char *placeholder = NULL;
