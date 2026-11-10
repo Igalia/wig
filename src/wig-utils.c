@@ -162,7 +162,10 @@ static gboolean data_uri_is_raster_image(const char *uri)
 
 gboolean wig_util_page_can_open_uri(const char *page_uri, const char *uri)
 {
-  const char *scheme = uri ? g_uri_peek_scheme(uri) : NULL;
+  if (!uri)
+    return TRUE;
+
+  const char *scheme = g_uri_peek_scheme(uri);
   if (g_strcmp0(scheme, "data") == 0)
     return data_uri_is_raster_image(uri);
   if (g_strcmp0(scheme, "file") == 0 || g_strcmp0(scheme, "wig") == 0) {
