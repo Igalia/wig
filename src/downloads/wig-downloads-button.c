@@ -128,7 +128,10 @@ static void wig_downloads_button_download_added(WigDownloadsButton *self, const 
 
   wig_downloads_button_update(self);
 
-  if (!self->popover_open) {
+  GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(self));
+  gboolean window_active = GTK_IS_WINDOW(root) && gtk_window_is_active(GTK_WINDOW(root));
+
+  if (!self->popover_open && window_active) {
     g_debug("downloads: showing the popover for a download that just started");
     self->showed_itself = TRUE;
     gtk_menu_button_popup(GTK_MENU_BUTTON(self->menu_button));
