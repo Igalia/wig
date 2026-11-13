@@ -41,7 +41,7 @@ struct _WigSettingsSearch {
 
 /* The settings rows as something to search: each one is offered with the pane it
  * lives in, and what matches is listed in the pane's place. Activating a result
- * emits ::activated with the pane to go to. */
+ * emits ::activated with the pane to go to and the title of the row in it. */
 G_DEFINE_FINAL_TYPE(WigSettingsSearch, wig_settings_search, GTK_TYPE_WIDGET)
 
 enum {
@@ -96,7 +96,7 @@ static void wig_settings_search_result_activated(AdwActionRow *result, SearchRow
 {
   WigSettingsSearch *self = WIG_SETTINGS_SEARCH(gtk_widget_get_ancestor(GTK_WIDGET(result), WIG_TYPE_SETTINGS_SEARCH));
 
-  g_signal_emit(self, signals[ACTIVATED_SIGNAL], 0, row->pane);
+  g_signal_emit(self, signals[ACTIVATED_SIGNAL], 0, row->pane, row->title);
 }
 
 static void wig_settings_search_clear(WigSettingsSearch *self)
@@ -165,7 +165,7 @@ static void wig_settings_search_class_init(WigSettingsSearchClass *klass)
   gtk_widget_class_set_css_name(widget_class, "wig-settings-search");
 
   signals[ACTIVATED_SIGNAL] = g_signal_new("activated", G_TYPE_FROM_CLASS(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
-                                           NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
+                                           NULL, G_TYPE_NONE, 2, G_TYPE_STRING, G_TYPE_STRING);
 }
 
 static void wig_settings_search_init(WigSettingsSearch *self)

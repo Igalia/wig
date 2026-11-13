@@ -46,6 +46,8 @@ struct _WigSettingsDialog {
   GtkWidget *content;
   GtkWidget *search;
   GtkWidget *search_bar;
+  GtkWidget *revealing_row;
+  guint reveal_tick;
 };
 
 G_DEFINE_FINAL_TYPE(WigSettingsDialog, wig_settings_dialog, ADW_TYPE_DIALOG)
@@ -298,12 +300,91 @@ static void wig_settings_dialog_search_mode_changed(WigSettingsDialog *self)
     wig_settings_dialog_set_searching(self, FALSE);
 }
 
-/* A result stands for a row in a pane, so following one goes to the pane and
+static GtkWidget *find_row(GtkWidget *widget, const char *title)
+{
+  if (ADW_IS_PREFERENCES_ROW(widget)
+      && g_strcmp0(adw_preferences_row_get_title(ADW_PREFERENCES_ROW(widget)), title) == 0)
+    return widget;
+
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child)) {
+    GtkWidget *row = find_row(child, title);
+    if (row)
+      return row;
+  }
+
+  return NULL;
+}
+
+static void wig_settings_dialog_stop_revealing(WigSettingsDialog *self)
+{
+  if (self->revealing_row)
+    gtk_widget_remove_tick_callback(self->revealing_row, self->reveal_tick);
+}
+
+/* Runs however the reveal ends: done, replaced by another, or the row going
+ * away with its tick callbacks. */
+static void wig_settings_dialog_reveal_finished(gpointer user_data)
+{
+  WigSettingsDialog *self = WIG_SETTINGS_DIALOG(user_data);
+
+  self->revealing_row = NULL;
+  self->reveal_tick = 0;
+}
+
+/* A text field selects all of its text when it takes focus, so the next key
+ * typed would replace the setting that was looked for. */
+static void grab_focus_without_selecting(GtkWidget *row)
+{
+  gtk_widget_grab_focus(row);
+
+  if (GTK_IS_EDITABLE(row))
+    gtk_editable_select_region(GTK_EDITABLE(row), -1, -1);
+}
+
+/* A row in a pane that was just shown has no size until the next layout, and
+ * there is nowhere to scroll to before then. */
+static gboolean wig_settings_dialog_reveal_row(GtkWidget *row, GdkFrameClock *frame_clock, gpointer user_data)
+{
+  if (!gtk_widget_get_mapped(row) || !gtk_widget_get_height(row))
+    return G_SOURCE_CONTINUE;
+
+  /* The page scrolls to whatever takes focus. */
+  grab_focus_without_selecting(row);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void expand_ancestors(GtkWidget *row)
+{
+  for (GtkWidget *ancestor = gtk_widget_get_parent(row); ancestor; ancestor = gtk_widget_get_parent(ancestor)) {
+    if (ADW_IS_EXPANDER_ROW(ancestor))
+      adw_expander_row_set_expanded(ADW_EXPANDER_ROW(ancestor), TRUE);
+  }
+}
+
+/* A result stands for a row in a pane, so following one goes to the row and
  * leaves the search behind. */
-static void wig_settings_dialog_search_activated(WigSettingsDialog *self, const char *pane)
+static void wig_settings_dialog_search_activated(WigSettingsDialog *self, const char *pane, const char *title)
 {
   gtk_search_bar_set_search_mode(GTK_SEARCH_BAR(self->search_bar), FALSE);
   adw_view_stack_set_visible_child_name(ADW_VIEW_STACK(self->stack), pane);
+
+  wig_settings_dialog_stop_revealing(self);
+
+  GtkWidget *row = find_row(adw_view_stack_get_visible_child(ADW_VIEW_STACK(self->stack)), title);
+  if (!row)
+    return;
+
+  expand_ancestors(row);
+
+  /* Some rows are hidden by the state of their pane, such as the proxy details
+   * when no proxy is set, and opening the pane is as close as they can get. */
+  if (!gtk_widget_is_visible(row))
+    return;
+
+  self->revealing_row = row;
+  self->reveal_tick = gtk_widget_add_tick_callback(row, wig_settings_dialog_reveal_row, self,
+                                                   wig_settings_dialog_reveal_finished);
 }
 
 static void wig_settings_dialog_sidebar_activated(WigSettingsDialog *self)
@@ -376,9 +457,19 @@ static AdwNavigationPage *wig_settings_dialog_build_content(WigSettingsDialog *s
   return self->content_page;
 }
 
+static void wig_settings_dialog_dispose(GObject *object)
+{
+  wig_settings_dialog_stop_revealing(WIG_SETTINGS_DIALOG(object));
+
+  G_OBJECT_CLASS(wig_settings_dialog_parent_class)->dispose(object);
+}
+
 static void wig_settings_dialog_class_init(WigSettingsDialogClass *klass)
 {
+  GObjectClass *object_class = G_OBJECT_CLASS(klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
+
+  object_class->dispose = wig_settings_dialog_dispose;
 
   gtk_widget_class_add_binding(widget_class, GDK_KEY_f, GDK_CONTROL_MASK, wig_settings_dialog_start_search, NULL);
 }
