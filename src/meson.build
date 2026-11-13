@@ -91,4 +91,14 @@ executable(
     install_dir: wig_libexecdir,
 )
 
+utils_test = executable(
+    'test-wig-utils',
+    sources: files('test-wig-utils.c', 'wig-utils.c'),
+    dependencies: [libwpeplatformgtk_dep, wpe_webkit_dep, libpsl_dep],
+    c_args: [
+        '-DWIG_PSL_FILE="' + meson.current_source_dir() / 'test-wig-utils.dat' + '"',
+    ],
+)
+test('utils', utils_test)
+
 subdir('mcp/tests')
