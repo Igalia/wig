@@ -29,6 +29,7 @@ inherit-extensions:
 
 modules:
   - modules/wpe-platform-gtk.yaml
+  - modules/morewaita-mimetypes.yaml
 
   - name: wig
     buildsystem: meson

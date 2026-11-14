@@ -1,0 +1,9 @@
+name: morewaita-mimetypes
+buildsystem: simple
+build-commands:
+  - install -Dm644 -t ${FLATPAK_DEST}/share/icons/hicolor/scalable/mimetypes scalable/mimetypes/*.svg
+  - install -Dm644 LICENSE ${FLATPAK_DEST}/share/licenses/morewaita/LICENSE
+sources:
+  - type: archive
+    url: https://github.com/somepaulo/MoreWaita/archive/refs/tags/v50.1.tar.gz
+    sha256: 000e858d346e64bfdb87fb305e8046e09f5554385cf9c213fe648887fe218940
