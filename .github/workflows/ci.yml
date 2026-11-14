@@ -65,6 +65,9 @@ jobs:
       - name: Compile Project
         run: meson compile -C _build
 
+      - name: Run Tests
+        run: meson test -C _build --print-errorlogs
+
       - name: Analyze Project
         run: ninja -C _build clang-tidy
 
