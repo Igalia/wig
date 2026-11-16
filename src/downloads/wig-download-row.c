@@ -413,7 +413,7 @@ static char *download_uri_filename(const char *uri)
   return g_strdup(slash && slash[1] ? slash + 1 : uri);
 }
 
-static GIcon *download_icon(WebKitDownload *download, const char *filename)
+static char *download_icon_name(GtkIconTheme *theme, WebKitDownload *download, const char *filename)
 {
   g_autofree char *content_type = g_content_type_guess(filename, NULL, 0, NULL);
 
@@ -427,7 +427,15 @@ static GIcon *download_icon(WebKitDownload *download, const char *filename)
     }
   }
 
-  return content_type ? g_content_type_get_icon(content_type) : g_themed_icon_new(FALLBACK_ICON_NAME);
+  if (content_type) {
+    g_autoptr(GIcon) icon = g_content_type_get_icon(content_type);
+    for (const char *const *names = g_themed_icon_get_names(G_THEMED_ICON(icon)); *names; names++) {
+      if (gtk_icon_theme_has_icon(theme, *names))
+        return g_strdup(*names);
+    }
+  }
+
+  return g_strdup(FALLBACK_ICON_NAME);
 }
 
 /* Rounded to whatever unit the figure is big enough for: a download with hours
@@ -501,8 +509,9 @@ void wig_download_row_update(WigDownloadRow *self)
 
   if (g_strcmp0(self->icon_filename, filename) != 0) {
     g_set_str(&self->icon_filename, filename);
-    g_autoptr(GIcon) icon = download_icon(download, filename);
-    gtk_image_set_from_gicon(GTK_IMAGE(self->icon), icon);
+    GtkIconTheme *theme = gtk_icon_theme_get_for_display(gtk_widget_get_display(GTK_WIDGET(self)));
+    g_autofree char *icon_name = download_icon_name(theme, download, filename);
+    gtk_image_set_from_icon_name(GTK_IMAGE(self->icon), icon_name);
   }
 
   guint64 received = webkit_download_get_received_data_length(download);
